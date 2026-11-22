@@ -1,0 +1,31 @@
+services:
+  bot:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    container_name: pmmb-bot
+    restart: unless-stopped
+    env_file: ../../.env
+    volumes:
+      - ../../data:/app/data
+      - ../../logs:/app/logs
+      - ../../reports:/app/reports
+      - ../../state:/app/state
+    command: ["pmmb", "paper", "--interval", "60"]
+
+  status:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    container_name: pmmb-status
+    restart: unless-stopped
+    env_file: ../../.env
+    volumes:
+      - ../../data:/app/data:ro
+      - ../../state:/app/state:ro
+      - ../../reports:/app/reports:ro
+    command: ["pmmb", "serve", "--host", "0.0.0.0", "--port", "8787"]
+    ports:
+      - "8787:8787"
+    depends_on:
+      - bot

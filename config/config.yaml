@@ -1,0 +1,88 @@
+# ============================================================
+#  PMMB — Polymarket Momentum Bot
+#  אסטרטגיה B: סיגנל / מומנטום
+#  כל הפרמטרים כאן — אין צורך לגעת בקוד כדי לכייל
+# ============================================================
+
+execution:
+  # paper  = סימולציה מלאה מול ספר הפקודות האמיתי (ברירת מחדל)
+  # live   = פקודות אמיתיות ב-CLOB (דורש .env + PMMB_LIVE_CONFIRM)
+  mode: paper
+  starting_cash: 1000.0        # USDC לחשבון paper
+  slippage_bps: 10             # החלקה על כל מילוי (מעל המחיר הטוב)
+  taker_fee_bps: 0             # פולימרקט גובה 0 על רוב השווקים; עדכן לפי feeSchedule
+  max_slippage_bps: 150        # אם הספר דק מדי — לא נכנסים
+  order_type: FAK              # FAK = Fill-And-Kill, GTC = עומדת
+
+universe:
+  # סינון השווקים שנסרוק (Gamma API)
+  max_markets: 120             # כמה שווקים לסרוק בכל מחזור
+  min_volume_24h: 5000         # נזילות יומית מינימלית
+  min_liquidity: 2000
+  max_spread: 0.04             # ספרד מקסימלי בין bid/ask
+  price_band: [0.05, 0.95]     # לא נוגעים בקיצון — שם המומנטום חסר משמעות
+  min_hours_to_resolution: 6   # לא נכנסים לשוק שעומד להיסגר
+  max_hours_to_resolution: 720 # שבועיים
+  # החרגה סקטוריאלית — מבוססת מדידה (pmmb sectors):
+  # קריפטו: 36 סיגנלים, 8% hit, -0.27 לעסקה. שווקי סף של BTC נטויים לקצה.
+  # politics נבדקה והוחרגה זמנית — OOS ירד מ-+38 ל-+5, לכן נשארת בפנים.
+  exclude_sectors: ["crypto"]
+  exclude_tags: []             # אופציונלי: תגיות Gamma החוצה
+  exclude_slug_contains: []
+  require_order_book: true
+
+signal:
+  # מנוע הסיגנל: meanrev (מומלץ, מבוסס מדידה) או momentum (האסטרטגיה המקורית)
+  engine: meanrev
+  meanrev:
+    lookback_candles: 12        # חלון מדידת העודף
+    z_entry: 1.5                # סף חריגות — מתחת לזה התיקון לא מכסה ספרד
+    z_max: 5.0                  # מעל זה: ידיעה חדשה (לא עודף) — לא נכנסים
+    reversion_ratio: 0.55       # מכויל: צפי/מציאות = 0.90 באופק 48ש'
+    max_room_pct: 0.6
+    allow_short: false          # כרגע רק ירידות חדות (buy the dip)
+    horizon_hours: 24
+  # ---- פרמטרים של מנוע המומנטום (engine: momentum) ----
+  candle_fidelity_min: 60      # רזולוציה: 60 דק' — תואם לאופק שנמדד באבחון
+  lookback_candles: 144        # חלון לחישוב (144 נרות שעתיים = 6 ימים)
+  ema_fast: 9
+  ema_slow: 26
+  breakout_window: 20          # פריצה של N נרות
+  momentum_window: 12          # מומנטום על N נרות
+  vol_window: 30               # חלון לתנודתיות
+  min_score: 0.55              # סף |score| לכניסה (0..1) — מתחת לזה האות נחלש
+  min_edge: 0.005              # EV מינימלי לעסקה אחרי עלויות (הסתברות)
+  confirm_candles: 2           # הסיגנל צריך להימשך N נרות (הפחתת רעש)
+  trend_filter: true           # מסחר רק בכיוון ה-EMA האיטי
+  allow_short: true            # "שורט" = קניית טוקן ה-NO / מכירת YES
+  exit:
+    take_profit: 0.10          # תיקון של ~3 סנט על מחיר 0.3-0.5
+    stop_loss: 0.12            # ירידה חדה ממשיכה לרדת — סטופ רחב
+    time_stop_hours: 48        # כיול: באופק 24ש' הצפי מבטיח פי 1.6 מדי
+    exit_on_flip: false        # meanrev לא מייצר סיגנל הופכי (allow_short=false)
+
+risk:
+  risk_per_trade_pct: 0.02     # 2% מההון לסיכון בעסקה
+  kelly_fraction: 0.25         # שבר Kelly (0 = כיבוי, משתמש ב-risk_per_trade)
+  max_position_pct: 0.10       # תקרה לפוזיציה בודדת
+  max_total_exposure_pct: 0.40 # חשיפה כוללת מקסימלית
+  max_open_positions: 5
+  max_daily_loss_pct: 0.05     # עצירה יומית
+  max_drawdown_pct: 0.20       # kill switch
+  cooldown_minutes: 30         # אחרי יציאה — לא חוזרים לאותו שוק מיד
+  min_order_size: 5.0          # מינימום של פולימרקט (USDC)
+  max_price_impact_pct: 0.02   # לא מזיזים את הספר ביותר מ-2%
+
+data:
+  gamma_base_url: "https://gamma-api.polymarket.com"
+  clob_base_url: "https://clob.polymarket.com"
+  http_timeout: 15
+  max_retries: 3
+  rate_limit_rps: 8            # בקשות/שנייה ל-CLOB
+  history_cache_ttl_sec: 120
+  db_path: "pmmb.db"
+
+logging:
+  level: INFO
+  file: "logs/pmmb.log"
+  json_console: false

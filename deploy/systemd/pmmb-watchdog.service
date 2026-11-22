@@ -1,0 +1,8 @@
+[Unit]
+Description=PMMB — שומר סף (מפעיל מחדש אם הדופק מתיישן)
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=/opt/polymarket-momentum-bot
+EnvironmentFile=/opt/polymarket-momentum-bot/.env
+ExecStart=/opt/polymarket-momentum-bot/scripts/watchdog.sh

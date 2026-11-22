@@ -1,0 +1,14 @@
+{
+  "_readme": "בעלות על קבצים בין סוכנים. תוקף מקסימלי 72 שעות. ראו docs/COORDINATION.md",
+  "claims": [
+    {
+      "agent": "arena",
+      "paths": ["src/pmmb/fees.py", "src/pmmb/feeview.py", "src/pmmb/runtime.py",
+                "src/pmmb/status.py", "src/pmmb/server.py", "src/pmmb/notify.py",
+                "deploy/**", "scripts/sync.sh", "scripts/watchdog.sh"],
+      "issue": "שכבת עמלות + עצמאות תפעולית",
+      "since": "2026-11-22T07:00:00Z",
+      "expires": "2026-11-25T07:00:00Z"
+    }
+  ]
+}

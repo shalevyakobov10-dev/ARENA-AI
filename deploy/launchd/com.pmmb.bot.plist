@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS: הרצה אוטומטית, התאוששות מקריסה, עלייה ב-boot.
+     התקנה:
+       cp deploy/launchd/com.pmmb.bot.plist ~/Library/LaunchAgents/
+       launchctl load ~/Library/LaunchAgents/com.pmmb.bot.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.pmmb.bot</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/USERNAME/polymarket-momentum-bot/.venv/bin/pmmb</string>
+    <string>paper</string>
+    <string>--interval</string><string>60</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/USERNAME/polymarket-momentum-bot</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>15</integer>
+  <key>StandardOutPath</key><string>/Users/USERNAME/polymarket-momentum-bot/logs/bot.log</string>
+  <key>StandardErrorPath</key><string>/Users/USERNAME/polymarket-momentum-bot/logs/bot.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>PYTHONUNBUFFERED</key><string>1</string></dict>
+</dict>
+</plist>

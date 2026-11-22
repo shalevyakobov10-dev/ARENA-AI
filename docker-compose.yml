@@ -1,0 +1,16 @@
+services:
+  pmmb:
+    build: .
+    container_name: pmmb
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      PMMB_MODE: paper
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data          # pmmb.db נשמר מחוץ לקונטיינר
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+    # ל-live: החליפו את ה-command והוסיפו את משתני הסביבה הנדרשים
+    command: ["pmmb", "paper", "--interval", "60"]

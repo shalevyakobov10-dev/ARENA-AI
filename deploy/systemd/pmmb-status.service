@@ -1,0 +1,17 @@
+# שרת המצב — לראות מהטלפון. קריאה בלבד, אין נתיב שמבצע פקודות.
+[Unit]
+Description=PMMB — שרת מצב (קריאה בלבד)
+After=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/polymarket-momentum-bot
+EnvironmentFile=/opt/polymarket-momentum-bot/.env
+ExecStart=/opt/polymarket-momentum-bot/.venv/bin/pmmb serve --host 0.0.0.0 --port 8787
+Restart=always
+RestartSec=10
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
