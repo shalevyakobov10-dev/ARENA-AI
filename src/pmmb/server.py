@@ -43,18 +43,26 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                      or self.headers.get("Authorization", "").removeprefix("Bearer "))
             return token_ok(given, token)
 
-        def _send(self, code: int, body: bytes, ctype: str) -> None:
+        def _send(self, code: int, body: bytes, ctype: str, *, head_only: bool = False) -> None:
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
+            if head_only:
+                return
             try:
                 self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
                 pass
 
+        def do_HEAD(self) -> None:                # noqa: N802 — חתימת הספרייה
+            self._handle(head_only=True)
+
         def do_GET(self) -> None:                 # noqa: N802 — חתימת הספרייה
+            self._handle(head_only=False)
+
+        def _handle(self, *, head_only: bool) -> None:
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
             path = parsed.path.rstrip("/") or "/"
@@ -63,27 +71,28 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                 health = check_health(max_age_sec=max_age_sec)
                 body = json.dumps(health.as_dict(), ensure_ascii=False).encode()
                 return self._send(200 if health.healthy else 503, body,
-                                  "application/json; charset=utf-8")
+                                  "application/json; charset=utf-8", head_only=head_only)
 
             if not self._authorized(query):
                 return self._send(401, b'{"error":"unauthorized"}',
-                                  "application/json; charset=utf-8")
+                                  "application/json; charset=utf-8", head_only=head_only)
 
             try:
                 if path == "/status.json":
                     st = build_status(cfg, max_age_sec=max_age_sec)
                     return self._send(200, json.dumps(st, ensure_ascii=False, indent=2).encode(),
-                                      "application/json; charset=utf-8")
+                                      "application/json; charset=utf-8", head_only=head_only)
                 if path in ("/", "/index.html"):
                     st = build_status(cfg, max_age_sec=max_age_sec)
                     return self._send(200, status_html(st, refresh_sec=refresh_sec).encode(),
-                                      "text/html; charset=utf-8")
+                                      "text/html; charset=utf-8", head_only=head_only)
             except Exception as exc:              # noqa: BLE001 — השרת לא נופל על דוח
                 log.exception("כשל בבניית המצב: %s", exc)
                 return self._send(500, b'{"error":"status build failed"}',
-                                  "application/json; charset=utf-8")
+                                  "application/json; charset=utf-8", head_only=head_only)
 
-            self._send(404, b'{"error":"not found"}', "application/json; charset=utf-8")
+            self._send(404, b'{"error":"not found"}',
+                       "application/json; charset=utf-8", head_only=head_only)
 
     return Handler
 

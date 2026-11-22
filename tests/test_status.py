@@ -105,3 +105,36 @@ def test_status_html_shows_question_unrealized_and_halt_banner(tmp_path, cfg, mo
     assert "+6.00" in html
     assert "בדיקת דגל" in html
     assert "http://" not in html and "https://" not in html
+
+
+def test_server_get_and_head_endpoints(tmp_path, cfg, monkeypatch):
+    import threading
+    import urllib.request
+    from pmmb.server import serve
+
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
+    cfg.data.db_path = str(tmp_path / "srv.db")
+    Store(cfg.data.db_path).close()
+    write_heartbeat(Heartbeat(ts=time.time(), cycle=1, equity=1000.0), tmp_path / "state")
+
+    httpd = serve(cfg, host="127.0.0.1", port=0, token="")
+    port = httpd.server_address[1]
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/", method="HEAD")
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            assert resp.status == 200
+            assert resp.read() == b""
+            assert int(resp.headers["Content-Length"]) > 100
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/status.json", timeout=5) as resp:
+            assert resp.status == 200
+            assert b'"equity": 1000.0' in resp.read()
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5) as resp:
+            assert resp.status == 200
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
