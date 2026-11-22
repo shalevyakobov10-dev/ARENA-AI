@@ -90,3 +90,23 @@ logging:
   level: INFO
   file: "logs/pmmb.log"
   json_console: false
+
+news:
+  enabled: true                  # פיד חדשות שווקים חיות (Google News RSS + Gamma Events)
+  refresh_interval_sec: 180      # רענון כל 3 דקות
+  block_on_catalyst: true        # מונע "סכין נופלת" כשמזוהה כתבת קטליזטור שבירה על השוק
+  spike_window_hours: 4.0        # חלון בדיקת חדשות טריות
+  min_spike_articles: 2          # מס' כתבות תואמות בזמן קצר כדי לסמן גל חדשות
+  spike_impact_threshold: 0.65   # כתבה בודדת בעלת חומרה גבוהה (breaking/announced/...)
+  max_market_queries: 12         # מקס' שאילתות פרטניות לשווקים פתוחים/מועמדים
+
+learning:
+  enabled: true                  # מנוע למידה עצמית מתמיד (מעקב אותות + Walk-Forward)
+  auto_apply_paper: true         # במצב paper: עדכון אוטומטי רק אם OOS עבר שיפור מובהק
+  allow_auto_apply_live: false   # במצב live: לעולם לא משנה פרמטרים לבד (רק ממליץ)
+  interval_sec: 3600             # מחזור אבולוציה כל שעה
+  max_markets: 28
+  min_oos_trades: 25
+  min_consistency: 0.66
+  min_improvement_pct: 0.05      # דורש שיפור של >=5% מעל ה-Baseline לפני שינוי
+  min_live_signals_for_alert: 12

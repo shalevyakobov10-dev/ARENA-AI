@@ -163,6 +163,30 @@ class LoggingConfig:
 
 
 @dataclass
+class NewsConfig:
+    enabled: bool = True
+    refresh_interval_sec: float = 180.0
+    block_on_catalyst: bool = True
+    spike_window_hours: float = 4.0
+    min_spike_articles: int = 2
+    spike_impact_threshold: float = 0.65
+    max_market_queries: int = 12
+
+
+@dataclass
+class LearningConfig:
+    enabled: bool = True
+    auto_apply_paper: bool = True
+    allow_auto_apply_live: bool = False
+    interval_sec: float = 3600.0
+    max_markets: int = 28
+    min_oos_trades: int = 25
+    min_consistency: float = 0.66
+    min_improvement_pct: float = 0.05
+    min_live_signals_for_alert: int = 12
+
+
+@dataclass
 class Config:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     universe: UniverseConfig = field(default_factory=UniverseConfig)
@@ -170,6 +194,8 @@ class Config:
     risk: RiskConfig = field(default_factory=RiskConfig)
     data: DataConfig = field(default_factory=DataConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    news: NewsConfig = field(default_factory=NewsConfig)
+    learning: LearningConfig = field(default_factory=LearningConfig)
 
     # ---- טעינה ----
     @classmethod

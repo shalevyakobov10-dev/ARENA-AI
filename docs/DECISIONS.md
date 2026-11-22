@@ -88,5 +88,20 @@ stdlib HTTPServer (`ui.py` + `build_command_center_data` ב-`status.py` + `serve
 קונפיגורציה/גיבויים/תפעול), רענון אוטומטי, תמיכה ב-Token וב-Head,
 הרצת פעולות תפעוליות (`halt`, `resume`, `backup`, `reconcile`) והגבלת פעולות
 מסחר מהדפדפן (`paper-cycle`, `trader/start|stop`) למצב `paper` בלבד (403 ב-`live`)
+ומגבילים פעולות מסחר מהדפדפן (`paper-cycle`, `trader/start|stop`) למצב `paper` בלבד (403 ב-`live`)
 כדי למנוע מסחר כספי לא מבוקר מממשק אינטרנט. זמין גם בייצוא קובץ עצמאי (`pmmb status --html-out`).
+
+## 15. פיד חדשות שווקים חיות (Catalyst Guard), גרפים חיים ולמידה עצמית מתמשכת
+2026-11 · מתקבל · מלא
+מומשה שכבת מודיעין חיה ולמידה מתמדת הפועלת ללא הפסקה (`pmmb serve --autostart`):
+(א) `data/news.py`: קורא חדשות שווקים בזמן אמת מ-Google News RSS ומזהה קטליזטורים
+שוברי-שוק (breaking/resignation/injury/...) — מנוע `Engine` חוסם כניסות על "סכין נופלת"
+(`חדשות: תזוזה מונעת ידיעה`) בזמן שצניחה מונעת מידיעה מתפרצת.
+(ב) `learning.py`: עוקב בזמן אמת אחרי תוצאות כל האותות ב-DB (6ש'/24ש'/48ש', לפי טווח z,
+סקטור ונוכחות חדשות) ומריץ אופטימיזציית Walk-Forward OOS מול ה-Baseline הפעיל.
+קידום פרמטרים אוטומטי מותר **רק** במצב `paper` ורק לאחר מעבר 4 שערי בטיחות
+קשיחים (`oos_trades`, `consistency >= 66%`, `oos_ex_top > 0`, שיפור >=5%); במצב `live`
+המנוע לעולם לא משנה פרמטרים לבד אלא רק מתעד המלצה (`allow_auto_apply_live=false`).
+(ג) שידור חי של גרפי שוק (`GET /api/chart`, SMA + רצועת Z + SL/TP) ופיד חדשות ב-UI.
+
 

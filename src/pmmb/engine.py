@@ -45,6 +45,7 @@ _SKIP_BUCKETS: tuple[tuple[str, str], ...] = (
     ("באירוע", "כבר חשוף לאירוע"),
     ("סקטור", "תקרת סקטור"),
     ("פוזיציה", "כבר יש פוזיציה"),
+    ("חדשות", "חדשות: תזוזה מונעת ידיעה"),
 )
 
 
@@ -80,6 +81,7 @@ class Engine:
         gamma: GammaClient | None = None,
         engine_signals=None,
         state_dir: str | None = None,
+        news_client=None,
     ) -> None:
         self.cfg = cfg
         self.store = store or Store(cfg.data.db_path)
@@ -105,6 +107,9 @@ class Engine:
         self.risk = RiskManager(cfg)
         self.broker = broker or PaperBroker(cfg.execution, self.clob)
         self.state_dir = state_dir
+        self._news_client = news_client
+        self._news_articles: list[dict] = []
+        self._last_news_refresh: float = 0.0
         self.portfolio = Portfolio(cfg.execution.starting_cash, mode=cfg.execution.mode, store=self.store)
         self.markets: dict[str, Market] = {}
         self._last_marks: dict[str, float] = {}
@@ -162,6 +167,7 @@ class Engine:
 
         stats.scanned = len(markets)
         self.markets = {m.condition_id: m for m in markets}
+        self._refresh_news_if_due(markets)
 
         for mk in markets:
             try:
@@ -169,6 +175,14 @@ class Engine:
             except Exception as exc:  # לא מפילים את כל המחזור בגלל שוק אחד
                 stats.errors += 1
                 log.exception("שגיאה בעיבוד %s: %s", mk.slug, exc)
+
+        # סגירת לולאת הלמידה המקומית על אותות עבר (ללא רשת)
+        try:
+            from .learning import evaluate_live_signals
+
+            evaluate_live_signals(self.store)
+        except Exception as exc:          # noqa: BLE001
+            log.debug("הערכת אותות חיים דולגה: %s", exc)
 
         # --- סגירת פוזיציות שאין להן יותר שוק פעיל ---
         self._close_orphans()
@@ -318,6 +332,25 @@ class Engine:
         if price is None or not (lo <= price <= hi):
             stats.skip("אין ask בתחום")
             return
+
+        # בדיקת חדשות שווקים חיה — מניעת קניית "סכין נופלת" בזמן ידיעה שוברת
+        if self.cfg.news.enabled and self.cfg.news.block_on_catalyst and self._news_articles:
+            from .data.news import match_market_news
+
+            nm = match_market_news(
+                mk.question,
+                self._news_articles,
+                window_hours=self.cfg.news.spike_window_hours,
+                min_articles=self.cfg.news.min_spike_articles,
+                impact_threshold=self.cfg.news.spike_impact_threshold,
+            )
+            if nm.catalyst_detected:
+                stats.skip("חדשות: תזוזה מונעת ידיעה")
+                log.info(
+                    "📰 דילוג על %s — זוהה קטליזטור חדשותי (%d כתבות, impact=%.2f): %s",
+                    mk.slug, nm.article_count, nm.max_impact, nm.latest_title[:80],
+                )
+                return
 
         open_events: dict[str, int] = {}
         open_sectors: dict[str, int] = {}
@@ -527,6 +560,38 @@ class Engine:
         if snap.realized_pnl_today <= -snap.equity * self.cfg.risk.max_daily_loss_pct:
             self.risk.halt(f"הפסד יומי {snap.realized_pnl_today:.2f}")
             self._notify(fmt_halt(self.cfg.execution.mode, self.risk.halt_reason, snap.equity))
+
+    def _refresh_news_if_due(self, markets: list[Market]) -> None:
+        if not self.cfg.news.enabled:
+            return
+        now = time.time()
+        allow_live = self._news_client is not None or os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1"
+        due = (now - self._last_news_refresh) >= self.cfg.news.refresh_interval_sec
+        if allow_live and due:
+            try:
+                from .data.news import refresh_news_to_store
+
+                # עדיפות לשאילתות על פוזיציות פתוחות ושווקים בעלי מחזור גבוה
+                open_cids = {p.condition_id for p in self.portfolio.positions.values()}
+                ordered = sorted(
+                    markets,
+                    key=lambda m: (0 if m.condition_id in open_cids else 1, -m.volume_24h),
+                )
+                refresh_news_to_store(
+                    self.store,
+                    markets=ordered,
+                    news_client=self._news_client,
+                    max_market_queries=self.cfg.news.max_market_queries,
+                )
+                self._last_news_refresh = now
+            except Exception as exc:      # noqa: BLE001
+                log.warning("רענון חדשות נכשל: %s", exc)
+        try:
+            self._news_articles = [
+                dict(r) for r in self.store.recent_news(hours=max(12.0, self.cfg.news.spike_window_hours * 2), limit=120)
+            ]
+        except Exception:
+            self._news_articles = []
 
     def close(self) -> None:
         self.store.close()

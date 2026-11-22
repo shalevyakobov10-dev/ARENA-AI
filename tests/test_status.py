@@ -149,13 +149,15 @@ def test_server_get_and_head_endpoints(tmp_path, cfg, monkeypatch):
             assert resp.status == 200
             assert b'"readiness"' in resp.read()
 
-        # POST halt + resume + backup
+        # POST halt + resume + backup + reconcile + news-refresh + learn
         import json as _json
         for ep, payload, expect in (
             ("/api/halt", {"reason": "ui-test"}, "עצירת חירום"),
             ("/api/resume", {}, "בוטלה"),
             ("/api/backup", {}, "גיבוי נשמר"),
             ("/api/reconcile", {}, "פערים"),
+            ("/api/news-refresh", {}, "רענון שידור חי"),
+            ("/api/learn", {"apply": False}, "הערכת אותות חיים"),
         ):
             preq = urllib.request.Request(
                 f"http://127.0.0.1:{port}{ep}",
@@ -167,6 +169,11 @@ def test_server_get_and_head_endpoints(tmp_path, cfg, monkeypatch):
                 data = _json.loads(resp.read().decode("utf-8"))
                 assert resp.status == 200 and data["ok"] is True
                 assert expect in data["message"]
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/chart?token=missing", timeout=5) as resp:
+            assert resp.status == 200
+            ch = _json.loads(resp.read().decode("utf-8"))
+            assert ch["token_id"] == "missing" and ch["ticks"] == []
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -249,6 +256,13 @@ def test_command_center_builder_and_html(tmp_path, cfg, monkeypatch):
         score=0.72, fair_price=0.39, market_price=0.35, edge=0.04,
         reason="זינוק מתחת לממוצע (z=-2.1)", features={"z": -2.1},
     ))
+    now = int(time.time())
+    store.insert_ticks([("t1", now - (30 - i) * 3600, 0.45 - 0.002 * i) for i in range(30)])
+    store.upsert_news([{
+        "id": "n1", "ts": now - 600, "title": "Market news flash",
+        "source": "AP", "url": "https://example.com/news", "category": "macro",
+        "sentiment": 0.2, "impact": 0.5, "matched_tokens": "t1",
+    }])
     store.close()
 
     rep = tmp_path / "reports"
@@ -270,6 +284,11 @@ def test_command_center_builder_and_html(tmp_path, cfg, monkeypatch):
     assert data["backups"][0]["name"] == "pmmb-20261122-100000.db"
     assert data["config"]["signal"]["z_entry"] == cfg.signal.meanrev.z_entry
     assert data["config"]["signal"]["stop_mode"] == cfg.signal.exit.stop_mode
+    assert len(data["news"]) == 1
+    assert data["charts"]["default"]["ticks"]
+    assert data["charts"]["default"]["sma"]
+    assert data["telemetry"]["ticks"] == 30
+    assert data["telemetry"]["news"] == 1
 
     for interactive in (True, False):
         html = command_center_html(data, refresh_sec=15 if interactive else 0, interactive=interactive)
@@ -277,6 +296,8 @@ def test_command_center_builder_and_html(tmp_path, cfg, monkeypatch):
         assert "pmmb-boot" in html
         assert "http://" not in html and "https://" not in html
         assert "Walk-Forward" in html
+        assert "גרפים וחדשות בשידור חי" in html
+        assert "למידה עצמית ואבולוציה" in html
 
 
 

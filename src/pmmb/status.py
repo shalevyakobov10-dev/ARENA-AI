@@ -177,6 +177,42 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
     return out
 
 
+def build_chart_series(store, cfg, token_id: str, limit: int = 160) -> dict:
+    """מחזיר סדרת גרף מלאה + SMA + רצועת Z + חדשות תואמות עבור טוקן."""
+    from .data.news import match_market_news
+
+    series = store.token_chart_series(token_id, limit=limit)
+    ticks = series["ticks"]
+    lb = max(6, int(cfg.signal.meanrev.lookback_candles))
+    z_ent = float(cfg.signal.meanrev.z_entry)
+    sma: list[float | None] = []
+    lower_band: list[float | None] = []
+    prices = [t["price"] for t in ticks]
+    for i in range(len(prices)):
+        if i + 1 < lb:
+            sma.append(None)
+            lower_band.append(None)
+            continue
+        win = prices[i + 1 - lb:i + 1]
+        mu = sum(win) / len(win)
+        var = sum((x - mu) ** 2 for x in win) / max(len(win) - 1, 1)
+        sd = var ** 0.5
+        sma.append(round(mu, 4))
+        lower_band.append(round(max(0.01, mu - z_ent * max(sd, 0.002)), 4))
+
+    q_txt = (series.get("position") or {}).get("question") or ""
+    matched_news: list[str] = []
+    if q_txt:
+        arts = [dict(r) for r in store.recent_news(hours=72, limit=80)]
+        nm = match_market_news(q_txt, arts, window_hours=72, min_articles=1, impact_threshold=0.0)
+        matched_news = nm.matched_titles or []
+
+    series["sma"] = sma
+    series["lower_band"] = lower_band
+    series["matched_news"] = matched_news
+    return series
+
+
 def build_command_center_data(
     cfg,
     *,
@@ -195,7 +231,15 @@ def build_command_center_data(
     out["signals"] = []
     out["backups"] = []
     out["analytics"] = {}
-    out["trader"] = trader_state or {"running": False, "cycles": 0, "last_error": "", "interval_sec": 300}
+    out["news"] = []
+    out["charts"] = {"candidates": [], "default": None}
+    out["learning"] = {"stats": {}, "runs": [], "insights": []}
+    out["telemetry"] = {"ticks": 0, "books": 0, "signals": 0, "news": 0}
+    out["trader"] = trader_state or {
+        "running": False, "cycles": 0, "last_error": "", "interval_sec": 180,
+        "stream_ticks": 0, "news_fetches": 0, "learn_cycles": 0,
+        "last_news_ts": 0, "last_stream_ts": 0, "last_learn_ts": 0,
+    }
 
     db = Path(cfg.data.db_path)
     if db.exists():
@@ -217,6 +261,12 @@ def build_command_center_data(
                        FROM signals s LEFT JOIN positions p ON p.token_id = s.token_id
                        ORDER BY s.id DESC LIMIT 50""",
                 ).fetchall())
+                out["telemetry"] = {
+                    "ticks": int(c.execute("SELECT COUNT(*) n FROM ticks").fetchone()["n"]),
+                    "books": int(c.execute("SELECT COUNT(*) n FROM books").fetchone()["n"]),
+                    "signals": int(c.execute("SELECT COUNT(*) n FROM signals").fetchone()["n"]),
+                    "news": int(c.execute("SELECT COUNT(*) n FROM news_items").fetchone()["n"]),
+                }
 
             out["fills"] = [
                 {
@@ -254,6 +304,35 @@ def build_command_center_data(
                     "reason": str(r["reason"] or "")[:72],
                 })
             out["signals"] = sigs
+
+            # חדשות שווקים חיות (מציג כותרת, מקור, סנטימנט והתאמה לשווקים — ללא לינקים חיצוניים)
+            out["news"] = [
+                {
+                    "id": str(r["id"]),
+                    "ts": int(r["ts"]),
+                    "title": str(r["title"]),
+                    "source": str(r["source"] or ""),
+                    "category": str(r["category"] or "macro"),
+                    "sentiment": round(float(r["sentiment"] or 0.0), 2),
+                    "impact": round(float(r["impact"] or 0.0), 2),
+                    "matched_tokens": str(r["matched_tokens"] or ""),
+                }
+                for r in store.recent_news(hours=72, limit=60)
+            ]
+
+            # גרפים חיים — מועמדים + גרף ברירת מחדל מוכן כולל SMA ורצועת Z
+            cands = store.chart_candidates(cfg.execution.mode, limit=18)
+            default_chart = build_chart_series(store, cfg, cands[0]["token_id"]) if cands else None
+            out["charts"] = {"candidates": cands, "default": default_chart}
+
+            # למידה עצמית
+            l_stats = store.signal_outcome_stats(days=30)
+            l_runs = store.recent_learning_runs(limit=15)
+            out["learning"] = {
+                "stats": l_stats,
+                "runs": l_runs,
+                "insights": (l_runs[0].get("details") or {}).get("insights", []) if l_runs else [],
+            }
         finally:
             store.close()
 
@@ -273,7 +352,8 @@ def build_command_center_data(
     analytics: dict = {}
     for key, fname in (("walkforward", "walkforward.json"),
                        ("sectors", "sectors.json"),
-                       ("backtest", "backtest.json")):
+                       ("backtest", "backtest.json"),
+                       ("learning", "learning.json")):
         fpath = rdir / fname
         if fpath.exists():
             try:
@@ -347,6 +427,23 @@ def build_command_center_data(
             "max_daily_loss_pct": cfg.risk.max_daily_loss_pct,
             "max_drawdown_pct": cfg.risk.max_drawdown_pct,
             "cooldown_minutes": cfg.risk.cooldown_minutes,
+        },
+        "news": {
+            "enabled": cfg.news.enabled,
+            "refresh_interval_sec": cfg.news.refresh_interval_sec,
+            "block_on_catalyst": cfg.news.block_on_catalyst,
+            "spike_window_hours": cfg.news.spike_window_hours,
+            "min_spike_articles": cfg.news.min_spike_articles,
+            "spike_impact_threshold": cfg.news.spike_impact_threshold,
+        },
+        "learning": {
+            "enabled": cfg.learning.enabled,
+            "auto_apply_paper": cfg.learning.auto_apply_paper,
+            "allow_auto_apply_live": cfg.learning.allow_auto_apply_live,
+            "interval_sec": cfg.learning.interval_sec,
+            "min_oos_trades": cfg.learning.min_oos_trades,
+            "min_consistency": cfg.learning.min_consistency,
+            "min_improvement_pct": cfg.learning.min_improvement_pct,
         },
     }
     return out

@@ -1,5 +1,5 @@
 """
-שרת התוכנה והדשבורד — PMMB Command Center + JSON/Health API.
+שרת התוכנה והדשבורד — PMMB Command Center + שידור חי + JSON/Control API.
 
 בכוונה בספרייה הסטנדרטית: אפס תלויות חיצוניות, עולה בכל מקום.
 פעולות מסחר דרך ה-UI מוגבלות למצב `paper` בלבד (הגנה מפני מסחר live מדפדפן).
@@ -11,11 +11,17 @@ import json
 import logging
 import os
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .backup import backup_db
+from .data.clob import ClobClient
+from .data.gamma import GammaClient, MarketUniverse
+from .data.http import HttpClient
+from .data.news import match_market_news, refresh_news_to_store
 from .data.store import Store
+from .learning import evaluate_live_signals, run_self_learning_cycle
 from .reconcile import reconcile_paper
 from .runtime import (
     ProcessLock,
@@ -24,7 +30,7 @@ from .runtime import (
     clear_halt,
     write_halt,
 )
-from .status import build_command_center_data, build_status, status_html
+from .status import build_chart_series, build_command_center_data, build_status, status_html
 from .ui import command_center_html
 
 log = logging.getLogger(__name__)
@@ -38,7 +44,13 @@ def token_ok(given: str, token: str) -> bool:
 
 
 class _TraderManager:
-    """מנהל הפעלה/עצירה נקייה של לולאת Paper מתוך התוכנה (לעולם לא live)."""
+    """
+    מנהל שידור חי ולולאה רציפה ("בלי הפסקה") מתוך התוכנה:
+      - הזרמת גרפים וטיקים בזמן אמת (כל 60 שנ')
+      - פיד חדשות שווקים חיות (כל news.refresh_interval_sec)
+      - מחזור מסחר Mean-Reversion ב-paper בלבד (כל interval_sec)
+      - מחזור למידה עצמית ושיפור Walk-Forward (כל learning.interval_sec)
+    """
 
     def __init__(self, cfg) -> None:
         self.cfg = cfg
@@ -46,8 +58,15 @@ class _TraderManager:
         self._stop_ev = threading.Event()
         self._thread: threading.Thread | None = None
         self.cycles = 0
+        self.stream_ticks = 0
+        self.news_fetches = 0
+        self.learn_cycles = 0
+        self.last_news_ts = 0
+        self.last_stream_ts = 0
+        self.last_learn_ts = 0
         self.last_error = ""
-        self.interval_sec = 300.0
+        self.interval_sec = 180.0
+        self.stream_interval_sec = 60.0
 
     @property
     def running(self) -> bool:
@@ -57,9 +76,109 @@ class _TraderManager:
         return {
             "running": self.running,
             "cycles": self.cycles,
+            "stream_ticks": self.stream_ticks,
+            "news_fetches": self.news_fetches,
+            "learn_cycles": self.learn_cycles,
+            "last_news_ts": self.last_news_ts,
+            "last_stream_ts": self.last_stream_ts,
+            "last_learn_ts": self.last_learn_ts,
             "last_error": self.last_error,
             "interval_sec": self.interval_sec,
         }
+
+    def _build_clients(self) -> tuple[GammaClient, ClobClient]:
+        d = self.cfg.data
+        clob = ClobClient(
+            HttpClient(d.clob_base_url, d.http_timeout, d.max_retries, d.rate_limit_rps),
+            history_ttl=min(d.history_cache_ttl_sec, 60.0),
+        )
+        gamma = GammaClient(
+            HttpClient(d.gamma_base_url, d.http_timeout, d.max_retries, d.rate_limit_rps),
+        )
+        return gamma, clob
+
+    def refresh_news_and_stream(self, *, include_markets: bool = True) -> dict:
+        """מושך חדשות חיות וטיקים/ספרי גרפים של פוזיציות פתוחות ומועמדים."""
+        allow_net = os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1"
+        store = Store(self.cfg.data.db_path)
+        n_articles = 0
+        n_stream = 0
+        try:
+            markets = []
+            gamma, clob = self._build_clients()
+            if allow_net and include_markets:
+                try:
+                    markets = MarketUniverse(gamma, self.cfg.universe).scan()[:30]
+                except Exception as exc:
+                    log.debug("סריקת שווקים לרענון חדשות נכשלה: %s", exc)
+
+            if allow_net and self.cfg.news.enabled:
+                arts = refresh_news_to_store(
+                    store,
+                    markets=markets,
+                    max_market_queries=self.cfg.news.max_market_queries,
+                )
+                n_articles = len(arts)
+                self.news_fetches += 1
+                self.last_news_ts = int(time.time())
+
+            if allow_net:
+                # הזרמת ספר + טיק חי לפוזיציות פתוחות ולטוקנים המובילים
+                cands = store.chart_candidates(self.cfg.execution.mode, limit=10)
+                tids = [c["token_id"] for c in cands]
+                if not tids and markets:
+                    tids = [m.yes_token_id for m in markets[:8]]
+                now_ts = int(time.time())
+                tick_rows: list[tuple[str, int, float]] = []
+                for tid in tids[:10]:
+                    try:
+                        bk = clob.get_book(tid)
+                        if bk is not None:
+                            store.record_book(tid, now_ts, bk)
+                            px = bk.mid or bk.best_bid
+                            if px is not None:
+                                tick_rows.append((tid, now_ts, float(px)))
+                        candles = clob.get_history(tid, fidelity_min=60, lookback_candles=72, use_cache=True)
+                        if candles:
+                            tick_rows.extend((tid, c.ts, c.price) for c in candles[-48:])
+                        n_stream += 1
+                    except Exception:
+                        continue
+                if tick_rows:
+                    store.insert_ticks(tick_rows)
+                self.stream_ticks += n_stream
+                self.last_stream_ts = now_ts
+        finally:
+            store.close()
+        return {
+            "message": f"רענון שידור חי: {n_articles} כתבות חדשות | {n_stream} גרפים וספרים",
+            "output": f"כתבות: {n_articles} | טוקנים שהוזרמו: {n_stream}",
+            "articles": n_articles,
+            "streamed": n_stream,
+        }
+
+    def run_learning_now(self, *, apply_changes: bool = True) -> dict:
+        """מריץ הערכת אותות + Walk-Forward + קידום פרמטרים מבוקר."""
+        allow_net = os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1"
+        store = Store(self.cfg.data.db_path)
+        try:
+            gamma, clob = self._build_clients()
+            rep = run_self_learning_cycle(
+                self.cfg,
+                store,
+                gamma=gamma if allow_net else None,
+                clob=clob if allow_net else None,
+                apply_changes=apply_changes,
+            )
+            self.learn_cycles += 1
+            self.last_learn_ts = rep.ts
+            return {
+                "message": rep.summary,
+                "output": json.dumps(rep.as_dict(), ensure_ascii=False, indent=2),
+                "report": rep.as_dict(),
+            }
+        finally:
+            store.close()
 
     def run_single_cycle(self) -> dict:
         if self.cfg.execution.mode != "paper":
@@ -76,6 +195,9 @@ class _TraderManager:
                 st = eng.run_once()
                 self.cycles += 1
                 self.last_error = ""
+                if eng._last_news_refresh:
+                    self.last_news_ts = int(eng._last_news_refresh)
+                self.last_stream_ts = int(time.time())
                 snap = eng.portfolio.snapshot(eng._last_marks)
                 return {
                     "message": f"מחזור הסתיים: כניסות {st.entries}, יציאות {st.exits}, הון {snap.equity:.2f}",
@@ -90,33 +212,74 @@ class _TraderManager:
                 eng.close()
                 plock.release()
 
-    def start(self, interval_sec: float = 300.0) -> dict:
+    def start(self, interval_sec: float = 180.0) -> dict:
         if self.cfg.execution.mode != "paper":
             raise PermissionError("סוחר אוטומטי מהממשק מותר במצב paper בלבד")
         if self.running:
-            return {"message": "הסוחר האוטומטי כבר פועל", **self.state()}
+            return {"message": "המערכת הרציפה כבר פועלת", **self.state()}
         self.interval_sec = max(30.0, float(interval_sec))
         self._stop_ev.clear()
         self.last_error = ""
 
         def _loop() -> None:
+            next_trade = 0.0
+            next_stream = 0.0
+            next_learn = time.time() + min(120.0, float(self.cfg.learning.interval_sec))
             while not self._stop_ev.is_set():
+                now = time.time()
                 try:
-                    self.run_single_cycle()
+                    if now >= next_trade:
+                        self.run_single_cycle()
+                        next_trade = time.time() + self.interval_sec
+                        next_stream = time.time() + self.stream_interval_sec
+                    elif now >= next_stream:
+                        self.refresh_news_and_stream(include_markets=False)
+                        next_stream = time.time() + self.stream_interval_sec
+
+                    if self.cfg.learning.enabled and now >= next_learn:
+                        self.run_learning_now(apply_changes=True)
+                        next_learn = time.time() + max(300.0, float(self.cfg.learning.interval_sec))
                 except Exception as exc:      # noqa: BLE001
                     self.last_error = str(exc)
-                    log.warning("סוחר רקע: %s", exc)
-                self._stop_ev.wait(self.interval_sec)
+                    log.warning("לולאה רציפה: %s", exc)
+                    next_trade = max(next_trade, time.time() + 30.0)
+                self._stop_ev.wait(15.0)
 
-        self._thread = threading.Thread(target=_loop, daemon=True, name="pmmb-paper-ui")
+        self._thread = threading.Thread(target=_loop, daemon=True, name="pmmb-continuous")
         self._thread.start()
-        return {"message": f"סוחר Paper אוטומטי הופעל (כל {self.interval_sec:.0f} שנ')", **self.state()}
+        return {
+            "message": f"בוט רציף הופעל (מסחר כל {self.interval_sec:.0f}ש', גרפים וחדשות ברציפות)",
+            **self.state(),
+        }
 
     def stop(self) -> dict:
         self._stop_ev.set()
         if self._thread is not None and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
-        return {"message": "סוחר אוטומטי נעצר", **self.state()}
+            self._thread.join(timeout=2.5)
+        return {"message": "לולאת המסחר והשידור הרציף נעצרה", **self.state()}
+
+
+def _build_chart_payload(cfg, token_id: str, *, live: bool = False) -> dict:
+    store = Store(cfg.data.db_path)
+    try:
+        if live and os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1":
+            try:
+                clob = ClobClient(
+                    HttpClient(cfg.data.clob_base_url, cfg.data.http_timeout, 1, cfg.data.rate_limit_rps),
+                    history_ttl=30.0,
+                )
+                candles = clob.get_history(token_id, fidelity_min=60, lookback_candles=120, use_cache=True)
+                if candles:
+                    store.insert_ticks([(token_id, c.ts, c.price) for c in candles])
+                bk = clob.get_book(token_id)
+                if bk is not None:
+                    store.record_book(token_id, int(time.time()), bk)
+            except Exception as exc:
+                log.debug("רענון גרף חי נכשל (%s): %s", token_id[:12], exc)
+
+        return build_chart_series(store, cfg, token_id, limit=160)
+    finally:
+        store.close()
 
 
 def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None,
@@ -125,7 +288,7 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
     trader = trader or _TraderManager(cfg)
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "pmmb-status/2"
+        server_version = "pmmb-status/3"
 
         def log_message(self, fmt, *args):        # שקט — לא מציף את לוג הבוט
             log.debug("%s - %s", self.address_string(), fmt % args)
@@ -201,10 +364,14 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     res = {"ok": True, "clean": rep.clean,
                            "message": "אפס פערים ב-DB" if rep.clean else f"נמצאו {len(rep.discrepancies)} פערים",
                            "output": rep.to_markdown()}
+                elif path == "/api/news-refresh":
+                    res = {"ok": True, **trader.refresh_news_and_stream(include_markets=True)}
+                elif path == "/api/learn":
+                    res = {"ok": True, **trader.run_learning_now(apply_changes=bool(body.get("apply", True)))}
                 elif path == "/api/paper-cycle":
                     res = {"ok": True, **trader.run_single_cycle()}
                 elif path == "/api/trader/start":
-                    res = {"ok": True, **trader.start(float(body.get("interval_sec") or 300))}
+                    res = {"ok": True, **trader.start(float(body.get("interval_sec") or 180))}
                 elif path == "/api/trader/stop":
                     res = {"ok": True, **trader.stop()}
                 else:
@@ -245,6 +412,15 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     )
                     return self._send(200, json.dumps(st, ensure_ascii=False).encode(),
                                       "application/json; charset=utf-8", head_only=head_only)
+                if path == "/api/chart":
+                    tid = (query.get("token", [""])[0] or "").strip()
+                    if not tid:
+                        return self._send(400, b'{"error":"missing token"}',
+                                          "application/json; charset=utf-8", head_only=head_only)
+                    live_flag = query.get("live", ["0"])[0] == "1"
+                    chart = _build_chart_payload(cfg, tid, live=live_flag)
+                    return self._send(200, json.dumps(chart, ensure_ascii=False).encode(),
+                                      "application/json; charset=utf-8", head_only=head_only)
                 if path == "/lite":
                     st = build_status(cfg, max_age_sec=max_age_sec)
                     return self._send(200, status_html(st, refresh_sec=refresh_sec).encode(),
@@ -268,12 +444,15 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
 
 def serve(cfg, *, host: str = "0.0.0.0", port: int = 8787,
           max_age_sec: float = 300, refresh_sec: int = 30,
-          token: str | None = None) -> ThreadingHTTPServer:
-    """מרים את השרת (חוסם). מחזיר את המופע למי שרוצה לכבות בעצמו."""
+          token: str | None = None, autostart: bool = False,
+          interval_sec: float = 180.0) -> ThreadingHTTPServer:
+    """מרים את השרת (חוסם). אם autostart=True ובמצב paper — מפעיל לולאת מסחר+חדשות+למידה רציפה."""
     trader = _TraderManager(cfg)
+    if autostart and cfg.execution.mode == "paper":
+        trader.start(interval_sec=interval_sec)
     handler = make_handler(cfg, max_age_sec=max_age_sec, refresh_sec=refresh_sec,
                            token=token, trader=trader)
     httpd = ThreadingHTTPServer((host, port), handler)
     httpd._trader_manager = trader  # type: ignore[attr-defined]
-    log.info("שרת התוכנה והמצב מאזין על http://%s:%d", host, port)
+    log.info("שרת התוכנה והמצב מאזין על http://%s:%d (autostart=%s)", host, port, autostart)
     return httpd

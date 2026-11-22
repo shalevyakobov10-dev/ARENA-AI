@@ -276,13 +276,13 @@ polymarket-momentum-bot/
 ├── src/pmmb/
 │   ├── config.py  models.py  engine.py
 │   ├── backtest.py  diagnostics.py  walkforward.py  daily.py
-│   ├── sectors.py  imbalance.py  status.py  ui.py  server.py
-│   ├── cli.py                  # 24 פקודות (כולל serve + status --html-out)
-│   ├── data/                   # http, gamma, clob, store (כולל books)
+│   ├── sectors.py  imbalance.py  learning.py  status.py  ui.py  server.py
+│   ├── cli.py                  # 26 פקודות (כולל serve --autostart, learn, news)
+│   ├── data/                   # http, gamma, clob, news, store (כולל books, ticks, news_items)
 │   ├── signals/                # indicators, momentum, meanrev, base, factory
 │   ├── risk/                   # sizing, manager
 │   └── execution/              # base (Portfolio), paper, live
-├── tests/                      # 184 טסטים, אפס רשת
+├── tests/                      # 189 טסטים, אפס רשת
 ├── scripts/                    # run_paper.sh, paper_forever.sh,
 │                               # create_api_keys.py, research_signal.py,
 │                               # cron_example.crontab

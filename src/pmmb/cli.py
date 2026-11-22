@@ -598,8 +598,10 @@ def cmd_serve(args, cfg: Config) -> int:
 
     httpd = serve(cfg, host=args.host, port=args.port,
                   max_age_sec=args.max_age, refresh_sec=args.refresh,
-                  token=args.token)
-    print(f"🌐 PMMB Command Center: http://{args.host}:{args.port}  (Ctrl+C לעצירה)")
+                  token=args.token, autostart=getattr(args, "autostart", False),
+                  interval_sec=getattr(args, "interval", 180.0))
+    mode_lbl = " + מצב רציף אוטומטי (Paper)" if getattr(args, "autostart", False) and cfg.execution.mode == "paper" else ""
+    print(f"🌐 PMMB Command Center{mode_lbl}: http://{args.host}:{args.port}  (Ctrl+C לעצירה)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -609,6 +611,63 @@ def cmd_serve(args, cfg: Config) -> int:
         if tm is not None:
             tm.stop()
         httpd.server_close()
+    return 0
+
+
+def cmd_learn(args, cfg: Config) -> int:
+    """מריץ מחזור למידה עצמית: מעקב אותות + Walk-Forward + קידום מבוקר."""
+    from .data.gamma import GammaClient, MarketUniverse
+    from .learning import run_self_learning_cycle
+
+    cfg.learning.max_markets = args.markets
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    store = Store(cfg.data.db_path)
+    try:
+        rep = run_self_learning_cycle(
+            cfg, store, gamma=gamma, clob=clob,
+            apply_changes=not args.no_apply, reports_dir=args.out,
+        )
+    finally:
+        store.close()
+
+    print(f"\n🧠 {rep.summary}")
+    print(f"   אותות שהוערכו: {rep.signals_evaluated} | "
+          f"Baseline OOS: {rep.baseline_oos:+.2f} | "
+          f"מועמד OOS: {rep.candidate_oos:+.2f} (עקביות {rep.consistency*100:.0f}%)")
+    for ins in rep.insights:
+        print(f"   · {ins}")
+    print(f"\n📄 {args.out}/learning.md")
+    return 0
+
+
+def cmd_news(args, cfg: Config) -> int:
+    """מושך ומציג חדשות שווקים חיות והתאמתן לשווקי Polymarket."""
+    from datetime import datetime as _dt, timezone as _tz
+    from .data.gamma import GammaClient, MarketUniverse
+    from .data.news import refresh_news_to_store
+
+    store = Store(cfg.data.db_path)
+    try:
+        if args.refresh:
+            gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                           cfg.data.max_retries, cfg.data.rate_limit_rps))
+            markets = MarketUniverse(gamma, cfg.universe).scan()[:25]
+            refresh_news_to_store(store, markets=markets, max_market_queries=cfg.news.max_market_queries)
+        rows = store.recent_news(hours=48, limit=args.limit)
+    finally:
+        store.close()
+
+    if not rows:
+        print("אין חדשות שמורות ב-DB עדיין. הרץ `pmmb news --refresh`.")
+        return 0
+    for r in rows:
+        ts = _dt.fromtimestamp(r["ts"], tz=_tz.utc).strftime("%m-%d %H:%M")
+        imp = float(r["impact"] or 0.0)
+        sent = float(r["sentiment"] or 0.0)
+        mark = "🔥" if imp >= cfg.news.spike_impact_threshold else "📰"
+        print(f"{mark} [{ts}] ({r['category']}, imp={imp:.2f}, sent={sent:+.2f}) {r['title']} — {r['source']}")
     return 0
 
 
@@ -917,6 +976,8 @@ def build_parser() -> argparse.ArgumentParser:
     srv.add_argument("--max-age", type=float, default=300)
     srv.add_argument("--refresh", type=int, default=30, help="רענון אוטומטי בעמוד (0=כבוי)")
     srv.add_argument("--token", default=None, help="אם מוגדר — נדרש ?token= בקריאה")
+    srv.add_argument("--autostart", action="store_true", help="הפעל לולאת מסחר/חדשות/למידה רציפה (paper בלבד)")
+    srv.add_argument("--interval", type=float, default=180.0, help="מרווח שניות בין מחזורי מסחר ב-autostart")
 
     sub.add_parser("notify-test", help="בדיקת התראות Telegram")
 
@@ -954,6 +1015,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     rp = sub.add_parser("report", help="סיכום ביצועים מה-DB")
     rp.add_argument("--limit", type=int, default=20)
+
+    lr = sub.add_parser("learn", help="מחזור למידה עצמית והשוואת Walk-Forward")
+    lr.add_argument("--markets", type=int, default=28, help="כמה שווקים לבדיקה")
+    lr.add_argument("--no-apply", action="store_true", help="דוח בלבד — בלי לעדכן פרמטרים")
+    lr.add_argument("--out", default="reports")
+
+    nw = sub.add_parser("news", help="חדשות שווקים חיות וזיהוי קטליזטורים")
+    nw.add_argument("--refresh", action="store_true", help="משוך עכשיו חדשות עדכניות מ-RSS")
+    nw.add_argument("--limit", type=int, default=15)
     return p
 
 
@@ -991,6 +1061,8 @@ def main(argv: list[str] | None = None) -> int:
         "halt": cmd_halt,
         "resume": cmd_resume,
         "telegram": cmd_telegram,
+        "learn": cmd_learn,
+        "news": cmd_news,
     }
     return handlers[args.command](args, cfg)
 

@@ -65,5 +65,6 @@ def cfg_market(cfg, market):
 
 @pytest.fixture(autouse=True)
 def _isolate_state(tmp_path, monkeypatch):
-    """מבחנים לעולם לא דורסים את state/heartbeat.json של ההרצה האמיתית."""
+    """מבחנים לעולם לא דורסים את state/heartbeat.json של ההרצה האמיתית ולא נוגעים בפיד חדשות חי."""
     monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "pmmb-state"))
+    monkeypatch.setenv("PMMB_DISABLE_LIVE_NEWS", "1")
