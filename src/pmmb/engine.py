@@ -151,6 +151,26 @@ class Engine:
             self.notifier = Notifier()
         self.notifier.send(text)
 
+    def _write_heartbeat(self, snap=None, stats: CycleStats | None = None) -> None:
+        try:
+            if snap is None:
+                snap = self.portfolio.snapshot(self._last_marks)
+            st = stats or CycleStats()
+            write_heartbeat(Heartbeat(
+                ts=snap.ts.timestamp(), cycle=self.cycle,
+                mode=self.cfg.execution.mode, engine=self.cfg.signal.engine,
+                equity=snap.equity, cash=snap.cash, exposure=snap.exposure,
+                positions=snap.open_positions,
+                scanned=st.scanned, signalled=st.signalled,
+                entries=st.entries, exits=st.exits, errors=st.errors,
+                halted=self.risk.halted, halt_reason=self.risk.halt_reason or "",
+                pid=os.getpid(),
+                skipped=dict(st.skipped),
+                guards=self._guard_state(snap),
+            ), state_dir=self.state_dir)
+        except Exception as exc:          # noqa: BLE001 — דופק לא מפיל מחזור
+            log.warning("כתיבת דופק נכשלה: %s", exc)
+
     def run_once(self) -> CycleStats:
         self.cycle += 1
         stats = CycleStats()
@@ -159,12 +179,14 @@ class Engine:
         if halt_flag is not None:
             self.risk.halt(f"עצירה חיצונית ({halt_flag.source}): {halt_flag.reason}")
         self._check_global_risk()
+        self._write_heartbeat(stats=stats)
 
         try:
             markets = self.universe.scan()
         except ConnectionError as exc:
             log.error("סריקת היקום נכשלה: %s", exc)
             stats.errors += 1
+            self._write_heartbeat(stats=stats)
             return stats
 
         stats.scanned = len(markets)
@@ -207,8 +229,8 @@ class Engine:
         except Exception as exc:          # noqa: BLE001
             log.debug("ניטור פוזיציות מול חדשות דולג: %s", exc)
 
-        # --- סגירת פוזיציות שאין להן יותר שוק פעיל ---
-        self._close_orphans()
+        # --- מעקב / סגירה מבוקרת לפוזיציות שיצאו מרשימת היקום ---
+        self._close_orphans(stats)
 
         marks = self._last_marks
         snap = self.portfolio.snapshot(marks)
@@ -224,21 +246,7 @@ class Engine:
             log.debug("דחיות: %s", stats.skipped)
 
         # --- דופק: הקובץ שמאפשר ל-watchdog ולטלפון לדעת שאנחנו חיים ---
-        try:
-            write_heartbeat(Heartbeat(
-                ts=snap.ts.timestamp(), cycle=self.cycle,
-                mode=self.cfg.execution.mode, engine=self.cfg.signal.engine,
-                equity=snap.equity, cash=snap.cash, exposure=snap.exposure,
-                positions=snap.open_positions,
-                scanned=stats.scanned, signalled=stats.signalled,
-                entries=stats.entries, exits=stats.exits, errors=stats.errors,
-                halted=self.risk.halted, halt_reason=self.risk.halt_reason or "",
-                pid=os.getpid(),
-                skipped=dict(stats.skipped),
-                guards=self._guard_state(snap),
-            ), state_dir=self.state_dir)
-        except Exception as exc:          # noqa: BLE001 — דופק לא מפיל מחזור
-            log.warning("כתיבת דופק נכשלה: %s", exc)
+        self._write_heartbeat(snap=snap, stats=stats)
         return stats
 
     def run_forever(self, interval_sec: float = 60.0, max_cycles: int | None = None) -> None:
@@ -493,6 +501,15 @@ class Engine:
                 stats.skip("edge לא מכסה עלויות")
                 return ("CANDIDATE", "edge אחרי ספרד/עמלה שלילי")
 
+        # בדיקת יתרה חיה בבורסה לפני שליחת הוראה אמיתית (מונע דחיות/עודף סיכון)
+        if self.cfg.execution.mode == "live":
+            bal_fn = getattr(self.broker, "usdc_balance", None)
+            if callable(bal_fn):
+                live_usdc = bal_fn()
+                if live_usdc is not None and live_usdc < decision.notional * 1.02:
+                    stats.skip("יתרת USDC בבורסה אינה מספיקה")
+                    return ("CANDIDATE", f"יתרת USDC נמוכה ({live_usdc:.2f} < {decision.notional:.2f})")
+
         order = Order(
             token_id=token_id,
             side="BUY",
@@ -606,8 +623,13 @@ class Engine:
             )
 
     # ------------------------------------------------------------------
-    def _close_orphans(self) -> None:
-        """פוזיציה בשוק שכבר לא בסריקה — סוגרים לפי best_bid, או סליקה אם השוק הוכרע."""
+    def _close_orphans(self, stats: CycleStats | None = None) -> None:
+        """
+        ניהול פוזיציות שהשוק שלהן יצא מסריקת ה-Top-N / היקום הנוכחי:
+          1. אם קיים ספר חי — מעדכנים mark וממשיכים לנטר רגיל לפי כללי TP / SL / Time-Stop / חדשות חירום
+             (לעולם לא מחסלים בהפסד רק כי השוק ירד זמנית מה-Top-N).
+          2. אם הספר נעלם (404) — בודקים הכרעה/סליקה ב-CLOB.
+        """
         if not self.markets:
             return
         for token_id, pos in list(self.portfolio.positions.items()):
@@ -615,17 +637,51 @@ class Engine:
                 continue
             book = self.clob.get_book(token_id)
             if book is not None and book.best_bid is not None:
+                mark = book.best_bid
+                self._last_marks[token_id] = mark
+                reason = self.risk.evaluate_exit(pos, mark)
+                if reason is None and self.cfg.news.enabled and self._news_articles and pos.question:
+                    from .data.news import match_market_news
+
+                    opened_ts = int(pos.opened_at.timestamp()) if pos.opened_at else 0
+                    fresh_news = [
+                        a for a in self._news_articles
+                        if int(a.get("ts") or 0) >= max(0, opened_ts - 1800)
+                    ]
+                    if fresh_news:
+                        nm_ex = match_market_news(
+                            pos.question,
+                            fresh_news,
+                            window_hours=max(4.0, self.cfg.news.spike_window_hours),
+                            min_articles=1,
+                            impact_threshold=self.cfg.news.emergency_exit_impact,
+                        )
+                        if (
+                            nm_ex.catalyst_detected
+                            and nm_ex.max_impact >= self.cfg.news.emergency_exit_impact
+                            and nm_ex.avg_sentiment <= self.cfg.news.emergency_exit_sentiment
+                        ):
+                            reason = f"הגנת חדשות (impact={nm_ex.max_impact:.2f}): {nm_ex.latest_title[:42]}"
+                if reason is None:
+                    log.debug("👁️  מעקב עצמאי אחרי פוזיציה מחוץ לסריקה %s @ %.3f (TP=%.3f SL=%.3f)",
+                              (pos.question or token_id)[:32], mark, pos.target_price or 0, pos.stop_price or 0)
+                    continue
+
                 order = Order(
-                    token_id=token_id, side="SELL", price=book.best_bid, size=pos.size,
-                    condition_id=pos.condition_id, reason="יציאה: השוק יצא מהיקום",
+                    token_id=token_id, side="SELL", price=mark, size=pos.size,
+                    condition_id=pos.condition_id, reason=f"יציאה: {reason}",
                 )
                 fill = self.broker.execute(order, book=book, aggressive=True)
                 if fill:
                     realized = self.portfolio.apply_fill(fill)
-                    log.info("🧹 סגירת יתומה %s | %+.2f", token_id[:10], realized)
+                    self.risk.start_cooldown(pos.condition_id)
+                    if stats is not None:
+                        stats.exits += 1
+                    log.info("🚪 יציאה (מעקב עצמאי) %s | %s | %+.2f",
+                             (pos.question or token_id)[:36], reason, realized)
                     self._notify(fmt_exit(self.cfg.execution.mode, pos.question or token_id[:14],
-                                          fill.price, realized, "השוק יצא מהיקום"))
-                    self.store.event("orphan_close", f"{pos.question or token_id[:14]}",
+                                          fill.price, realized, reason))
+                    self.store.event("exit", f"{pos.question or token_id[:14]} — {reason}",
                                      data={"price": fill.price, "size": fill.size, "realized": realized})
                 continue
 

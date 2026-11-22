@@ -953,10 +953,10 @@ def build_parser() -> argparse.ArgumentParser:
     cal.add_argument("--spread", type=float, default=0.01)
 
     wf = sub.add_parser("walkforward", help="כיול וחילוץ OOS על חלונות זמן")
-    wf.add_argument("--markets", type=int, default=12)
+    wf.add_argument("--markets", type=int, default=35)
     wf.add_argument("--folds", type=int, default=3)
     wf.add_argument("--fidelity", type=int, default=60)
-    wf.add_argument("--lookback", type=int, default=1440)
+    wf.add_argument("--lookback", type=int, default=720)
     wf.add_argument("--spread", type=float, default=0.01)
     wf.add_argument("--out", default="reports")
 

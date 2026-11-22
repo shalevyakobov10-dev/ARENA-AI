@@ -185,7 +185,13 @@ def evaluate(facts: dict, th: Thresholds | None = None) -> list[Check]:
     out.append(Check("heartbeat", "הבוט רץ כעת",
                      OK if h.get("healthy") else WARN, h.get("reason", "לא ידוע")))
 
-    # 9. גיבוי
+    # 9. מפתחות live
+    has_keys = bool(facts.get("live_keys"))
+    out.append(Check("live_keys", "מפתח פרטי ל-live",
+                     OK if has_keys else (FAIL if cfg.execution.mode == "live" else WARN),
+                     "מוגדר בסביבה" if has_keys else "PMMB_PRIVATE_KEY אינו מוגדר (נדרש להרצת live)"))
+
+    # 10. גיבוי
     age = facts.get("backup_age_days")
     if age is None:
         out.append(Check("backup", "גיבוי DB", WARN, "אין גיבוי — הקם cron ל-backups/"))

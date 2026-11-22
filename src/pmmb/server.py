@@ -55,8 +55,10 @@ class _TraderManager:
     def __init__(self, cfg) -> None:
         self.cfg = cfg
         self._lock = threading.Lock()
+        self._learn_lock = threading.Lock()
         self._stop_ev = threading.Event()
         self._thread: threading.Thread | None = None
+        self._learn_thread: threading.Thread | None = None
         self.cycles = 0
         self.stream_ticks = 0
         self.news_fetches = 0
@@ -92,14 +94,16 @@ class _TraderManager:
             "interval_sec": self.interval_sec,
         }
 
-    def _build_clients(self) -> tuple[GammaClient, ClobClient]:
+    def _build_clients(self, *, fast: bool = False) -> tuple[GammaClient, ClobClient]:
         d = self.cfg.data
+        timeout = min(d.http_timeout, 8.0) if fast else d.http_timeout
+        retries = 1 if fast else d.max_retries
         clob = ClobClient(
-            HttpClient(d.clob_base_url, d.http_timeout, d.max_retries, d.rate_limit_rps),
+            HttpClient(d.clob_base_url, timeout, retries, d.rate_limit_rps),
             history_ttl=min(d.history_cache_ttl_sec, 60.0),
         )
         gamma = GammaClient(
-            HttpClient(d.gamma_base_url, d.http_timeout, d.max_retries, d.rate_limit_rps),
+            HttpClient(d.gamma_base_url, timeout, retries, d.rate_limit_rps),
         )
         return gamma, clob
 
@@ -111,7 +115,7 @@ class _TraderManager:
         n_stream = 0
         try:
             markets = []
-            gamma, clob = self._build_clients()
+            gamma, clob = self._build_clients(fast=True)
             if allow_net and include_markets:
                 try:
                     markets = MarketUniverse(gamma, self.cfg.universe).scan()[:30]
@@ -166,25 +170,40 @@ class _TraderManager:
     def run_learning_now(self, *, apply_changes: bool = True) -> dict:
         """מריץ הערכת אותות + Walk-Forward + קידום פרמטרים מבוקר."""
         allow_net = os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1"
-        store = Store(self.cfg.data.db_path)
-        try:
-            gamma, clob = self._build_clients()
-            rep = run_self_learning_cycle(
-                self.cfg,
-                store,
-                gamma=gamma if allow_net else None,
-                clob=clob if allow_net else None,
-                apply_changes=apply_changes,
-            )
-            self.learn_cycles += 1
-            self.last_learn_ts = rep.ts
-            return {
-                "message": rep.summary,
-                "output": json.dumps(rep.as_dict(), ensure_ascii=False, indent=2),
-                "report": rep.as_dict(),
-            }
-        finally:
-            store.close()
+        with self._learn_lock:
+            store = Store(self.cfg.data.db_path)
+            try:
+                gamma, clob = self._build_clients(fast=True)
+                rep = run_self_learning_cycle(
+                    self.cfg,
+                    store,
+                    gamma=gamma if allow_net else None,
+                    clob=clob if allow_net else None,
+                    apply_changes=apply_changes,
+                )
+                self.learn_cycles += 1
+                self.last_learn_ts = rep.ts
+                return {
+                    "message": rep.summary,
+                    "output": json.dumps(rep.as_dict(), ensure_ascii=False, indent=2),
+                    "report": rep.as_dict(),
+                }
+            finally:
+                store.close()
+
+    def _trigger_learning_bg(self) -> None:
+        """מריץ את הלמידה העצמית בחוט רקע נפרד כדי שלא יחסום את לולאת המסחר והדופק."""
+        if self._learn_thread is not None and self._learn_thread.is_alive():
+            return
+
+        def _bg() -> None:
+            try:
+                self.run_learning_now(apply_changes=True)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("למידה עצמית ברקע נכשלה: %s", exc)
+
+        self._learn_thread = threading.Thread(target=_bg, daemon=True, name="pmmb-learn-bg")
+        self._learn_thread.start()
 
     def run_single_cycle(self) -> dict:
         if self.cfg.execution.mode != "paper":
@@ -285,7 +304,7 @@ class _TraderManager:
                         next_stream = time.time() + self.stream_interval_sec
 
                     if self.cfg.learning.enabled and now >= next_learn:
-                        self.run_learning_now(apply_changes=True)
+                        self._trigger_learning_bg()
                         next_learn = time.time() + max(300.0, float(self.cfg.learning.interval_sec))
 
                     if self.cfg.autopilot.enabled and now >= next_backup:

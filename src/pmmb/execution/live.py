@@ -158,6 +158,13 @@ class LiveBroker:
     # ------------------------------------------------------------------
     def execute(self, order: Order, **_) -> Fill | None:
         """שולח פקודה ל-CLOB. מחזיר Fill או None — אף פעם לא זורק (חוזה Broker)."""
+        if not (0.001 <= order.price <= 0.999) or order.size <= 0:
+            log.warning("פרמטרי פקודה לא תקינים לפני שליחה: side=%s px=%.4f sz=%.4f",
+                        order.side, order.price, order.size)
+            return None
+        if order.side == "BUY" and order.size < 5.0:
+            log.warning("גודל פקודת BUY קטן ממינימום Polymarket (%.2f < 5.0)", order.size)
+            return None
         try:
             from py_clob_client.clob_types import OrderArgs, OrderType
             from py_clob_client.order_builder.constants import BUY, SELL
@@ -166,8 +173,8 @@ class LiveBroker:
             order_type = OrderType.FAK if self.cfg.order_type.upper() == "FAK" else OrderType.GTC
 
             args = OrderArgs(
-                price=order.price,
-                size=order.size,
+                price=round(float(order.price), 4),
+                size=round(float(order.size), 2),
                 side=side,
                 token_id=order.token_id,
             )

@@ -103,9 +103,69 @@ def test_reconcile_live_fixes_ghosts_and_unrecorded(tmp_path):
     assert {"ghost_local", "size_mismatch", "unrecorded_exchange", "stale_order"} <= kinds
     assert broker.cancelled is True
 
-    # אחרי התיקון: ghost נסגר, drift עודכן ל-25, והחדש נרשם
+    # אחרי ריסטארט, ghost נסגר, drift עודכן ל-25, והחדש נרשם
     open_map = {r["token_id"]: r["size"] for r in store.open_positions("live")}
     assert "tok-ghost" not in open_map
     assert open_map["tok-drift"] == 25.0
     assert open_map["tok-new"] == 60.0
     store.close()
+
+
+def test_live_broker_validates_price_and_min_size(monkeypatch):
+    monkeypatch.setenv("PMMB_PRIVATE_KEY", "0x" + "1" * 64)
+    monkeypatch.setenv("PMMB_LIVE_CONFIRM", "I-UNDERSTAND-THE-RISK")
+    b = LiveBroker(ExecutionConfig(mode="live"))
+
+    called = False
+
+    class _SpyClient:
+        def create_order(self, *a):
+            nonlocal called
+            called = True
+            return {}
+
+    b._client = _SpyClient()
+    assert b.execute(_order(price=0.0, size=20.0)) is None
+    assert b.execute(_order(side="BUY", price=0.45, size=2.0)) is None
+    assert called is False
+
+
+def test_engine_live_entry_blocks_insufficient_usdc(monkeypatch, cfg, tmp_path):
+    """במצב live בודקים usdc_balance() לפני פקודת קנייה."""
+    from test_recovery import _FakeClob, _FakeGamma, _gamma_market
+    from series import trending_series
+    from pmmb.engine import Engine
+
+    monkeypatch.setenv("PMMB_PRIVATE_KEY", "0x" + "1" * 64)
+    monkeypatch.setenv("PMMB_LIVE_CONFIRM", "I-UNDERSTAND-THE-RISK")
+    cfg.execution.mode = "live"
+    cfg.signal.engine = "momentum"
+    cfg.signal.min_score = 0.5
+    cfg.signal.min_edge = 0.02
+
+    class _LowBalBroker:
+        mode = "live"
+
+        def __init__(self):
+            self.executed = False
+
+        def usdc_balance(self):
+            return 1.0  # כמעט אין יתרה
+
+        def execute(self, *a, **kw):
+            self.executed = True
+            return None
+
+    broker = _LowBalBroker()
+    eng = Engine(
+        cfg,
+        store=Store(tmp_path / "live_bal.db"),
+        broker=broker,
+        clob=_FakeClob(trending_series(0.30, 0.80, n=140)),
+        gamma=_FakeGamma([_gamma_market()]),
+        state_dir=str(tmp_path / "s"),
+    )
+    st = eng.run_once()
+    assert st.entries == 0
+    assert broker.executed is False
+    eng.close()

@@ -221,3 +221,35 @@ def test_wire_feeds_global_regions():
     assert infer_region("Al Jazeera", "geopolitics", "Ceasefire talks") == "מזרח תיכון"
     assert infer_region("Fed Reserve", "macro", "FOMC statement") == "אמריקה ושווקים"
     assert infer_region("Sky Sports", "sports", "Arsenal win") == "ספורט"
+
+
+def test_extended_sectors_and_max_taker_fee_filter():
+    from pmmb.sectors import classify
+    from pmmb.config import UniverseConfig
+    from pmmb.data.gamma import MarketUniverse
+    from pmmb.models import Market
+
+    assert classify("Ligue 1 match", "fl1-lor-ren-2026-11-22-ren") == "sports"
+    assert classify("Serie B match", "itsb-ave-man-2026-11-22") == "sports"
+    assert classify("Will FURIA win PGL Major?", "will-furia-win-pgl-major") == "sports"
+    assert classify("Will Zcash reach $2000?", "will-zcash-reach-2000") == "crypto"
+    assert classify("Next White House Press Secretary", "next-white-house-press-secretary") == "politics"
+    assert classify("US announces end of Iranian blockade", "iranian-blockade") == "geopolitics"
+
+    from datetime import datetime, timedelta, timezone
+
+    ucfg = UniverseConfig(max_taker_fee_rate=0.02, exclude_sectors=["crypto", "sports", "culture"])
+    u = MarketUniverse(None, ucfg)  # type: ignore[arg-type]
+    end_dt = datetime.now(timezone.utc) + timedelta(days=10)
+    mk_high = Market(
+        condition_id="c1", question="Will X win?", slug="x",
+        yes_token_id="y1", no_token_id="n1", yes_price=0.45, no_price=0.55,
+        spread=0.01, volume_24h=50000, liquidity=10000, end_date=end_dt, taker_fee_rate=0.05,
+    )
+    mk_low = Market(
+        condition_id="c2", question="Fed rate decision", slug="fed-rate",
+        yes_token_id="y2", no_token_id="n2", yes_price=0.45, no_price=0.55,
+        spread=0.01, volume_24h=50000, liquidity=10000, end_date=end_dt, taker_fee_rate=0.01,
+    )
+    assert u._passes(mk_high) == (False, "עמלת שוק גבוהה")
+    assert u._passes(mk_low)[0] is True

@@ -282,4 +282,69 @@ def test_engine_graceful_stop_exits_after_current_cycle(cfg, tmp_path):
     eng.close()
 
 
+def test_orphan_position_stays_open_while_within_limits(cfg, tmp_path):
+    """פוזיציה שיצאה מה-Top-N (לא בסריקה) נשארת פתוחה כל עוד לא פגעה ב-SL/TP/TimeStop."""
+    from pmmb.models import Fill
+
+    cfg.signal.engine = "momentum"
+    store = Store(tmp_path / "orphan_hold.db")
+    store.upsert_position(Position(
+        token_id="yes-hold", condition_id="0xold", direction="LONG",
+        size=40.0, avg_price=0.50, stop_price=0.40, target_price=0.60,
+        opened_at=utcnow(), question="Hold outside universe?",
+    ), "paper")
+    store.record_fill(Fill("yes-hold", "0xold", "BUY", 0.50, 40.0), "paper")
+
+    # היקום החי מחזיר שוק אחר לגמרי, ולטוקן הפוזיציה יש ספר עם bid=0.48 (בתוך הגבולות)
+    class _LiveOrphanClob(_FakeClob):
+        def get_book(self, token_id):
+            if token_id == "yes-hold":
+                from pmmb.data.clob import Book
+                return Book(token_id="yes-hold", best_bid=0.48, best_ask=0.50,
+                            bid_size=100.0, ask_size=100.0,
+                            bids=[(0.48, 100.0)], asks=[(0.50, 100.0)])
+            return super().get_book(token_id)
+
+    eng = Engine(cfg, store=store, clob=_LiveOrphanClob([0.5] * 140),
+                 gamma=_FakeGamma([_gamma_market("0xother", "other")]),
+                 state_dir=str(tmp_path / "s"))
+    st = eng.run_once()
+    assert st.exits == 0
+    assert "yes-hold" in eng.portfolio.positions
+    assert eng._last_marks.get("yes-hold") == 0.48
+    eng.close()
+
+
+def test_orphan_position_exits_on_target_or_stop(cfg, tmp_path):
+    """פוזיציה מחוץ לסריקה כן יוצאת בצורה מבוקרת כשהספר מגיע ל-TP (או SL/TimeStop)."""
+    from pmmb.models import Fill
+
+    cfg.signal.engine = "momentum"
+    store = Store(tmp_path / "orphan_tp.db")
+    store.upsert_position(Position(
+        token_id="yes-tp", condition_id="0xold2", direction="LONG",
+        size=40.0, avg_price=0.50, stop_price=0.40, target_price=0.56,
+        opened_at=utcnow(), question="Hit TP outside universe?",
+    ), "paper")
+    store.record_fill(Fill("yes-tp", "0xold2", "BUY", 0.50, 40.0), "paper")
+
+    class _TpOrphanClob(_FakeClob):
+        def get_book(self, token_id):
+            if token_id == "yes-tp":
+                from pmmb.data.clob import Book
+                return Book(token_id="yes-tp", best_bid=0.57, best_ask=0.58,
+                            bid_size=200.0, ask_size=200.0,
+                            bids=[(0.57, 200.0)], asks=[(0.58, 200.0)])
+            return super().get_book(token_id)
+
+    eng = Engine(cfg, store=store, clob=_TpOrphanClob([0.5] * 140),
+                 gamma=_FakeGamma([_gamma_market("0xother", "other")]),
+                 state_dir=str(tmp_path / "s"))
+    st = eng.run_once()
+    assert st.exits == 1
+    assert "yes-tp" not in eng.portfolio.positions
+    assert eng.portfolio.realized_pnl > 0
+    eng.close()
+
+
 

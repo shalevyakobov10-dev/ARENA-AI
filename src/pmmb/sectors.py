@@ -12,22 +12,26 @@ from dataclasses import dataclass
 
 # סדר חשוב: הראשון שמתאים קובע
 RULES: list[tuple[str, str]] = [
-    ("sports", r"\b(nba|nfl|nhl|mlb|wnba|atp|wta|ufc|f1|nascar|cs2|counter-strike|"
+    ("sports", r"(?:\b(?:nba|nfl|nhl|mlb|wnba|atp|wta|ufc|f1|nascar|cs2|counter-strike|"
                r"dota|valorant|lol|league of legends|premier league|la liga|serie a|"
                r"bundesliga|ligue 1|champions league|europa league|vs\.?\s|"
-               r"spread:|moneyline|over/under|handicap|bo3|bo5|match)\b"),
+               r"spread:|moneyline|over/under|handicap|bo3|bo5|match|pgl major|esports)\b|"
+               r"(?:^|[\s-])(?:nba|nfl|nhl|mlb|epl|fl1|itsb|laliga|ucl|uel|"
+               r"bundesliga|seriea|atp|wta|cs2)-)"),
     ("crypto", r"\b(bitcoin|btc|ethereum|eth|solana|sol|xrp|doge|cardano|crypto|"
-               r"binance|coinbase)\b"),
+               r"binance|coinbase|zcash|zec|monero|airdrop|token launch|launch a token)\b"),
     ("macro", r"\b(fed|fomc|interest rate|cpi|inflation|gdp|unemployment|recession|"
               r"treasury|ecb|rate cut|rate hike|tariff)\b"),
     ("politics", r"\b(election|president|prime minister|senate|congress|parliament|"
-                 r"mayor|governor|nominee|impeach|shutdown|veto|minister)\b"),
-    ("geopolitics", r"\b(iran|israel|russia|ukraine|china|taiwan|ceasefire|war|"
-                    r"strike|nato|sanctions|airspace|hostage)\b"),
+                 r"mayor|governor|nominee|impeach|shutdown|veto|minister|"
+                 r"white house|press secretary|cabinet)\b"),
+    ("geopolitics", r"\b(iran|iranian|israel|israeli|russia|russian|ukraine|ukrainian|"
+                    r"china|chinese|taiwan|taiwanese|ceasefire|war|strike|nato|"
+                    r"sanctions|airspace|hostage|blockade|truce)\b"),
     ("tech", r"\b(openai|gpt|nvidia|apple|google|tesla|spacex|meta|microsoft|ai\b|"
              r"model|launch|iphone|starship)\b"),
-    ("culture", r"\b(tweet|elon|kanye|taylor swift|album|movie|box office|oscar|"
-                r"grammy|celebrity|affair|arrest|resign)\b"),
+    ("culture", r"\b(tweet|tweets|elon|kanye|taylor swift|album|movie|box office|oscar|"
+                r"grammy|celebrity|affair|arrest|resign|gta|xqc|twitch|streamer|mrbeast|youtuber)\b"),
 ]
 
 

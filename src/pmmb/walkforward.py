@@ -27,12 +27,13 @@ def grid_for(engine_name: str, stop_mode: str = "pct") -> list[dict]:
     if engine_name == "meanrev":
         if stop_mode == "abs":
             return [
-                {"z_entry": z, "lookback_candles": lb, "reversion_ratio": 0.55,
-                 "min_score": 0.55, "trend_guard": False,
+                {"z_entry": z, "rsi_max": rsi, "lookback_candles": lb,
+                 "reversion_ratio": 0.55, "min_score": 0.55, "trend_guard": False,
                  "take_profit": tp, "stop_loss": sl}
-                for z in (1.2, 1.5, 1.8)
+                for z in (1.7, 1.8, 2.0)
                 for lb in (12, 24)
-                for tp, sl in ((0.04, 0.08), (0.05, 0.08), (0.05, 0.10))
+                for rsi in (40.0, 45.0)
+                for tp, sl in ((0.05, 0.07), (0.05, 0.08))
             ]
         return [
             {"z_entry": z, "reversion_ratio": r, "min_score": ms,
@@ -63,6 +64,8 @@ def _snapshot_cfg(cfg: Config) -> dict:
         "reversion_ratio": sig.meanrev.reversion_ratio,
         "trend_guard": sig.meanrev.trend_guard,
         "lookback_candles": sig.meanrev.lookback_candles,
+        "rsi_max": sig.meanrev.rsi_max,
+        "max_spread_to_edge": sig.meanrev.max_spread_to_edge,
         "take_profit": sig.exit.take_profit,
         "stop_loss": sig.exit.stop_loss,
     }
@@ -73,7 +76,8 @@ def _apply(cfg: Config, params: dict) -> None:
     for key in ("min_score", "min_edge", "trend_filter"):
         if key in params:
             setattr(sig, key, params[key])
-    for key in ("z_entry", "reversion_ratio", "trend_guard", "lookback_candles"):
+    for key in ("z_entry", "reversion_ratio", "trend_guard", "lookback_candles",
+                "rsi_max", "max_spread_to_edge"):
         if key in params:
             setattr(sig.meanrev, key, params[key])
     if "take_profit" in params:

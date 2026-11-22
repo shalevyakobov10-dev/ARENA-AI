@@ -60,6 +60,7 @@ class UniverseConfig:
     exclude_tags: list[str] = field(default_factory=list)
     exclude_slug_contains: list[str] = field(default_factory=list)
     exclude_sectors: list[str] = field(default_factory=list)   # crypto / sports / politics ...
+    max_taker_fee_rate: float = 1.0  # סינון שווקים עם עמלת taker גבוהה (בפרודקשן: 0.02)
     require_order_book: bool = True
 
 

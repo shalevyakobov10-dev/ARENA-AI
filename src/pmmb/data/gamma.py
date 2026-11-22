@@ -57,7 +57,7 @@ class MarketUniverse:
 
     def scan(self) -> list[Market]:
         raw = self.gamma.fetch_markets(
-            limit=self.cfg.max_markets * 2,   # מרווח בגלל הסינון
+            limit=max(self.cfg.max_markets * 10, 1200),   # סריקה עמוקה מתחת לשכבת שווקי הספורט/קריפטו
             min_volume_24h=self.cfg.min_volume_24h,
         )
         markets: list[Market] = []
@@ -93,6 +93,8 @@ class MarketUniverse:
             return False, "נזילות נמוכה"
         if mk.spread > c.max_spread:
             return False, "ספרד רחב"
+        if mk.taker_fee_rate > c.max_taker_fee_rate:
+            return False, "עמלת שוק גבוהה"
         lo, hi = c.price_band
         if not (lo <= yes <= hi):
             return False, "מחוץ לתחום מחיר"

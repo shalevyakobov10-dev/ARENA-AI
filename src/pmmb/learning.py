@@ -65,14 +65,20 @@ def evaluate_live_signals(
 
     updated = 0
     history_cache: dict[str, list[Candle]] = {}
+    clob_fetches = 0
+    max_clob_fetches = 12
 
     def _price_at(token_id: str, target_ts: int) -> float | None:
+        nonlocal clob_fetches
         px = store.nearest_tick_price(token_id, target_ts, window_sec=7200)
         if px is not None:
             return px
         if clob is None:
             return None
         if token_id not in history_cache:
+            if clob_fetches >= max_clob_fetches:
+                return None
+            clob_fetches += 1
             try:
                 history_cache[token_id] = clob.get_history(
                     token_id, fidelity_min=60, lookback_candles=168, use_cache=True
@@ -221,7 +227,8 @@ def _save_learned_yaml(cfg_path: Path, candidate: dict[str, Any]) -> bool:
     ex = sig.setdefault("exit", {})
 
     changed = False
-    for k in ("z_entry", "lookback_candles", "reversion_ratio", "trend_guard"):
+    for k in ("z_entry", "lookback_candles", "reversion_ratio", "trend_guard",
+              "rsi_max", "max_spread_to_edge"):
         if k in candidate and mr.get(k) != candidate[k]:
             mr[k] = candidate[k]
             changed = True
@@ -295,7 +302,7 @@ def run_self_learning_cycle(
         for mk in markets:
             try:
                 candles = clob.get_history(
-                    mk.yes_token_id, fidelity_min=60, lookback_candles=1440, use_cache=True
+                    mk.yes_token_id, fidelity_min=60, lookback_candles=720, use_cache=True
                 )
             except Exception:
                 candles = []

@@ -17,17 +17,17 @@ execution:
 universe:
   # סינון השווקים שנסרוק (Gamma API)
   max_markets: 120             # כמה שווקים לסרוק בכל מחזור
-  min_volume_24h: 5000         # נזילות יומית מינימלית
+  min_volume_24h: 3500         # נזילות יומית מינימלית (מבטיח עומק שווקי מאקרו/פוליטיקה איכותיים)
   min_liquidity: 2000
-  max_spread: 0.04             # ספרד מקסימלי בין bid/ask
-  price_band: [0.05, 0.95]     # לא נוגעים בקיצון — שם המומנטום חסר משמעות
+  max_spread: 0.025            # ספרד מקסימלי 2.5 סנט (מעל זה נאכלת תוחלת של 5 סנט)
+  max_taker_fee_rate: 0.02     # עמלת טייקר מקסימלית 2% (שווקי 5% שחקו OOS בבקטסט)
+  price_band: [0.12, 0.88]     # לא נוגעים בקצוות לוטו (<12¢ שם ספרד=20% מהערך)
   min_hours_to_resolution: 6   # יציאה כפויה לפני סגירה (לא מחזיקים אירוע בינארי)
   min_entry_hours_to_resolution: 24  # לא פותחים פוזיציה חדשה אם נותר פחות מ-24ש' לסגירה
-  max_hours_to_resolution: 720 # שבועיים
-  # החרגה סקטוריאלית — מבוססת מדידה (pmmb sectors):
-  # קריפטו: 36 סיגנלים, 8% hit, -0.27 לעסקה. שווקי סף של BTC נטויים לקצה.
-  # politics נבדקה והוחרגה זמנית — OOS ירד מ-+38 ל-+5, לכן נשארת בפנים.
-  exclude_sectors: ["crypto"]
+  max_hours_to_resolution: 1080 # 45 ימים (מאזן אמפירי מיטבי: +5.47% בתיק, 100% OOS)
+  # החרגה סקטוריאלית — מבוססת מדידה אמפירית:
+  # crypto: 8% hit; sports: 0% win / -15.10 USDC / עמלת 5%; culture: ציוצים אקראיים.
+  exclude_sectors: ["crypto", "sports", "culture"]
   exclude_tags: []             # אופציונלי: תגיות Gamma החוצה
   exclude_slug_contains: []
   require_order_book: true
@@ -43,7 +43,7 @@ signal:
     max_room_pct: 0.6
     allow_short: false          # כרגע רק ירידות חדות (buy the dip)
     horizon_hours: 24
-    rsi_max: 45.0               # קונפלואנס מקצועי: שוק חייב להיות גם במכירת יתר (OOS +22.34 USDC)
+    rsi_max: 40.0               # קונפלואנס RSI<=40 (מגדיל Sharpe ל-6.18 ו-OOS ל-+49.22)
     max_spread_to_edge: 1.1     # מסנן עלויות: לא קונים כשהספרד אוכל >110% מה-edge הצפוי
     confluence_boost: true      # דירוג A+ / A / B לפי עומק Z + RSI + נזילות ספרד
   # ---- פרמטרים של מנוע המומנטום (engine: momentum) ----
@@ -62,7 +62,7 @@ signal:
   exit:
     stop_mode: abs             # נקודות הסתברות קבועות (ה-pct הפסיד תחת ספרד אמיתי)
     take_profit: 0.05          # +5 סנט בהסתברות — שורד ספרד ועמלות בכל מחיר
-    stop_loss: 0.08            # -8 סנט בהסתברות
+    stop_loss: 0.07            # -7 סנט בהסתברות (PF=2.10, Sharpe=6.18, 100% OOS)
     time_stop_hours: 48        # כיול: באופק 48ש' התיקון מתמצה
     exit_on_flip: false        # meanrev לא מייצר סיגנל הופכי (allow_short=false)
 
@@ -112,7 +112,7 @@ learning:
   auto_apply_paper: true         # במצב paper: עדכון אוטומטי רק אם OOS עבר שיפור מובהק
   allow_auto_apply_live: false   # במצב live: לעולם לא משנה פרמטרים לבד (רק ממליץ)
   interval_sec: 3600             # מחזור אבולוציה כל שעה
-  max_markets: 28
+  max_markets: 35
   min_oos_trades: 25
   min_consistency: 0.66
   min_improvement_pct: 0.05      # דורש שיפור של >=5% מעל ה-Baseline לפני שינוי

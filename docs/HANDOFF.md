@@ -48,16 +48,20 @@ _המסמך הזה הוא נקודת הכניסה היחידה לפרויקט. �
 ## 4. המצב הנוכחי (מדויק, לא שיווקי)
 
 ```
-199 בדיקות · 26 פקודות · אפס קריאות רשת בבדיקות
-אסטרטגיית Pro-Trader (קונפלואנס RSI<=45 + Spread<=1.1*Edge + A+/L2 Imbalance):
-  סימולציית תיק משותף (`pmmb backtest --portfolio`, 720 נרות, 13 שווקים פעילים): +2.97%, win rate 69.2%, PF 4.92, Max DD 0.51%
-  יציאת חירום יזומה מחדשות שוברות + Drawdown Throttle (0.65x מ-5% DD) + L1 Microprice + חישוב RSI וסטטוס NEAR לכל שוק
-רשת חדשות עולמית של 19 סוכנויות במקביל (כולל אסיה, ארה"ב, אירופה, מזה"ת, הפד וספורט) + תוכנת בקרה Split-Pane Trading Desk (`pmmb serve --autostart`)
+204 בדיקות · 26 פקודות · אפס קריאות רשת בבדיקות
+אסטרטגיה וקונפיגורציה מוקשחת (ADR #18: סינון עמלת Taker <= 2%, אופק <= 45d, החרגת crypto/sports/culture):
+  Portfolio Backtest (`pmmb backtest --top 35 --portfolio`, 21 שווקים, spread=0.015):
+    43 עסקאות | Win Rate 62.8% | PF 2.10 | תשואה +5.51% (1055.07 USDC) | Max DD 2.33% | עמלות 6.18 USDC
+  Walk-Forward OOS (`pmmb walkforward --markets 35 --spread 0.01`, 3 חלונות, 18 שווקים):
+    +27.85 USDC OOS על 56 עסקאות (ללא מוביל +20.76, 13/16 שווקים חיוביים, עקביות 67%)
+  Readiness: 9/10 בדיקות תוכנה/מודל/דופק/גיבוי ירוקות; השער הנותר תפעולי/זמן בלבד (`soak` 7 ימים רצופים)
+רשת חדשות של 19 סוכנויות במקביל + למידה רקע אסינכרונית (`_learn_lock`) + Trading Desk (`pmmb serve --autostart`)
 ```
 
 פרמטרים מכוילים: `lookback_candles=24`, `z_entry=1.8`, `reversion_ratio=0.55`,
-`rsi_max=45.0`, `max_spread_to_edge=1.1`, `min_score=0.55`, `min_edge=0.005` (נמדד **אחרי** ספרד ועמלה),
-`stop_mode=abs`, TP +0.05 (סנט בהסתברות), SL -0.08, `drawdown_throttle_pct=0.05`.
+`rsi_max=40.0`, `max_spread_to_edge=1.1`, `min_score=0.55`, `min_edge=0.005` (נמדד **אחרי** ספרד ועמלה),
+`max_taker_fee_rate=0.02`, `max_hours_to_resolution=1080`, `price_band=[0.12, 0.88]`,
+`stop_mode=abs`, TP +0.05 (סנט בהסתברות), SL -0.07, `drawdown_throttle_pct=0.05`.
 
 ---
 
