@@ -68,6 +68,7 @@ class ExitConfig:
     stop_loss: float = 0.07
     time_stop_hours: float = 48
     exit_on_flip: bool = True
+    stop_mode: str = "pct"          # pct = יחס ממחיר הכניסה · abs = נקודות הסתברות קבועות
 
 
 @dataclass
@@ -115,6 +116,8 @@ class SignalConfig:
             raise ConfigError("signal.min_score חייב להיות בין 0 ל-1")
         if self.engine not in ("momentum", "meanrev"):
             raise ConfigError(f"signal.engine לא מוכר: {self.engine}")
+        if self.exit.stop_mode not in ("pct", "abs"):
+            raise ConfigError(f"signal.exit.stop_mode לא חוקי: {self.exit.stop_mode}")
 
 
 @dataclass

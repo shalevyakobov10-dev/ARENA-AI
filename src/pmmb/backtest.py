@@ -139,6 +139,7 @@ class Backtester:
 
         slip = cfg.execution.slippage_bps / 10_000.0
         fee_bps = cfg.execution.taker_fee_bps / 10_000.0
+        half_spread = spread / 2.0
 
         pos: dict | None = None
         pending: dict | None = None
@@ -157,6 +158,7 @@ class Backtester:
             stop, target = stop_and_target(
                 entry_px, "LONG", cfg.signal.exit.stop_loss,
                 cfg.signal.exit.take_profit, 0.001,
+                mode=cfg.signal.exit.stop_mode,
             )
             shares, _ = size_for_trade(
                 equity=cash, price=entry_px, fair_price=max(sig.fair_price, entry_px),
@@ -192,7 +194,8 @@ class Backtester:
                         pending = None
                 elif pending["candles"] >= passive_wait:
                     if passive_fallback:
-                        taker_px = price * (1 + slip) + price * fee_bps
+                        ask_fb = min(0.999, price + half_spread)
+                        taker_px = min(0.999, ask_fb * (1 + slip) + ask_fb * fee_bps)
                         if _try_open(taker_px, pending["signal"], ts, maker=False):
                             pending = None
                     else:
@@ -206,10 +209,11 @@ class Backtester:
             # ---------- יציאה ----------
             if pos is not None:
                 mark = price if pos["direction"] == "LONG" else 1.0 - price
+                bid = max(0.001, mark - half_spread)
                 hit = None
-                if mark <= pos["stop"]:
+                if bid <= pos["stop"]:
                     hit = "סטופ"
-                elif mark >= pos["target"]:
+                elif bid >= pos["target"]:
                     hit = "יעד"
                 elif (ts - pos["entry_ts"]) / 3600 >= cfg.signal.exit.time_stop_hours:
                     hit = "time stop"
@@ -218,7 +222,7 @@ class Backtester:
                     hit = "היפוך סיגנל"
 
                 if hit:
-                    exit_px = mark * (1 - slip) - mark * fee_bps
+                    exit_px = max(0.001, bid * (1 - slip) - bid * fee_bps)
                     exit_fee = taker_fee(pos["size"], exit_px, market.taker_fee_rate)
                     net = (exit_px - pos["entry"]) * pos["size"] - pos["entry_fee"] - exit_fee
                     cash += pos["size"] * exit_px - exit_fee
@@ -242,8 +246,8 @@ class Backtester:
                     limit = max(0.01, round(price - spread / 2.0, 2))
                     pending = {"limit": limit, "candles": 0, "signal": signal}
                 else:
-                    side_price = signal.market_price
-                    _try_open(side_price * (1 + slip) + side_price * fee_bps,
+                    ask = min(0.999, signal.market_price + half_spread)
+                    _try_open(min(0.999, ask * (1 + slip) + ask * fee_bps),
                               signal, ts, maker=False)
 
             equity = cash + (pos["size"] * (price if pos["direction"] == "LONG" else 1 - price) if pos else 0.0)
@@ -255,14 +259,16 @@ class Backtester:
         # סגירת פוזיציה פתוחה בסוף
         if pos is not None:
             mark = prices[-1] if pos["direction"] == "LONG" else 1 - prices[-1]
-            exit_fee = taker_fee(pos["size"], mark, market.taker_fee_rate)
-            net = (mark * (1 - slip) - pos["entry"]) * pos["size"] - pos["entry_fee"] - exit_fee
-            cash += pos["size"] * mark * (1 - slip) - exit_fee
+            bid = max(0.001, mark - half_spread)
+            exit_px = max(0.001, bid * (1 - slip) - bid * fee_bps)
+            exit_fee = taker_fee(pos["size"], exit_px, market.taker_fee_rate)
+            net = (exit_px - pos["entry"]) * pos["size"] - pos["entry_fee"] - exit_fee
+            cash += pos["size"] * exit_px - exit_fee
             fees_total += pos["entry_fee"] + exit_fee
             trades.append(
                 BTrade(
                     entry_ts=pos["entry_ts"], exit_ts=candles[-1].ts, direction=pos["direction"],
-                    entry=round(pos["entry"], 4), exit=round(mark, 4), size=pos["size"],
+                    entry=round(pos["entry"], 4), exit=round(exit_px, 4), size=pos["size"],
                     pnl=round(net, 4), pnl_pct=round(net / max(pos["cost"], 1e-9) * 100, 2),
                     reason="סוף התקופה", score=round(pos["score"], 3),
                 )
@@ -339,8 +345,8 @@ def write_report(results: list[BacktestResult], out_dir: str | Path = "reports",
             f"**סה\"כ:** {n} עסקאות, {wins} מנצחות "
             f"({wins / n * 100:.1f}%), PnL ממומש {tot_pnl:+.2f} USDC",
             "",
-            "> הערה: בקטסט על סדרת מחירי midpoint — בפועל משלמים ספרד והחלקה,",
-            "> ולכן התוצאות האלה אופטימיות ביחס למסחר אמיתי. תמיד להריץ paper קודם.",
+            "> הערה: הבקטסט מחייב ספרד מלא (חצי בכניסה, חצי ביציאה), החלקה ועמלות פולימרקט.",
+            "> תוצאות היסטוריות הן אינדיקציה בלבד — לאימות חי הרץ paper.",
         ]
     md = out / "backtest.md"
     md.write_text("\n".join(lines), encoding="utf-8")

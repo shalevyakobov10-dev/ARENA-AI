@@ -61,3 +61,9 @@ def book() -> Book:
 def cfg_market(cfg, market):
     """(הקונפיג, השוק) — נוחות לטסטים שמקבלים את שניהם."""
     return cfg, market
+
+
+@pytest.fixture(autouse=True)
+def _isolate_state(tmp_path, monkeypatch):
+    """מבחנים לעולם לא דורסים את state/heartbeat.json של ההרצה האמיתית."""
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "pmmb-state"))

@@ -549,8 +549,11 @@ def cmd_status(args, cfg: Config) -> int:
         print(f"   היום: {today.get('fills')} מילואים · PnL {today.get('realized_pnl'):+.2f} · "
               f"עמלות {today.get('fees'):.2f}")
     for p in st.get("positions") or []:
-        print(f"   · {p['direction']} {p['size']:.1f} @ {p['avg_price']:.3f} "
-              f"({p['age_hours']:.1f}ש') {p['token_id']}")
+        mark_txt = f"→{p['mark_price']:.3f}" if p.get("mark_price") is not None else ""
+        unr_txt = f" ({p['unrealized_pnl']:+.2f})" if p.get("unrealized_pnl") is not None else ""
+        q = (p.get("question") or p["token_id"])[:36]
+        print(f"   · {p['direction']} {p['size']:.1f} @ {p['avg_price']:.3f}{mark_txt}{unr_txt} "
+              f"({p['age_hours']:.1f}ש') {q}")
     return 0 if h["healthy"] else 3
 
 
@@ -568,6 +571,91 @@ def cmd_serve(args, cfg: Config) -> int:
         print("\nנעצר")
     finally:
         httpd.server_close()
+    return 0
+
+
+def cmd_reconcile(args, cfg: Config) -> int:
+    """סנכרון ה-DB מול מציאות החשבון/הבורסה."""
+    from .reconcile import reconcile_live, reconcile_paper
+
+    mode = args.mode or cfg.execution.mode
+    store = Store(cfg.data.db_path)
+    try:
+        if mode == "live":
+            from .execution.live import LiveBroker, LiveTradingDisabled
+
+            cfg.execution.mode = "live"
+            try:
+                broker = LiveBroker(cfg.execution)
+            except LiveTradingDisabled as exc:
+                print(f"⛔ {exc}")
+                return 2
+            rep = reconcile_live(
+                store, broker,
+                starting_cash=cfg.execution.starting_cash,
+                fix=args.fix,
+                cancel_orders=args.cancel_orders,
+            )
+        else:
+            rep = reconcile_paper(
+                store, starting_cash=cfg.execution.starting_cash, fix=args.fix,
+            )
+    finally:
+        store.close()
+
+    print()
+    print(rep.to_markdown())
+    if rep.clean or (args.fix and all(d.fixed for d in rep.discrepancies)):
+        return 0
+    return 4
+
+
+def cmd_backup(args, cfg: Config) -> int:
+    """גיבוי חם ואטומי של מסד הנתונים."""
+    from .backup import backup_db
+
+    res = backup_db(cfg.data.db_path, backups_dir=args.out, keep=args.keep)
+    kb = res.size_bytes / 1024
+    extra = f" (נוקו {res.removed} ישנים)" if res.removed else ""
+    print(f"✅ גיבוי תקין: {res.path} ({kb:.1f} KB){extra}")
+    return 0
+
+
+def cmd_halt(args, cfg: Config) -> int:
+    """עצירת חירום מתמדת (מונעת כניסות עד pmmb resume)."""
+    from .runtime import write_halt
+
+    reason = " ".join(args.reason).strip() or "עצירה ידנית מה-CLI"
+    p = write_halt(reason, source="cli")
+    print(f"🛑 הופעלה עצירת חירום ({p}): {reason}")
+    return 0
+
+
+def cmd_resume(args, cfg: Config) -> int:
+    """שחרור עצירה ידנית."""
+    from .runtime import clear_halt
+
+    if clear_halt():
+        print("▶️  העצירה הידנית בוטלה.")
+    else:
+        print("ℹ️  לא הייתה עצירה פעילה.")
+    return 0
+
+
+def cmd_telegram(args, cfg: Config) -> int:
+    """האזנה לפקודות Telegram מהטלפון (/status, /positions, /halt, /resume)."""
+    from .telegram_bot import TelegramController
+
+    bot = TelegramController(cfg)
+    if not bot.enabled:
+        print("⚪️ חסרים PMMB_TELEGRAM_TOKEN / PMMB_TELEGRAM_CHAT_ID")
+        return 1
+    if args.once:
+        n = bot.poll_once(timeout=args.timeout)
+        print(f"טופלו {n} פקודות")
+        return 0
+    print("🤖 מאזין לפקודות Telegram (Ctrl+C לעצירה)...")
+    bot.run_forever(timeout=args.timeout)
     return 0
 
 
@@ -756,6 +844,24 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("notify-test", help="בדיקת התראות Telegram")
 
+    rec = sub.add_parser("reconcile", help="סנכרון ה-DB מול הבורסה / ספר החשבונות")
+    rec.add_argument("--mode", choices=["paper", "live"], default=None)
+    rec.add_argument("--fix", action="store_true", help="תקן פערים ב-DB לפי המציאות")
+    rec.add_argument("--cancel-orders", action="store_true", help="בטל פקודות פתוחות תקועות (live)")
+
+    bk = sub.add_parser("backup", help="גיבוי חם ומאומת של pmmb.db")
+    bk.add_argument("--out", default="backups")
+    bk.add_argument("--keep", type=int, default=14, help="כמה גיבויים לשמור")
+
+    ht = sub.add_parser("halt", help="עצירת חירום מתמדת (נשמרת גם אחרי הפעלה מחדש)")
+    ht.add_argument("reason", nargs="*", help="סיבת העצירה")
+
+    sub.add_parser("resume", help="ביטול עצירת חירום ידנית")
+
+    tg = sub.add_parser("telegram", help="לולאת פקודות Telegram לטלפון (/status, /halt)")
+    tg.add_argument("--once", action="store_true", help="בדוק פעם אחת וצא")
+    tg.add_argument("--timeout", type=int, default=25)
+
     rd = sub.add_parser("readiness", help="שער המעבר ל-live (exit 0 = מוכן)")
     rd.add_argument("--days", type=int, default=7, help="כמה ימי paper נדרשים")
     rd.add_argument("--max-gap", type=float, default=30.0, help="פער הרצה מרבי (דקות)")
@@ -804,6 +910,11 @@ def main(argv: list[str] | None = None) -> int:
         "status": cmd_status,
         "serve": cmd_serve,
         "notify-test": cmd_notify_test,
+        "reconcile": cmd_reconcile,
+        "backup": cmd_backup,
+        "halt": cmd_halt,
+        "resume": cmd_resume,
+        "telegram": cmd_telegram,
     }
     return handlers[args.command](args, cfg)
 

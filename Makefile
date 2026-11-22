@@ -1,4 +1,4 @@
-.PHONY: readiness help install test doctor scan analyze calibrate sectors collect imbalance walkforward paper live backtest tune daily report research status serve sync deploy fees clean
+.PHONY: reconcile backup readiness help install test doctor scan analyze calibrate sectors collect imbalance walkforward paper live backtest tune daily report research status serve sync deploy fees clean
 
 help:
 	@echo "make install   — התקנת תלויות (editable)"
@@ -33,6 +33,12 @@ doctor:
 
 scan:
 	pmmb scan
+
+reconcile:  ## סנכרון DB מול החשבון/בורסה
+	pmmb reconcile
+
+backup:  ## גיבוי חם של מסד הנתונים
+	pmmb backup
 
 readiness:  ## שער המעבר ל-live
 	pmmb readiness

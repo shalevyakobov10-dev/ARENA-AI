@@ -134,3 +134,12 @@ def test_calibration_no_signals_is_empty(cfg):
     res = run_calibration(engine, datasets, fidelity_min=60, horizon_hours=24)
     assert res.rows == []
     assert res.suggested_ratio == res.current_ratio
+
+
+def test_walkforward_does_not_mutate_cfg(cfg):
+    cfg.signal.engine = "meanrev"
+    cfg.signal.exit.stop_mode = "abs"
+    orig = (cfg.signal.meanrev.z_entry, cfg.signal.exit.take_profit, cfg.signal.exit.stop_loss)
+    datasets = [(_market(), _candles(_oscillating(400)))]
+    run_walkforward(cfg, datasets, folds=2)
+    assert (cfg.signal.meanrev.z_entry, cfg.signal.exit.take_profit, cfg.signal.exit.stop_loss) == orig

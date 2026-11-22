@@ -3,11 +3,12 @@
 """
 from __future__ import annotations
 
+import html as _html
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .runtime import check_health, read_heartbeat
+from .runtime import check_health, read_halt, read_heartbeat
 
 
 def _day_start_ts() -> int:
@@ -15,24 +16,31 @@ def _day_start_ts() -> int:
     return int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
 
 
+def _esc(s: object) -> str:
+    return _html.escape(str(s or ""), quote=True)
+
+
 def build_status(cfg, *, max_age_sec: float = 300) -> dict:
     """
-    מרכיב מצב מלא: דופק, בריאות, פוזיציות פתוחות, עסקאות היום, PnL ממומש,
-    אירועים אחרונים. לא נוגע ברשת — רק DB + קובץ דופק.
+    מרכיב מצב מלא: דופק, בריאות, פוזיציות פתוחות (כולל PnL לא ממומש וסטופ/יעד),
+    עסקאות היום, PnL ממומש, אירועים אחרונים. לא נוגע ברשת — רק DB + קובץ דופק.
     """
     from .data.store import Store
 
     health = check_health(max_age_sec=max_age_sec)
     hb = health.heartbeat or read_heartbeat()
+    halt = read_halt()
     out: dict = {
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
         "mode": cfg.execution.mode,
         "engine": cfg.signal.engine,
         "health": health.as_dict(),
+        "halt": halt.as_dict() if halt else None,
         "heartbeat": hb.as_dict() if hb else None,
         "positions": [],
         "today": {},
         "bankroll": {},
+        "soak": {"days": 0, "target_days": 7},
         "guards": (hb.guards if hb else {}),
         "skipped": (hb.skipped if hb else {}),
         "equity_curve": [],
@@ -47,14 +55,36 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
     try:
         day = _day_start_ts()
         pos = store.open_positions(cfg.execution.mode)
-        out["positions"] = [{
-            "token_id": r["token_id"][:12], "condition_id": (r["condition_id"] or "")[:12],
-            "direction": r["direction"], "size": round(r["size"], 2),
-            "avg_price": round(r["avg_price"], 4),
-            "opened_at": r["opened_at"],
-            "age_hours": round((time.time() - (r["opened_at"] or time.time())) / 3600, 1),
-            "realized_pnl": round(r["realized_pnl"] or 0.0, 2),
-        } for r in pos]
+        marks = store.latest_marks([r["token_id"] for r in pos]) if pos else {}
+
+        pos_list = []
+        total_unrealized = 0.0
+        for r in pos:
+            tid = r["token_id"]
+            avg = float(r["avg_price"] or 0.0)
+            sz = float(r["size"] or 0.0)
+            mark = marks.get(tid)
+            unr = round((mark - avg) * sz, 2) if mark is not None else None
+            unr_pct = round((mark - avg) / avg * 100, 1) if (mark is not None and avg > 0) else None
+            if unr is not None:
+                total_unrealized += unr
+            pos_list.append({
+                "token_id": tid[:12],
+                "condition_id": (r["condition_id"] or "")[:12],
+                "question": r["question"] or tid[:16],
+                "direction": r["direction"],
+                "size": round(sz, 2),
+                "avg_price": round(avg, 4),
+                "mark_price": round(mark, 4) if mark is not None else None,
+                "unrealized_pnl": unr,
+                "unrealized_pct": unr_pct,
+                "stop_price": round(float(r["stop_price"]), 3) if r["stop_price"] is not None else None,
+                "target_price": round(float(r["target_price"]), 3) if r["target_price"] is not None else None,
+                "opened_at": r["opened_at"],
+                "age_hours": round((time.time() - (r["opened_at"] or time.time())) / 3600, 1),
+                "realized_pnl": round(r["realized_pnl"] or 0.0, 2),
+            })
+        out["positions"] = pos_list
 
         fills = store.fills_since(day, cfg.execution.mode)
         realized_today = sum(float(r["realized"] or 0.0) for r in fills)
@@ -68,15 +98,31 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
         }
 
         with store.tx() as c:
-            row = c.execute("SELECT equity, cash, exposure, positions FROM equity "
-                            "ORDER BY ts DESC LIMIT 1").fetchone()
+            row = c.execute(
+                "SELECT equity, cash, exposure, positions FROM equity "
+                "WHERE mode=? OR mode IS NULL ORDER BY ts DESC LIMIT 1",
+                (cfg.execution.mode,),
+            ).fetchone()
             curve = list(c.execute(
-                "SELECT ts, equity FROM equity ORDER BY ts DESC LIMIT 240").fetchall())
+                "SELECT ts, equity FROM equity WHERE mode=? OR mode IS NULL "
+                "ORDER BY ts DESC LIMIT 240",
+                (cfg.execution.mode,),
+            ).fetchall())
+            eq_days = list(c.execute(
+                "SELECT ts FROM equity WHERE mode=? OR mode IS NULL",
+                (cfg.execution.mode,),
+            ).fetchall())
+        soak_days = len({
+            datetime.fromtimestamp(r["ts"], tz=timezone.utc).strftime("%Y-%m-%d")
+            for r in eq_days
+        })
+        out["soak"] = {"days": soak_days, "target_days": 7}
         out["bankroll"] = {
-            "equity": round(row["equity"], 2) if row else None,
-            "cash": round(row["cash"], 2) if row else None,
-            "exposure": round(row["exposure"], 2) if row else None,
-            "open_positions": row["positions"] if row else None,
+            "equity": round(row["equity"], 2) if row else (round(hb.equity, 2) if hb else None),
+            "cash": round(row["cash"], 2) if row else (round(hb.cash, 2) if hb else None),
+            "exposure": round(row["exposure"], 2) if row else (round(hb.exposure, 2) if hb else None),
+            "open_positions": row["positions"] if row else (hb.positions if hb else None),
+            "unrealized_pnl": round(total_unrealized, 2),
         }
         out["equity_curve"] = [{"ts": r["ts"], "equity": round(r["equity"], 2)}
                                for r in reversed(curve)]
@@ -122,36 +168,72 @@ def status_html(st: dict, *, refresh_sec: int = 30) -> str:
     """עמוד יחיד, RTL, כהה, בלי JS ובלי משאבים חיצוניים — עובד גם בטלפון וגם בסנדבוקס."""
     h = st.get("health") or {}
     hb = st.get("heartbeat") or {}
+    halt = st.get("halt")
     bank = st.get("bankroll") or {}
     today = st.get("today") or {}
+    soak = st.get("soak") or {"days": 0, "target_days": 7}
     ok = bool(h.get("healthy"))
     color = "#22c55e" if ok else "#ef4444"
-    status_txt = "תקין ורץ" if ok else f"לא בריא — {h.get('reason', '')}"
+    status_txt = "תקין ורץ" if ok else f"לא בריא — {_esc(h.get('reason', ''))}"
+
+    halt_banner = ""
+    if halt or (hb and hb.get("halted")):
+        reason = _esc((halt or {}).get("reason") or (hb or {}).get("halt_reason") or "עצירה פעילה")
+        src = _esc((halt or {}).get("source") or "risk")
+        halt_banner = (
+            f"<div style='background:#3b1116;border:1px solid #ef4444;border-radius:10px;"
+            f"padding:12px 14px;margin-bottom:16px;color:#fecaca;font-size:13px'>"
+            f"🛑 <b>עצירת מסחר פעילה ({src}):</b> {reason}</div>"
+        )
 
     def card(title: str, value: str, sub: str = "") -> str:
         return (f"<div style='background:#151a21;border:1px solid #232b36;border-radius:12px;"
-                f"padding:14px 16px;min-width:150px;flex:1'>"
+                f"padding:14px 16px;min-width:140px;flex:1'>"
                 f"<div style='color:#8b98ab;font-size:12px;margin-bottom:6px'>{title}</div>"
                 f"<div style='font-size:22px;font-weight:700;color:#e8eef7'>{value}</div>"
                 f"<div style='color:#6b7a90;font-size:11px;margin-top:4px'>{sub}</div></div>")
 
+    unr_total = bank.get("unrealized_pnl") or 0.0
     cards = "".join([
-        card("הון", f"{bank.get('equity', 0) or 0:.2f}", "USDC"),
+        card("הון", f"{bank.get('equity', 0) or 0:.2f}", f"לא ממומש {unr_total:+.2f}"),
         card("מזומן", f"{bank.get('cash', 0) or 0:.2f}", "USDC"),
         card("חשיפה", f"{bank.get('exposure', 0) or 0:.2f}", "בשוק"),
         card("פוזיציות", str(bank.get("open_positions", 0) or 0), "פתוחות"),
         card("PnL היום", f"{today.get('realized_pnl', 0):+.2f}", f"{today.get('exits', 0)} יציאות"),
         card("עמלות היום", f"{today.get('fees', 0):.2f}", "USDC"),
+        card("שבוע paper", f"{soak.get('days', 0)}/{soak.get('target_days', 7)}",
+             "מוכן ל-live" if soak.get("days", 0) >= soak.get("target_days", 7) else "צובר ימים"),
     ])
 
-    rows = "".join(
-        f"<tr><td style='padding:8px;border-bottom:1px solid #232b36'>{p['direction']}</td>"
-        f"<td style='padding:8px;border-bottom:1px solid #232b36'>{p['size']:.1f}</td>"
-        f"<td style='padding:8px;border-bottom:1px solid #232b36'>{p['avg_price']:.3f}</td>"
-        f"<td style='padding:8px;border-bottom:1px solid #232b36'>{p['age_hours']:.1f}ש'</td>"
-        f"<td style='padding:8px;border-bottom:1px solid #232b36'>{p['token_id']}</td></tr>"
-        for p in (st.get("positions") or [])
-    ) or "<tr><td colspan=5 style='padding:12px;color:#6b7a90'>אין פוזיציות פתוחות</td></tr>"
+    def _pos_row(p: dict) -> str:
+        mark = p.get("mark_price")
+        unr = p.get("unrealized_pnl")
+        unr_pct = p.get("unrealized_pct")
+        mark_txt = f"{mark:.3f}" if mark is not None else "—"
+        if unr is not None:
+            uc = "#22c55e" if unr >= 0 else "#ef4444"
+            unr_txt = f"<span style='color:{uc}'>{unr:+.2f} ({unr_pct:+.1f}%)</span>"
+        else:
+            unr_txt = "—"
+        sl = f"{p['stop_price']:.2f}" if p.get("stop_price") else "—"
+        tp = f"{p['target_price']:.2f}" if p.get("target_price") else "—"
+        q = _esc((p.get("question") or p["token_id"])[:42])
+        return (
+            f"<tr>"
+            f"<td style='padding:8px;border-bottom:1px solid #232b36;color:#e8eef7'>{q}</td>"
+            f"<td style='padding:8px;border-bottom:1px solid #232b36'>{_esc(p['direction'])}</td>"
+            f"<td style='padding:8px;border-bottom:1px solid #232b36'>{p['size']:.1f}</td>"
+            f"<td style='padding:8px;border-bottom:1px solid #232b36'>{p['avg_price']:.3f}</td>"
+            f"<td style='padding:8px;border-bottom:1px solid #232b36'>{mark_txt}</td>"
+            f"<td style='padding:8px;border-bottom:1px solid #232b36'>{unr_txt}</td>"
+            f"<td style='padding:8px;border-bottom:1px solid #232b36;color:#8b98ab'>{sl} / {tp}</td>"
+            f"<td style='padding:8px;border-bottom:1px solid #232b36'>{p['age_hours']:.1f}ש'</td>"
+            f"</tr>"
+        )
+
+    rows = "".join(_pos_row(p) for p in (st.get("positions") or [])) or (
+        "<tr><td colspan=8 style='padding:12px;color:#6b7a90'>אין פוזיציות פתוחות</td></tr>"
+    )
 
     g = st.get("guards") or {}
     guard_rows = "".join([
@@ -173,18 +255,18 @@ def status_html(st: dict, *, refresh_sec: int = 30) -> str:
     total_skipped = sum(skipped.values()) or 1
     skip_rows = "".join(
         f"<div style='display:flex;align-items:center;gap:8px;margin:5px 0'>"
-        f"<div style='flex:0 0 190px;color:#a9b6c8;font-size:12px'>{k}</div>"
+        f"<div style='flex:0 0 190px;color:#a9b6c8;font-size:12px'>{_esc(k)}</div>"
         f"<div style='flex:1;background:#1b2330;border-radius:5px;height:8px'>"
         f"<div style='width:{v / total_skipped * 100:.0f}%;background:#3b82f6;height:8px;"
         f"border-radius:5px'></div></div>"
         f"<div style='flex:0 0 34px;text-align:left;color:#6b7a90;font-size:11px'>{v}</div></div>"
         for k, v in sorted(skipped.items(), key=lambda kv: -kv[1])
-    ) or "<div style='color:#6b7a90;font-size:12px'>אין דחיות recorded</div>"
+    ) or "<div style='color:#6b7a90;font-size:12px'>אין דחיות מתועדות</div>"
 
     ev = "".join(
         f"<li style='margin:6px 0;color:#a9b6c8'><span style='color:#6b7a90'>"
         f"{datetime.fromtimestamp(e['ts'], tz=timezone.utc).strftime('%d/%m %H:%M')}</span> "
-        f"{e['msg'][:110]}</li>" for e in (st.get("events") or [])
+        f"{_esc(str(e['msg'])[:110])}</li>" for e in (st.get("events") or [])
     ) or "<li style='color:#6b7a90'>אין אירועים</li>"
 
     return f"""<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8">
@@ -193,17 +275,18 @@ def status_html(st: dict, *, refresh_sec: int = 30) -> str:
 {f'<meta http-equiv="refresh" content="{refresh_sec}">' if refresh_sec else ''}
 </head><body style="margin:0;background:#0b0f14;color:#e8eef7;
 font-family:system-ui,-apple-system,'Segoe UI',Rubik,Arial,sans-serif;padding:18px">
-<div style="max-width:940px;margin:0 auto">
+<div style="max-width:980px;margin:0 auto">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
     <div style="width:11px;height:11px;border-radius:50%;background:{color};
                 box-shadow:0 0 12px {color}"></div>
-    <h1 style="font-size:20px;margin:0">PMMB · {st.get('mode', '')} · {st.get('engine', '')}</h1>
+    <h1 style="font-size:20px;margin:0">PMMB · {_esc(st.get('mode', ''))} · {_esc(st.get('engine', ''))}</h1>
   </div>
-  <div style="color:#8b98ab;font-size:13px;margin-bottom:18px">
+  <div style="color:#8b98ab;font-size:13px;margin-bottom:16px">
     {status_txt} · מחזור #{hb.get('cycle', 0)} · עדכון אחרון
     {hb.get('age_sec', 0) if isinstance(hb.get('age_sec'), (int, float)) else ''}
-    {('· ' + str(hb.get('iso', ''))[11:19]) if hb else ''}
+    {('· ' + _esc(str(hb.get('iso', ''))[11:19])) if hb else ''}
   </div>
+  {halt_banner}
   <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">{cards}</div>
   <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px">
     <div style="background:#151a21;border:1px solid #232b36;border-radius:12px;
@@ -223,16 +306,19 @@ font-family:system-ui,-apple-system,'Segoe UI',Rubik,Arial,sans-serif;padding:18
     </div>
   </div>
   <h2 style="font-size:15px;color:#8b98ab;margin:0 0 8px">פוזיציות פתוחות</h2>
-  <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:22px">
+  <div style="overflow-x:auto;margin-bottom:22px">
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
     <tr style="color:#6b7a90;text-align:right">
-      <th style="padding:6px">כיוון</th><th style="padding:6px">גודל</th>
-      <th style="padding:6px">מחיר</th><th style="padding:6px">גיל</th>
-      <th style="padding:6px">טוקן</th></tr>
+      <th style="padding:6px">שוק</th><th style="padding:6px">כיוון</th>
+      <th style="padding:6px">גודל</th><th style="padding:6px">כניסה</th>
+      <th style="padding:6px">נוכחי</th><th style="padding:6px">לא ממומש</th>
+      <th style="padding:6px">SL / TP</th><th style="padding:6px">גיל</th></tr>
     {rows}
   </table>
+  </div>
   <h2 style="font-size:15px;color:#8b98ab;margin:0 0 8px">אירועים אחרונים</h2>
   <ul style="padding-inline-start:18px;font-size:13px;margin:0">{ev}</ul>
   <div style="margin-top:24px;color:#4d5a6d;font-size:11px">
-    /status.json · /healthz · נוצר {st.get('generated_at', '')}
+    /status.json · /healthz · נוצר {_esc(st.get('generated_at', ''))}
   </div>
 </div></body></html>"""

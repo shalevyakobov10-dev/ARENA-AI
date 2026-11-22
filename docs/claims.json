@@ -3,9 +3,24 @@
   "claims": [
     {
       "agent": "arena",
-      "paths": ["src/pmmb/fees.py", "src/pmmb/feeview.py", "src/pmmb/runtime.py",
-                "src/pmmb/status.py", "src/pmmb/server.py", "src/pmmb/notify.py",
-                "deploy/**", "scripts/sync.sh", "scripts/watchdog.sh"],
+      "paths": [
+        "src/pmmb/fees.py",
+        "src/pmmb/feeview.py",
+        "src/pmmb/runtime.py",
+        "src/pmmb/status.py",
+        "src/pmmb/server.py",
+        "src/pmmb/notify.py",
+        "src/pmmb/reconcile.py",
+        "src/pmmb/backup.py",
+        "src/pmmb/telegram_bot.py",
+        "src/pmmb/readiness.py",
+        "src/pmmb/backtest.py",
+        "src/pmmb/walkforward.py",
+        "deploy/**",
+        "scripts/sync.sh",
+        "scripts/watchdog.sh",
+        "scripts/push_to_github.sh"
+      ],
       "issue": "שכבת עמלות + עצמאות תפעולית",
       "since": "2026-11-22T07:00:00Z",
       "expires": "2026-11-25T07:00:00Z"

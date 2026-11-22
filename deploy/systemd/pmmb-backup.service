@@ -1,0 +1,9 @@
+[Unit]
+Description=PMMB — גיבוי חם ומאומת של SQLite
+
+[Service]
+Type=oneshot
+User=%i
+WorkingDirectory=/opt/polymarket-momentum-bot
+EnvironmentFile=/opt/polymarket-momentum-bot/.env
+ExecStart=/opt/polymarket-momentum-bot/.venv/bin/pmmb backup --keep 14

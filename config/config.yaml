@@ -56,9 +56,10 @@ signal:
   trend_filter: true           # מסחר רק בכיוון ה-EMA האיטי
   allow_short: true            # "שורט" = קניית טוקן ה-NO / מכירת YES
   exit:
-    take_profit: 0.10          # תיקון של ~3 סנט על מחיר 0.3-0.5
-    stop_loss: 0.12            # ירידה חדה ממשיכה לרדת — סטופ רחב
-    time_stop_hours: 48        # כיול: באופק 24ש' הצפי מבטיח פי 1.6 מדי
+    stop_mode: abs             # נקודות הסתברות קבועות (ה-pct הפסיד תחת ספרד אמיתי)
+    take_profit: 0.05          # +5 סנט בהסתברות — שורד ספרד ועמלות בכל מחיר
+    stop_loss: 0.08            # -8 סנט בהסתברות
+    time_stop_hours: 48        # כיול: באופק 48ש' התיקון מתמצה
     exit_on_flip: false        # meanrev לא מייצר סיגנל הופכי (allow_short=false)
 
 risk:

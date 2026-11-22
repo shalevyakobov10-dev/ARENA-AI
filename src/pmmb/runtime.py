@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 HEARTBEAT_NAME = "heartbeat.json"
+HALT_NAME = "halt.json"
 
 
 def default_state_dir() -> Path:
@@ -26,6 +27,56 @@ def default_state_dir() -> Path:
 def heartbeat_path(state_dir: str | Path | None = None) -> Path:
     base = Path(state_dir) if state_dir is not None else default_state_dir()
     return base / HEARTBEAT_NAME
+
+
+def halt_path(state_dir: str | Path | None = None) -> Path:
+    base = Path(state_dir) if state_dir is not None else default_state_dir()
+    return base / HALT_NAME
+
+
+@dataclass
+class HaltFlag:
+    reason: str
+    source: str = "manual"      # manual / phone / risk
+    ts: float = 0.0
+
+    @property
+    def iso(self) -> str:
+        return datetime.fromtimestamp(self.ts, tz=timezone.utc).isoformat()
+
+    def as_dict(self) -> dict:
+        return {"ts": round(self.ts, 3), "iso": self.iso,
+                "source": self.source, "reason": self.reason}
+
+
+def write_halt(reason: str, *, source: str = "manual",
+               state_dir: str | Path | None = None) -> Path:
+    flag = HaltFlag(reason=reason or "עצירה ידנית", source=source, ts=time.time())
+    p = halt_path(state_dir)
+    _atomic_write(p, flag.as_dict())
+    return p
+
+
+def read_halt(state_dir: str | Path | None = None) -> HaltFlag | None:
+    p = halt_path(state_dir)
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+    return HaltFlag(
+        reason=str(d.get("reason") or "עצירה ידנית"),
+        source=str(d.get("source") or "manual"),
+        ts=float(d.get("ts") or 0.0),
+    )
+
+
+def clear_halt(state_dir: str | Path | None = None) -> bool:
+    p = halt_path(state_dir)
+    try:
+        p.unlink()
+        return True
+    except FileNotFoundError:
+        return False
 
 
 def _atomic_write(path: Path, payload: dict) -> None:
@@ -138,10 +189,13 @@ class Health:
 
 def check_health(*, max_age_sec: float = 300, state_dir: str | Path | None = None) -> Health:
     """
-    בריא = יש דופק, הוא טרי, והבוט לא עצר את עצמו.
+    בריא = יש דופק, הוא טרי, ואין עצירה (פנימית או מהטלפון/CLI).
     max_age_sec צריך להיות לפחות פי 2–3 מרווח המחזור.
     """
     hb = read_heartbeat(state_dir)
+    halt = read_halt(state_dir)
+    if halt is not None:
+        return Health(False, f"הבוט עצור ({halt.source}): {halt.reason}", hb)
     if hb is None:
         return Health(False, "אין קובץ דופק — הבוט לא רץ מעולם או שהנתיב שגוי", None)
     if hb.halted:

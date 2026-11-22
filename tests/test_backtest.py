@@ -58,3 +58,16 @@ def test_backtest_never_goes_below_zero_cash(cfg, market):
     res = Backtester.run(bt, market, _candles(_series(0.5, 0.1, 150)), spread=0.02,
                          starting_cash=100.0)
     assert res.ending_equity > 0
+
+
+def test_backtest_charges_half_spread_on_taker(cfg, market):
+    """בבקטסט טאקר משלם חצי ספרד בכניסה וחצי ספרד ביציאה (תואם PaperBroker)."""
+    bt = _NoNet(cfg)
+    candles = _candles(_series(0.30, 0.70, 200))
+    spread = 0.04
+    res = Backtester.run(bt, market, candles, label="spread-check", spread=spread)
+    by_ts = {c.ts: c.price for c in candles}
+    for t in res.trades:
+        assert t.entry >= by_ts[t.entry_ts] + spread / 2 - 1e-6
+        if t.reason != "סוף התקופה":
+            assert t.exit <= by_ts[t.exit_ts] - spread / 2 + 1e-6

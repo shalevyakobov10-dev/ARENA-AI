@@ -92,14 +92,26 @@ def size_for_trade(
 
 
 def stop_and_target(price: float, side: str, stop_loss_pct: float, take_profit_pct: float,
-                    tick: float) -> tuple[float, float]:
-    """מחירי סטופ ויעד עבור LONG (קנייה) או SHORT (קניית NO — גם הוא 'קנייה')."""
-    if side in ("BUY", "LONG"):
-        stop = max(0.01, price * (1 - stop_loss_pct))
-        target = min(0.99, price * (1 + take_profit_pct))
+                    tick: float, *, mode: str = "pct") -> tuple[float, float]:
+    """
+    מחירי סטופ ויעד עבור LONG או SHORT.
+    mode="pct": אחוז ממחיר הכניסה.
+    mode="abs": נקודות הסתברות קבועות (מתאים לשווקי ‎[0,1]‎ עם ספרד קבוע).
+    """
+    if mode == "abs":
+        if side in ("BUY", "LONG"):
+            stop = max(0.01, price - stop_loss_pct)
+            target = min(0.99, price + take_profit_pct)
+        else:
+            stop = min(0.99, price + stop_loss_pct)
+            target = max(0.01, price - take_profit_pct)
     else:
-        stop = min(0.99, price * (1 + stop_loss_pct))
-        target = max(0.01, price * (1 - take_profit_pct))
+        if side in ("BUY", "LONG"):
+            stop = max(0.01, price * (1 - stop_loss_pct))
+            target = min(0.99, price * (1 + take_profit_pct))
+        else:
+            stop = min(0.99, price * (1 + stop_loss_pct))
+            target = max(0.01, price * (1 - take_profit_pct))
 
     stop = round_to_tick(stop, tick)
     target = round_to_tick(target, tick)

@@ -75,3 +75,33 @@ def test_token_check():
     assert token_ok("abc", "abc") is True
     assert token_ok("", "abc") is False
     assert token_ok("abd", "abc") is False
+
+
+def test_status_html_shows_question_unrealized_and_halt_banner(tmp_path, cfg, monkeypatch):
+    from pmmb.runtime import write_halt
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
+    cfg.data.db_path = str(tmp_path / "t4.db")
+    store = Store(tmp_path / "t4.db")
+    with store.tx() as c:
+        c.execute(
+            "INSERT INTO positions(token_id, condition_id, mode, direction, size,"
+            " avg_price, opened_at, stop_price, target_price, question, closed_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,NULL)",
+            ("tok-abc", "c-1", "paper", "LONG", 100.0, 0.40,
+             int(time.time()) - 3600, 0.32, 0.45, "Will Fed cut <rates> & more?"),
+        )
+    store.insert_ticks([("tok-abc", int(time.time()), 0.46)])
+    store.close()
+    write_heartbeat(Heartbeat(ts=time.time(), cycle=9, equity=1006.0), tmp_path / "state")
+    write_halt("בדיקת דגל", source="phone", state_dir=tmp_path / "state")
+
+    st = build_status(cfg)
+    assert st["positions"][0]["mark_price"] == 0.46
+    assert st["positions"][0]["unrealized_pnl"] == 6.0
+    assert st["health"]["healthy"] is False
+
+    html = status_html(st)
+    assert "Will Fed cut &lt;rates&gt; &amp; more?" in html
+    assert "+6.00" in html
+    assert "בדיקת דגל" in html
+    assert "http://" not in html and "https://" not in html

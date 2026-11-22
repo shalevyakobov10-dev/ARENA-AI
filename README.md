@@ -127,7 +127,7 @@ corr(תנועה של 12 נרות → תנועה של 24 נרות קדימה) = -
 cd polymarket-momentum-bot
 pip install -e ".[dev]"
 cp .env.example .env        # ריק בכוונה — paper לא צריך מפתחות
-make test                   # 155 טסטים, אפס קריאות רשת
+make test                   # 172 טסטים, אפס קריאות רשת
 make doctor                 # חיבור ל-Gamma ול-CLOB + פילטרים
 make scan                   # סיגנלים עכשיו
 make paper                  # סימולציה מול ספר הפקודות האמיתי
@@ -147,6 +147,10 @@ make paper                  # סימולציה מול ספר הפקודות הא
 | `pmmb status` | בריאות · הון · פוזיציות · היום (exit 0 בריא / 3 לא) |
 | `pmmb serve` | דשבורד לטלפון על :8787 (קריאה בלבד, `/status.json`, `/healthz`) |
 | `pmmb notify-test` | בדיקת התראות Telegram |
+| `pmmb reconcile` | סנכרון DB מול ספר החשבונות / הבורסה (`--fix` לתיקון) |
+| `pmmb backup` | גיבוי חם ומאומת של מסד הנתונים (`backups/`) |
+| `pmmb halt` / `resume` | עצירת חירום מתמדת (נשמרת גם אחרי הפעלה מחדש) |
+| `pmmb telegram` | לולאת פקודות מהטלפון (`/status`, `/positions`, `/halt`) |
 | `pmmb walkforward --folds 3` | כיול על חלון, מבחן על הבא |
 | `pmmb collect --minutes 30` | איסוף snapshots של ספר הפקודות |
 | `pmmb imbalance` | האם imbalance מנבא תנועת מחיר |
@@ -273,12 +277,12 @@ polymarket-momentum-bot/
 │   ├── config.py  models.py  engine.py
 │   ├── backtest.py  diagnostics.py  walkforward.py  daily.py
 │   ├── sectors.py  imbalance.py
-│   ├── cli.py                  # 19 פקודות
+│   ├── cli.py                  # 24 פקודות
 │   ├── data/                   # http, gamma, clob, store (כולל books)
 │   ├── signals/                # indicators, momentum, meanrev, base, factory
 │   ├── risk/                   # sizing, manager
 │   └── execution/              # base (Portfolio), paper, live
-├── tests/                      # 100 טסטים, אפס רשת
+├── tests/                      # 172 טסטים, אפס רשת
 ├── scripts/                    # run_paper.sh, paper_forever.sh,
 │                               # create_api_keys.py, research_signal.py,
 │                               # cron_example.crontab
@@ -300,6 +304,6 @@ polymarket-momentum-bot/
 ## ⚠️ אזהרות
 
 - פולימרקט = הסתברויות, סיכון resolution, נזילות דקה, וסטופים שלא תמיד מתמלאים (קרה בפועל).
-- הבקטסט משתמש ב-midpoint ולכן **אופטימי** מול מסחר אמיתי.
+- הבקטסט מחייב חצי-ספרד בכניסה וחצי-ספרד ביציאה, החלקה ועמלות פולימרקט — אך ביצוע חי עדיין תלוי בנזילות אמת ובשוקי קצה.
 - הדגימות במחקר חופפות בזמן; 60 יום היסטוריה הם מעט. כל מספר כאן הוא כיוון מכויל, לא ודאות.
 - אין ייעוץ השקעות. זהו קוד תשתית לניסויים.

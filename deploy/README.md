@@ -17,10 +17,13 @@ sudo cp deploy/systemd/pmmb-bot.service      /etc/systemd/system/
 sudo cp deploy/systemd/pmmb-status.service   /etc/systemd/system/
 sudo cp deploy/systemd/pmmb-watchdog.service /etc/systemd/system/
 sudo cp deploy/systemd/pmmb-watchdog.timer   /etc/systemd/system/
+sudo cp deploy/systemd/pmmb-telegram.service /etc/systemd/system/
+sudo cp deploy/systemd/pmmb-backup.service   /etc/systemd/system/
+sudo cp deploy/systemd/pmmb-backup.timer     /etc/systemd/system/
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now pmmb-bot pmmb-status
-sudo systemctl enable --now pmmb-watchdog.timer
+sudo systemctl enable --now pmmb-bot pmmb-status pmmb-telegram
+sudo systemctl enable --now pmmb-watchdog.timer pmmb-backup.timer
 
 systemctl status pmmb-bot --no-pager
 journalctl -u pmmb-bot -f          # לוג חי
@@ -108,7 +111,8 @@ pmmb readiness            # exit 0 = מוכן · exit 2 = לא מוכן
 
 - [ ] `pmmb paper` רץ לפחות שבוע בלי תקלות, `state/heartbeat.json` תמיד טרי
 - [ ] `pmmb walkforward` — כל החלונות חיוביים
-- [ ] `pmmb status` מחזיר 🟢
+- [ ] `pmmb status` מחזיר 🟢 ו-`pmmb reconcile` מחזיר 🟢 (אפס פערים)
+- [ ] `pmmb backup` רץ יומית (timer פעיל)
 - [ ] `pmmb notify-test` — הגיעה הודעה לטלפון
 - [ ] watchdog מוגדר ובדוק (הרוג ידנית את הבוט, חכה 10 דק', וודא שקם)
 - [ ] `.env` עם `PMMB_MODE=live` ומפתחות — **לא מסונכרן ל-GitHub**

@@ -76,6 +76,7 @@ class RiskManager:
             self.cfg.signal.exit.stop_loss,
             self.cfg.signal.exit.take_profit,
             tick,
+            mode=self.cfg.signal.exit.stop_mode,
         )
         shares, why = size_for_trade(
             equity=portfolio.equity,
@@ -113,6 +114,7 @@ class RiskManager:
         *,
         now: datetime | None = None,
         signal_flipped: bool = False,
+        hours_to_resolution: float | None = None,
     ) -> str | None:
         """מחזיר סיבת יציאה או None. הפוזיציה תמיד 'לונג' על הטוקן שנקנה."""
         now = now or datetime.now(tz=timezone.utc)
@@ -130,7 +132,10 @@ class RiskManager:
         if ex.exit_on_flip and signal_flipped:
             return "הסיגנל התהפך"
 
-        # יציאה קרובה לפדיון — לא נושאים סיכון resolution
+        # יציאה קרובה לפדיון — לא נושאים סיכון resolution בינארי
+        min_h = self.cfg.universe.min_hours_to_resolution
+        if hours_to_resolution is not None and min_h > 0 and hours_to_resolution <= min_h:
+            return f"קרוב לפדיון ({hours_to_resolution:.1f}ש')"
         return None
 
     # ------------------------------------------------------------------
