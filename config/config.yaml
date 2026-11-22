@@ -92,12 +92,13 @@ logging:
   json_console: false
 
 news:
-  enabled: true                  # פיד חדשות שווקים חיות (Google News RSS + Gamma Events)
+  enabled: true                  # פיד חדשות שווקים חיות (BBC, CNBC, NPR, Google News)
   refresh_interval_sec: 180      # רענון כל 3 דקות
   block_on_catalyst: true        # מונע "סכין נופלת" כשמזוהה כתבת קטליזטור שבירה על השוק
   spike_window_hours: 4.0        # חלון בדיקת חדשות טריות
   min_spike_articles: 2          # מס' כתבות תואמות בזמן קצר כדי לסמן גל חדשות
   spike_impact_threshold: 0.65   # כתבה בודדת בעלת חומרה גבוהה (breaking/announced/...)
+  volume_spike_ratio: 6.0        # זינוק נפח 24ש' פי N מהשבוע מוגדר כאות זהירות
   max_market_queries: 12         # מקס' שאילתות פרטניות לשווקים פתוחים/מועמדים
 
 learning:
@@ -110,3 +111,13 @@ learning:
   min_consistency: 0.66
   min_improvement_pct: 0.05      # דורש שיפור של >=5% מעל ה-Baseline לפני שינוי
   min_live_signals_for_alert: 12
+
+autopilot:
+  enabled: true                  # תפעול אוטונומי מלא של הבוט (Reconcile, גיבוי, דוחות)
+  trade_interval_sec: 180        # מחזור סריקה ומסחר כל 3 דקות
+  stream_interval_sec: 60        # הזרמת גרפים וספרי פקודות כל דקה
+  reconcile_every_cycles: 5      # בדיקת שלמות DB כל 5 מחזורים
+  auto_fix_paper: true           # תיקון אוטומטי של פערים ב-paper
+  backup_interval_sec: 14400     # גיבוי חם אוטומטי כל 4 שעות
+  backup_keep: 14
+  reports_interval_sec: 1800     # עדכון דוח יומי ומוכנות כל 30 דקות

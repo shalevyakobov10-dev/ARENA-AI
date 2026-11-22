@@ -64,9 +64,12 @@ class _TraderManager:
         self.last_news_ts = 0
         self.last_stream_ts = 0
         self.last_learn_ts = 0
+        self.last_reconcile_ts = 0
+        self.last_backup_ts = 0
+        self.last_reports_ts = 0
         self.last_error = ""
-        self.interval_sec = 180.0
-        self.stream_interval_sec = 60.0
+        self.interval_sec = float(cfg.autopilot.trade_interval_sec)
+        self.stream_interval_sec = float(cfg.autopilot.stream_interval_sec)
 
     @property
     def running(self) -> bool:
@@ -82,6 +85,9 @@ class _TraderManager:
             "last_news_ts": self.last_news_ts,
             "last_stream_ts": self.last_stream_ts,
             "last_learn_ts": self.last_learn_ts,
+            "last_reconcile_ts": self.last_reconcile_ts,
+            "last_backup_ts": self.last_backup_ts,
+            "last_reports_ts": self.last_reports_ts,
             "last_error": self.last_error,
             "interval_sec": self.interval_sec,
         }
@@ -212,19 +218,52 @@ class _TraderManager:
                 eng.close()
                 plock.release()
 
+    def run_maintenance_now(self, *, force_backup: bool = True, force_reports: bool = True) -> dict:
+        """מריץ חבילת תחזוקה מלאה של הטייס האוטומטי: אימות/תיקון DB, גיבוי חם ודוחות יומיים."""
+        from .autopilot import run_auto_backup, run_auto_reconcile, run_auto_reports
+
+        store = Store(self.cfg.data.db_path)
+        results: dict[str, str] = {}
+        try:
+            with self._lock:
+                rec = run_auto_reconcile(self.cfg, store)
+            self.last_reconcile_ts = int(time.time())
+            results["reconcile"] = rec["summary"]
+            if force_backup:
+                bk = run_auto_backup(self.cfg, store)
+                self.last_backup_ts = int(time.time())
+                results["backup"] = bk["summary"]
+            if force_reports:
+                rp = run_auto_reports(self.cfg, store)
+                self.last_reports_ts = int(time.time())
+                results["reports"] = rp["summary"]
+        finally:
+            store.close()
+        return {
+            "message": " | ".join(results.values()),
+            "output": json.dumps(results, ensure_ascii=False, indent=2),
+            **results,
+        }
+
     def start(self, interval_sec: float = 180.0) -> dict:
         if self.cfg.execution.mode != "paper":
             raise PermissionError("סוחר אוטומטי מהממשק מותר במצב paper בלבד")
         if self.running:
             return {"message": "המערכת הרציפה כבר פועלת", **self.state()}
-        self.interval_sec = max(30.0, float(interval_sec))
+        self.interval_sec = max(30.0, float(interval_sec or self.cfg.autopilot.trade_interval_sec))
         self._stop_ev.clear()
         self.last_error = ""
 
         def _loop() -> None:
+            from .autopilot import run_auto_backup, run_auto_reconcile, run_auto_reports
+
             next_trade = 0.0
             next_stream = 0.0
             next_learn = time.time() + min(120.0, float(self.cfg.learning.interval_sec))
+            next_backup = time.time() + 90.0
+            next_reports = time.time() + 45.0
+            reconcile_every = max(1, int(self.cfg.autopilot.reconcile_every_cycles))
+
             while not self._stop_ev.is_set():
                 now = time.time()
                 try:
@@ -232,6 +271,15 @@ class _TraderManager:
                         self.run_single_cycle()
                         next_trade = time.time() + self.interval_sec
                         next_stream = time.time() + self.stream_interval_sec
+
+                        if self.cfg.autopilot.enabled and (self.cycles == 1 or self.cycles % reconcile_every == 0):
+                            st = Store(self.cfg.data.db_path)
+                            try:
+                                with self._lock:
+                                    run_auto_reconcile(self.cfg, st)
+                                self.last_reconcile_ts = int(time.time())
+                            finally:
+                                st.close()
                     elif now >= next_stream:
                         self.refresh_news_and_stream(include_markets=False)
                         next_stream = time.time() + self.stream_interval_sec
@@ -239,6 +287,24 @@ class _TraderManager:
                     if self.cfg.learning.enabled and now >= next_learn:
                         self.run_learning_now(apply_changes=True)
                         next_learn = time.time() + max(300.0, float(self.cfg.learning.interval_sec))
+
+                    if self.cfg.autopilot.enabled and now >= next_backup:
+                        st = Store(self.cfg.data.db_path)
+                        try:
+                            run_auto_backup(self.cfg, st)
+                            self.last_backup_ts = int(time.time())
+                        finally:
+                            st.close()
+                        next_backup = time.time() + max(600.0, float(self.cfg.autopilot.backup_interval_sec))
+
+                    if self.cfg.autopilot.enabled and now >= next_reports:
+                        st = Store(self.cfg.data.db_path)
+                        try:
+                            run_auto_reports(self.cfg, st)
+                            self.last_reports_ts = int(time.time())
+                        finally:
+                            st.close()
+                        next_reports = time.time() + max(300.0, float(self.cfg.autopilot.reports_interval_sec))
                 except Exception as exc:      # noqa: BLE001
                     self.last_error = str(exc)
                     log.warning("לולאה רציפה: %s", exc)
@@ -248,7 +314,7 @@ class _TraderManager:
         self._thread = threading.Thread(target=_loop, daemon=True, name="pmmb-continuous")
         self._thread.start()
         return {
-            "message": f"בוט רציף הופעל (מסחר כל {self.interval_sec:.0f}ש', גרפים וחדשות ברציפות)",
+            "message": f"בוט רציף הופעל (מסחר כל {self.interval_sec:.0f}ש', אוטופיילוט מלא פעיל)",
             **self.state(),
         }
 
@@ -368,6 +434,8 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     res = {"ok": True, **trader.refresh_news_and_stream(include_markets=True)}
                 elif path == "/api/learn":
                     res = {"ok": True, **trader.run_learning_now(apply_changes=bool(body.get("apply", True)))}
+                elif path == "/api/autopilot/maintain":
+                    res = {"ok": True, **trader.run_maintenance_now()}
                 elif path == "/api/paper-cycle":
                     res = {"ok": True, **trader.run_single_cycle()}
                 elif path == "/api/trader/start":

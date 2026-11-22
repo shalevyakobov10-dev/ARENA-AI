@@ -104,4 +104,19 @@ stdlib HTTPServer (`ui.py` + `build_command_center_data` ב-`status.py` + `serve
 המנוע לעולם לא משנה פרמטרים לבד אלא רק מתעד המלצה (`allow_auto_apply_live=false`).
 (ג) שידור חי של גרפי שוק (`GET /api/chart`, SMA + רצועת Z + SL/TP) ופיד חדשות ב-UI.
 
+## 16. אוטופיילוט תפעולי מלא, מודיעין שווקים רב-ממדי וממשק מוסדי נקי
+2026-11 · מתקבל · מלא
+(א) **מודיעין רב-ממדי (`market_intel` + פידים מוסדיים)**: פידים ישירים של BBC World/Business,
+CNBC ו-NPR נוספו לצד Google News (`data/news.py`), ויחס האצת הנפח (`Market.volume_ratio`
+מתוך `volume24hr / (volume1wk / 7)`) עוצר כניסות בקפיצות נפח חריגות (`volume_spike_ratio: 6.0`).
+בכל מחזור `Engine` שומר בטבלת `market_intel` את עומק הספר, חוסר האיזון, שינויי 1h/6h/24h,
+ה-Z-Score, השפעת החדשות והסטטוס לכל שוק.
+(ב) **Autopilot מלא (`autopilot.py` + `server.py`)**: שרת הבקרה מתזמן אוטומטית `run_auto_reconcile`
+(תיקון פערים ב-paper), `run_auto_backup` (שמירת 14 גיבויים חמים), `run_auto_reports` (דוח יומי +
+מוכנות Live), ו־`monitor_open_positions_news` (ניטור חדשות שליליות על פוזיציות פתוחות), עם תיעוד ב-`autopilot_runs`.
+(ג) **ממשק מוסדי מחודש (`ui.py`)**: ממשק HTML מינימליסטי נקי ב-4 לשוניות (`סקירה ומסחר`,
+`שווקים וגרפים`, `חדשות ולמידה`, `תפעול אוטונומי`), גרפי Canvas חדים, אפס אימוג'ים קרטוניים
+ואפס Markdown גולמי.
+
+
 

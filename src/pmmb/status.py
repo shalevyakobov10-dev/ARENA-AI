@@ -200,7 +200,7 @@ def build_chart_series(store, cfg, token_id: str, limit: int = 160) -> dict:
         sma.append(round(mu, 4))
         lower_band.append(round(max(0.01, mu - z_ent * max(sd, 0.002)), 4))
 
-    q_txt = (series.get("position") or {}).get("question") or ""
+    q_txt = (series.get("position") or {}).get("question") or series.get("question") or ""
     matched_news: list[str] = []
     if q_txt:
         arts = [dict(r) for r in store.recent_news(hours=72, limit=80)]
@@ -223,6 +223,7 @@ def build_command_center_data(
 ) -> dict:
     """אוסף נתונים מלא לתוכנת הבקרה (ללא רשת — DB + reports + state + backups)."""
     import json
+    import re
     from .data.store import Store
     from .readiness import collect_facts, evaluate, is_ready, summary
 
@@ -234,11 +235,14 @@ def build_command_center_data(
     out["news"] = []
     out["charts"] = {"candidates": [], "default": None}
     out["learning"] = {"stats": {}, "runs": [], "insights": []}
-    out["telemetry"] = {"ticks": 0, "books": 0, "signals": 0, "news": 0}
+    out["market_intel"] = []
+    out["autopilot"] = []
+    out["telemetry"] = {"ticks": 0, "books": 0, "signals": 0, "news": 0, "intel": 0}
     out["trader"] = trader_state or {
         "running": False, "cycles": 0, "last_error": "", "interval_sec": 180,
         "stream_ticks": 0, "news_fetches": 0, "learn_cycles": 0,
         "last_news_ts": 0, "last_stream_ts": 0, "last_learn_ts": 0,
+        "last_reconcile_ts": 0, "last_backup_ts": 0, "last_reports_ts": 0,
     }
 
     db = Path(cfg.data.db_path)
@@ -266,6 +270,7 @@ def build_command_center_data(
                     "books": int(c.execute("SELECT COUNT(*) n FROM books").fetchone()["n"]),
                     "signals": int(c.execute("SELECT COUNT(*) n FROM signals").fetchone()["n"]),
                     "news": int(c.execute("SELECT COUNT(*) n FROM news_items").fetchone()["n"]),
+                    "intel": int(c.execute("SELECT COUNT(*) n FROM market_intel").fetchone()["n"]),
                 }
 
             out["fills"] = [
@@ -333,6 +338,8 @@ def build_command_center_data(
                 "runs": l_runs,
                 "insights": (l_runs[0].get("details") or {}).get("insights", []) if l_runs else [],
             }
+            out["market_intel"] = store.recent_market_intel(limit=60)
+            out["autopilot"] = store.recent_autopilot_runs(limit=25)
         finally:
             store.close()
 
@@ -368,6 +375,23 @@ def build_command_center_data(
                 analytics[md_key] = mpath.read_text(encoding="utf-8")[:6000]
             except Exception:
                 pass
+    # חילוץ מדדים מובנים מתוך דוח תיק הפורטפוליו להצגה נקייה ללא Markdown גולמי
+    pmd = analytics.get("portfolio_md", "")
+    if pmd:
+        def _rx(pat: str) -> str:
+            m = re.search(pat, pmd, flags=re.IGNORECASE)
+            return m.group(1) if m else ""
+
+        analytics["portfolio_summary"] = {
+            "final_equity": _rx(r"סופי[:\s*]+([\d.]+)"),
+            "return_pct": _rx(r"\*\*([+\-\d.]+%)\*\*"),
+            "trades": _rx(r"עסקאות סגורות[:\s*]+(\d+)"),
+            "win_rate": _rx(r"win rate[:\s*]+([\d.]+%)"),
+            "profit_factor": _rx(r"(?:profit factor|PF)[:\s*]+([\d.]+)"),
+            "max_dd": _rx(r"Max Drawdown[:\s*]+([\d.]+%)"),
+            "sharpe": _rx(r"Sharpe[:\s*]+([+\-\d.]+)"),
+            "fees": _rx(r"עמלות ששולמו[:\s*]+([\d.]+)"),
+        }
     out["analytics"] = analytics
 
     # --- גיבויים ---
@@ -435,6 +459,7 @@ def build_command_center_data(
             "spike_window_hours": cfg.news.spike_window_hours,
             "min_spike_articles": cfg.news.min_spike_articles,
             "spike_impact_threshold": cfg.news.spike_impact_threshold,
+            "volume_spike_ratio": cfg.news.volume_spike_ratio,
         },
         "learning": {
             "enabled": cfg.learning.enabled,
@@ -444,6 +469,16 @@ def build_command_center_data(
             "min_oos_trades": cfg.learning.min_oos_trades,
             "min_consistency": cfg.learning.min_consistency,
             "min_improvement_pct": cfg.learning.min_improvement_pct,
+        },
+        "autopilot": {
+            "enabled": cfg.autopilot.enabled,
+            "trade_interval_sec": cfg.autopilot.trade_interval_sec,
+            "stream_interval_sec": cfg.autopilot.stream_interval_sec,
+            "reconcile_every_cycles": cfg.autopilot.reconcile_every_cycles,
+            "auto_fix_paper": cfg.autopilot.auto_fix_paper,
+            "backup_interval_sec": cfg.autopilot.backup_interval_sec,
+            "backup_keep": cfg.autopilot.backup_keep,
+            "reports_interval_sec": cfg.autopilot.reports_interval_sec,
         },
     }
     return out

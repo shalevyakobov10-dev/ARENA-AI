@@ -170,6 +170,7 @@ class NewsConfig:
     spike_window_hours: float = 4.0
     min_spike_articles: int = 2
     spike_impact_threshold: float = 0.65
+    volume_spike_ratio: float = 6.0
     max_market_queries: int = 12
 
 
@@ -187,6 +188,18 @@ class LearningConfig:
 
 
 @dataclass
+class AutopilotConfig:
+    enabled: bool = True
+    trade_interval_sec: float = 180.0
+    stream_interval_sec: float = 60.0
+    reconcile_every_cycles: int = 5
+    auto_fix_paper: bool = True
+    backup_interval_sec: float = 14400.0   # כל 4 שעות
+    backup_keep: int = 14
+    reports_interval_sec: float = 1800.0   # כל 30 דקות
+
+
+@dataclass
 class Config:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     universe: UniverseConfig = field(default_factory=UniverseConfig)
@@ -196,6 +209,7 @@ class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     news: NewsConfig = field(default_factory=NewsConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
+    autopilot: AutopilotConfig = field(default_factory=AutopilotConfig)
 
     # ---- טעינה ----
     @classmethod

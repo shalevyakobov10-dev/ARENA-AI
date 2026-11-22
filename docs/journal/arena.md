@@ -80,4 +80,17 @@ OOS קפץ ל-+284.00 (73 עסקאות, 100% עקביות, 12/20 שווקים ח
   קצה `GET /api/chart`, `POST /api/news-refresh`, `POST /api/learn` ופקודות `pmmb news` / `pmmb learn`.
 - **189 בדיקות ירוקות (אפס רשת).**
 
+## 2026-11-22 (שלב ז') — מודיעין שווקים מורחב, Autopilot עצמאי וממשק מוסדי חדש
+
+- **מודיעין רב-ממדי + זינוק נפח**: נוספו 4 פידים מוסדיים ישירים (BBC World/Business, CNBC, NPR)
+  ב-`data/news.py`, שדה `Market.volume_1wk`/`volume_ratio` ב-`models.py` (מגן קפיצת נפח פי 6 ב-`engine.py`),
+  וטבלאות `market_intel` + `autopilot_runs` ב-`data/store.py`.
+- **Autopilot מלא (`src/pmmb/autopilot.py` + `server.py`)**: אימות ותיקון DB אוטומטי (`run_auto_reconcile`),
+  גיבויי SQLite תקופתיים (`run_auto_backup`), הפקת דוחות יומיים/מוכנות (`run_auto_reports`), וניטור
+  פוזיציות פתוחות מול חדשות שליליות בזמן אמת + נתיב `POST /api/autopilot/maintain`.
+- **עיצוב מחדש של `src/pmmb/ui.py`**: ממשק מסחר מוסדי נקי ומינימליסטי (4 לשוניות, אייקוני SVG דקים,
+  `tabular-nums`, גרפי Canvas אינטראקטיביים, רדאר מודיעין חי, אפס אימוג'ים קרטוניים).
+- **193 בדיקות ירוקות (אפס רשת).**
+
+
 

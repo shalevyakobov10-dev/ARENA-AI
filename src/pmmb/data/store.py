@@ -147,6 +147,42 @@ CREATE TABLE IF NOT EXISTS learning_runs (
     summary       TEXT,
     details       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS market_intel (
+    condition_id  TEXT PRIMARY KEY,
+    token_id      TEXT NOT NULL,
+    question      TEXT NOT NULL,
+    sector        TEXT DEFAULT 'other',
+    price         REAL,
+    spread        REAL,
+    bid_depth     REAL DEFAULT 0,
+    ask_depth     REAL DEFAULT 0,
+    imbalance     REAL DEFAULT 0,
+    volume_24h    REAL DEFAULT 0,
+    volume_ratio  REAL DEFAULT 1.0,
+    chg_1h        REAL,
+    chg_6h        REAL,
+    chg_24h       REAL,
+    z_score       REAL,
+    edge_net      REAL,
+    news_count    INTEGER DEFAULT 0,
+    news_impact   REAL DEFAULT 0,
+    hours_left    REAL,
+    status        TEXT DEFAULT 'WATCH',
+    reason        TEXT DEFAULT '',
+    updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_intel_upd ON market_intel(updated_at);
+
+CREATE TABLE IF NOT EXISTS autopilot_runs (
+    id      INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts      INTEGER NOT NULL,
+    task    TEXT NOT NULL,
+    status  TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    details TEXT DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_ap_ts ON autopilot_runs(ts);
 """
 
 
@@ -738,7 +774,11 @@ class Store:
             })
         rows = self._conn.execute(
             """SELECT t.token_id, COUNT(*) AS cnt, MAX(t.ts) AS last_ts,
-                      COALESCE((SELECT p.question FROM positions p WHERE p.token_id=t.token_id LIMIT 1), '') AS q,
+                      COALESCE(
+                        NULLIF((SELECT mi.question FROM market_intel mi WHERE mi.token_id=t.token_id LIMIT 1), ''),
+                        NULLIF((SELECT p.question FROM positions p WHERE p.token_id=t.token_id LIMIT 1), ''),
+                        ''
+                      ) AS q,
                       (SELECT s.reason FROM signals s WHERE s.token_id=t.token_id ORDER BY s.id DESC LIMIT 1) AS last_sig
                FROM ticks t
                GROUP BY t.token_id
@@ -781,8 +821,13 @@ class Store:
             "SELECT * FROM positions WHERE token_id=? AND size > 0 AND closed_at IS NULL",
             (token_id,),
         ).fetchone()
+        intel = self._conn.execute(
+            "SELECT * FROM market_intel WHERE token_id=? ORDER BY updated_at DESC LIMIT 1",
+            (token_id,),
+        ).fetchone()
         return {
             "token_id": token_id,
+            "question": (pos["question"] if pos else (intel["question"] if intel else "")),
             "ticks": [{"ts": int(r["ts"]), "price": round(float(r["price"]), 4)} for r in ticks],
             "books": [
                 {
@@ -815,4 +860,120 @@ class Store:
                 "target_price": pos["target_price"],
                 "size": pos["size"],
             } if pos else None,
+            "intel": dict(intel) if intel else None,
         }
+
+    # ------------------------------------------------------------------
+    #  מודיעין שווקים רב-ממדי (market_intel) ויומן אוטופיילוט
+    # ------------------------------------------------------------------
+    def upsert_market_intel(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        with self.tx() as c:
+            c.executemany(
+                """INSERT INTO market_intel(
+                       condition_id, token_id, question, sector, price, spread,
+                       bid_depth, ask_depth, imbalance, volume_24h, volume_ratio,
+                       chg_1h, chg_6h, chg_24h, z_score, edge_net,
+                       news_count, news_impact, hours_left, status, reason, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(condition_id) DO UPDATE SET
+                     token_id=excluded.token_id,
+                     question=excluded.question,
+                     sector=excluded.sector,
+                     price=excluded.price,
+                     spread=excluded.spread,
+                     bid_depth=excluded.bid_depth,
+                     ask_depth=excluded.ask_depth,
+                     imbalance=excluded.imbalance,
+                     volume_24h=excluded.volume_24h,
+                     volume_ratio=excluded.volume_ratio,
+                     chg_1h=excluded.chg_1h,
+                     chg_6h=excluded.chg_6h,
+                     chg_24h=excluded.chg_24h,
+                     z_score=excluded.z_score,
+                     edge_net=excluded.edge_net,
+                     news_count=excluded.news_count,
+                     news_impact=excluded.news_impact,
+                     hours_left=excluded.hours_left,
+                     status=excluded.status,
+                     reason=excluded.reason,
+                     updated_at=excluded.updated_at""",
+                [
+                    (
+                        str(r["condition_id"]),
+                        str(r["token_id"]),
+                        str(r["question"]),
+                        str(r.get("sector") or "other"),
+                        r.get("price"),
+                        r.get("spread"),
+                        float(r.get("bid_depth") or 0.0),
+                        float(r.get("ask_depth") or 0.0),
+                        float(r.get("imbalance") or 0.0),
+                        float(r.get("volume_24h") or 0.0),
+                        float(r.get("volume_ratio") or 1.0),
+                        r.get("chg_1h"),
+                        r.get("chg_6h"),
+                        r.get("chg_24h"),
+                        r.get("z_score"),
+                        r.get("edge_net"),
+                        int(r.get("news_count") or 0),
+                        float(r.get("news_impact") or 0.0),
+                        r.get("hours_left"),
+                        str(r.get("status") or "WATCH"),
+                        str(r.get("reason") or "")[:120],
+                        int(r.get("updated_at") or datetime.now(tz=timezone.utc).timestamp()),
+                    )
+                    for r in rows
+                ],
+            )
+        return len(rows)
+
+    def recent_market_intel(self, limit: int = 60) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """SELECT * FROM market_intel
+               ORDER BY
+                 CASE status
+                   WHEN 'OPEN' THEN 0
+                   WHEN 'BUY' THEN 1
+                   WHEN 'CATALYST_BLOCK' THEN 2
+                   ELSE 3
+                 END,
+                 ABS(COALESCE(z_score, 0)) DESC,
+                 volume_24h DESC
+               LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def record_autopilot_run(
+        self, task: str, status: str, summary: str, details: dict[str, Any] | None = None
+    ) -> int:
+        with self.tx() as c:
+            cur = c.execute(
+                "INSERT INTO autopilot_runs(ts, task, status, summary, details) VALUES (?,?,?,?,?)",
+                (
+                    int(datetime.now(tz=timezone.utc).timestamp()),
+                    task,
+                    status,
+                    summary,
+                    json.dumps(details or {}, ensure_ascii=False),
+                ),
+            )
+            return int(cur.lastrowid or 0)
+
+    def recent_autopilot_runs(self, limit: int = 30) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT * FROM autopilot_runs ORDER BY ts DESC, id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        out = []
+        for r in rows:
+            out.append({
+                "id": int(r["id"]),
+                "ts": int(r["ts"]),
+                "task": r["task"],
+                "status": r["status"],
+                "summary": r["summary"],
+                "details": json.loads(r["details"] or "{}"),
+            })
+        return out

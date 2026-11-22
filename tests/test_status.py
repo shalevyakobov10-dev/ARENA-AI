@@ -293,11 +293,17 @@ def test_command_center_builder_and_html(tmp_path, cfg, monkeypatch):
     for interactive in (True, False):
         html = command_center_html(data, refresh_sec=15 if interactive else 0, interactive=interactive)
         assert "PMMB Command Center" in html
-        assert "pmmb-boot" in html
         assert "http://" not in html and "https://" not in html
         assert "Walk-Forward" in html
-        assert "גרפים וחדשות בשידור חי" in html
-        assert "למידה עצמית ואבולוציה" in html
+        assert "סקירה ומסחר" in html
+        assert "שווקים וגרפים" in html
+        assert "חדשות ולמידה" in html
+        assert "תפעול אוטונומי" in html
+        assert "רדאר מודיעין שווקים חי" in html
+        assert "יומן טייס אוטומטי" in html
+        # וידוא עיצוב נקי ללא אימוג'ים קרטוניים
+        for em in ("📡", "📊", "🛑", "📰", "🧠", "⚙️"):
+            assert em not in html
 
 
 

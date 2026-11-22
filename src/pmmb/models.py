@@ -44,8 +44,17 @@ class Market:
     fees_enabled: bool = False
     sector: str = "other"
     event_id: str = ""              # מזהה אירוע אב (מונע ריכוז כפול באותו אירוע)
+    volume_1wk: float = 0.0         # נפח שבועי להשוואת תאוצת נפח (volume_ratio)
 
     # --- עזר ---
+    @property
+    def volume_ratio(self) -> float:
+        """פי כמה נפח ה-24ש' האחרון גבוה מהממוצע היומי בשבוע האחרון."""
+        avg_daily = self.volume_1wk / 7.0
+        if avg_daily <= 0:
+            return 1.0
+        return round(self.volume_24h / avg_daily, 2)
+
     @property
     def hours_to_resolution(self) -> float:
         if self.end_date is None:
@@ -126,6 +135,7 @@ class Market:
                 no_price=no_p,
                 spread=max(spread, 0.0),
                 volume_24h=_f(m.get("volume24hr")) or 0.0,
+                volume_1wk=_f(m.get("volume1wk") or m.get("volume1wkClob")) or 0.0,
                 liquidity=_f(m.get("liquidityNum") or m.get("liquidity")) or 0.0,
                 end_date=end_dt,
                 tick_size=_f(m.get("orderPriceMinTickSize")) or 0.01,

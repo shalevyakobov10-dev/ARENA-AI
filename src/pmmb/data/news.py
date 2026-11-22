@@ -29,6 +29,13 @@ _DEFAULT_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("sports", "Sports Injuries & Breaking", "NBA OR NFL OR UFC injured OR suspended OR trade"),
 )
 
+_WIRE_FEEDS: tuple[tuple[str, str, str], ...] = (
+    ("geopolitics", "BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
+    ("macro", "BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
+    ("markets", "CNBC", "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
+    ("politics", "NPR", "https://feeds.npr.org/1001/rss.xml"),
+)
+
 _STOP_WORDS = frozenset({
     "will", "the", "a", "an", "in", "on", "at", "to", "for", "of", "and", "or", "by", "be",
     "is", "are", "was", "were", "has", "have", "had", "does", "do", "did", "with", "from",
@@ -261,6 +268,15 @@ class NewsClient:
 
     def fetch_live(self, markets: Iterable = (), *, max_market_queries: int = 8) -> list[NewsArticle]:
         seen: dict[str, NewsArticle] = {}
+        # פידים מוסדיים ישירים (BBC World/Business, CNBC, NPR) — מהירים במיוחד (~80ms)
+        for cat, src_name, rss_url in _WIRE_FEEDS:
+            xml = self._get(rss_url)
+            if xml:
+                for art in parse_rss(xml, query=src_name, category=cat, limit=8):
+                    if not art.source:
+                        art.source = src_name
+                    seen[art.id] = art
+
         for cat, _label, q in _DEFAULT_FEEDS:
             for art in self.fetch_query(q, category=cat, limit=8):
                 seen[art.id] = art

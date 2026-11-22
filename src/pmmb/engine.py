@@ -110,6 +110,8 @@ class Engine:
         self._news_client = news_client
         self._news_articles: list[dict] = []
         self._last_news_refresh: float = 0.0
+        self._intel_rows: list[dict] = []
+        self._seen_pos_alerts: set[str] = set()
         self.portfolio = Portfolio(cfg.execution.starting_cash, mode=cfg.execution.mode, store=self.store)
         self.markets: dict[str, Market] = {}
         self._last_marks: dict[str, float] = {}
@@ -167,6 +169,7 @@ class Engine:
 
         stats.scanned = len(markets)
         self.markets = {m.condition_id: m for m in markets}
+        self._intel_rows = []
         self._refresh_news_if_due(markets)
 
         for mk in markets:
@@ -176,13 +179,33 @@ class Engine:
                 stats.errors += 1
                 log.exception("שגיאה בעיבוד %s: %s", mk.slug, exc)
 
-        # סגירת לולאת הלמידה המקומית על אותות עבר (ללא רשת)
+        if self._intel_rows:
+            try:
+                self.store.upsert_market_intel(self._intel_rows)
+            except Exception as exc:      # noqa: BLE001
+                log.debug("שמירת market_intel נכשלה: %s", exc)
+
+        # סגירת לולאת הלמידה המקומית על אותות עבר + ניטור חדשות לפוזיציות פתוחות
         try:
             from .learning import evaluate_live_signals
 
             evaluate_live_signals(self.store)
         except Exception as exc:          # noqa: BLE001
             log.debug("הערכת אותות חיים דולגה: %s", exc)
+
+        try:
+            from .autopilot import monitor_open_positions_news
+
+            monitor_open_positions_news(
+                list(self.portfolio.positions.values()),
+                self._news_articles,
+                self.cfg,
+                self.store,
+                notifier=self.notifier,
+                seen_alerts=self._seen_pos_alerts,
+            )
+        except Exception as exc:          # noqa: BLE001
+            log.debug("ניטור פוזיציות מול חדשות דולג: %s", exc)
 
         # --- סגירת פוזיציות שאין להן יותר שוק פעיל ---
         self._close_orphans()
@@ -307,50 +330,105 @@ class Engine:
         self._handle_exit(mk, signal, yes_book, stats)
 
         # ---------- כניסות ----------
+        entry_outcome = ("WATCH", signal.reason)
         if signal.direction == "FLAT":
             stats.skip(f"סיגנל: {signal.reason}")
-            return
-        self._handle_entry(mk, signal, yes_book, stats)
+            if any(p.condition_id == mk.condition_id for p in self.portfolio.positions.values()):
+                entry_outcome = ("OPEN", "פוזיציה פתוחה במעקב")
+        else:
+            entry_outcome = self._handle_entry(mk, signal, yes_book, stats)
+
+        # ---------- איסוף מודיעין רב-ממדי מלא של השוק ----------
+        bid_depth, ask_depth = yes_book.depth(5)
+        imb = yes_book.imbalance(5)
+        chg_1h = round(prices[-1] - prices[-2], 4) if len(prices) >= 2 else None
+        chg_6h = round(prices[-1] - prices[-7], 4) if len(prices) >= 7 else None
+        chg_24h = round(prices[-1] - prices[-25], 4) if len(prices) >= 25 else None
+        z_val = signal.features.get("z") if signal.features else None
+
+        n_cnt, n_imp = 0, 0.0
+        if self._news_articles:
+            from .data.news import match_market_news
+
+            nm_info = match_market_news(
+                mk.question, self._news_articles,
+                window_hours=max(12.0, cfg.news.spike_window_hours),
+                min_articles=1, impact_threshold=0.0,
+            )
+            n_cnt, n_imp = nm_info.article_count, nm_info.max_impact
+
+        self._intel_rows.append({
+            "condition_id": mk.condition_id,
+            "token_id": mk.yes_token_id,
+            "question": mk.question,
+            "sector": mk.sector,
+            "price": round(float(market_price or 0.0), 4),
+            "spread": round(float(yes_book.spread), 4),
+            "bid_depth": round(float(bid_depth), 1),
+            "ask_depth": round(float(ask_depth), 1),
+            "imbalance": round(float(imb), 3),
+            "volume_24h": round(float(mk.volume_24h), 1),
+            "volume_ratio": float(mk.volume_ratio),
+            "chg_1h": chg_1h,
+            "chg_6h": chg_6h,
+            "chg_24h": chg_24h,
+            "z_score": round(float(z_val), 2) if z_val is not None else None,
+            "edge_net": round(float(signal.edge), 4),
+            "news_count": n_cnt,
+            "news_impact": n_imp,
+            "hours_left": round(mk.hours_to_resolution, 1) if mk.hours_to_resolution != float("inf") else None,
+            "status": entry_outcome[0],
+            "reason": entry_outcome[1],
+            "updated_at": int(utcnow().timestamp()),
+        })
 
     # ------------------------------------------------------------------
-    def _handle_entry(self, mk: Market, signal: Signal, yes_book: Book, stats: CycleStats) -> None:
+    def _handle_entry(self, mk: Market, signal: Signal, yes_book: Book, stats: CycleStats) -> tuple[str, str]:
         if any(p.condition_id == mk.condition_id for p in self.portfolio.positions.values()):
             stats.skip("כבר בפוזיציה")
-            return
+            return ("OPEN", "פוזיציה פתוחה במעקב")
 
         token_id = signal.token_id
         book = yes_book if signal.direction == "LONG" else self.clob.get_book(token_id)
         if book is None or not book.is_tradable():
             stats.skip("ספר לא סחיר")
-            return
+            return ("SKIP", "ספר לא סחיר")
 
         if book.spread > self.cfg.universe.max_spread:
             stats.skip("ספרד חי רחב מדי")
-            return
+            return ("SKIP", f"ספרד רחב מדי ({book.spread:.3f})")
         price = book.best_ask
         lo, hi = self.cfg.universe.price_band
         if price is None or not (lo <= price <= hi):
             stats.skip("אין ask בתחום")
-            return
+            return ("SKIP", "מחיר מחוץ לטווח")
 
-        # בדיקת חדשות שווקים חיה — מניעת קניית "סכין נופלת" בזמן ידיעה שוברת
-        if self.cfg.news.enabled and self.cfg.news.block_on_catalyst and self._news_articles:
-            from .data.news import match_market_news
+        # בדיקת חדשות שווקים + תאוצת נפח חריגה — מניעת קניית "סכין נופלת"
+        if self.cfg.news.enabled and self.cfg.news.block_on_catalyst:
+            if self._news_articles:
+                from .data.news import match_market_news
 
-            nm = match_market_news(
-                mk.question,
-                self._news_articles,
-                window_hours=self.cfg.news.spike_window_hours,
-                min_articles=self.cfg.news.min_spike_articles,
-                impact_threshold=self.cfg.news.spike_impact_threshold,
-            )
-            if nm.catalyst_detected:
+                nm = match_market_news(
+                    mk.question,
+                    self._news_articles,
+                    window_hours=self.cfg.news.spike_window_hours,
+                    min_articles=self.cfg.news.min_spike_articles,
+                    impact_threshold=self.cfg.news.spike_impact_threshold,
+                )
+                if nm.catalyst_detected:
+                    stats.skip("חדשות: תזוזה מונעת ידיעה")
+                    log.info(
+                        "📰 דילוג על %s — זוהה קטליזטור חדשותי (%d כתבות, impact=%.2f): %s",
+                        mk.slug, nm.article_count, nm.max_impact, nm.latest_title[:80],
+                    )
+                    return ("CATALYST_BLOCK", f"קטליזטור חדשותי: {nm.latest_title[:55]}")
+            if mk.volume_1wk > 0 and mk.volume_ratio >= self.cfg.news.volume_spike_ratio:
                 stats.skip("חדשות: תזוזה מונעת ידיעה")
                 log.info(
-                    "📰 דילוג על %s — זוהה קטליזטור חדשותי (%d כתבות, impact=%.2f): %s",
-                    mk.slug, nm.article_count, nm.max_impact, nm.latest_title[:80],
+                    "📰 דילוג על %s — תאוצת נפח חריגה (%.1fx מהממוצע השבועי)",
+                    mk.slug, mk.volume_ratio,
                 )
-                return
+                return ("CATALYST_BLOCK", f"זינוק נפח חריג ({mk.volume_ratio:.1f}x מהשבוע)")
 
         open_events: dict[str, int] = {}
         open_sectors: dict[str, int] = {}
@@ -376,7 +454,7 @@ class Engine:
         if not decision.approved:
             stats.skip(f"סיכון: {decision.reason}")
             log.debug("⛔ %s | %s", mk.question[:60], decision.reason)
-            return
+            return ("CANDIDATE", f"נדחה בסיכון: {decision.reason}")
 
         # בדיקת עומק ספר הפקודות לפני שליחת הוראה: מוודאים שהליכת הספר לא בולעת את ה-edge
         est_fn = getattr(self.clob, "estimate_fill", None)
@@ -386,15 +464,15 @@ class Engine:
                          allow_partial=False)
             if est is None:
                 stats.skip("ספר פקודות דק או חסר")
-                return
+                return ("CANDIDATE", "ספר פקודות דק מדי")
             est_px, _ = est
             if est_px - price > self.cfg.risk.max_price_impact_pct * max(price, 0.01):
                 stats.skip("ספר פקודות דק או חסר")
-                return
+                return ("CANDIDATE", "השפעת מחיר גבוהה מדי")
             fees_rt = float(signal.features.get("fees", 0.0))
             if est_px + fees_rt >= signal.fair_price:
                 stats.skip("edge לא מכסה עלויות")
-                return
+                return ("CANDIDATE", "edge אחרי ספרד/עמלה שלילי")
 
         order = Order(
             token_id=token_id,
@@ -408,7 +486,7 @@ class Engine:
         fill = self.broker.execute(order, book=book)
         if fill is None:
             stats.skip("מילוי נכשל")
-            return
+            return ("CANDIDATE", "מילוי נכשל")
 
         self.portfolio.apply_fill(fill)
         pos = self.portfolio.position_for(token_id)
@@ -434,6 +512,7 @@ class Engine:
                 "score": signal.score, "reason": order.reason,
             },
         )
+        return ("BUY", f"בוצעה כניסה @ {fill.price:.3f}")
 
     # ------------------------------------------------------------------
     def _handle_exit(self, mk: Market, signal: Signal, yes_book: Book, stats: CycleStats) -> None:
