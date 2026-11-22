@@ -78,3 +78,29 @@ def test_skip_normalization_buckets():
     assert normalize_skip("סיגנל: עוצמה 0.54 < 0.55") == "עוצמה מתחת לסף"
     assert normalize_skip("אין מספיק היסטוריה") == "אין מספיק היסטוריה"
     assert len(normalize_skip("משהו מוזר לגמרי שלא מוכר")) <= 32
+
+
+def test_process_lock_prevents_concurrent_instances(tmp_path):
+    import pytest
+    from pmmb.runtime import ProcessLock, ProcessLockError
+
+    lock1 = ProcessLock("pmmb-paper", tmp_path).acquire()
+    try:
+        with pytest.raises(ProcessLockError):
+            ProcessLock("pmmb-paper", tmp_path).acquire()
+    finally:
+        lock1.release()
+
+    # אחרי שחרור אפשר לנעול שוב
+    with ProcessLock("pmmb-paper", tmp_path) as lock2:
+        assert lock2.path.exists()
+
+
+def test_store_uses_wal_mode(tmp_path):
+    from pmmb.data.store import Store
+
+    s = Store(tmp_path / "wal.db")
+    mode = s._conn.execute("PRAGMA journal_mode").fetchone()[0]
+    s.close()
+    assert str(mode).lower() == "wal"
+

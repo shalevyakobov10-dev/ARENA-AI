@@ -39,6 +39,8 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
         "heartbeat": hb.as_dict() if hb else None,
         "positions": [],
         "today": {},
+        "overall": {},
+        "recent_trades": [],
         "bankroll": {},
         "soak": {"days": 0, "target_days": 7},
         "guards": (hb.guards if hb else {}),
@@ -96,6 +98,43 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
             "fees": round(sum(float(r["fee"] or 0.0) for r in fills), 2),
             "notional": round(sum(float(r["price"]) * float(r["size"]) for r in fills), 2),
         }
+
+        with store.tx() as c:
+            all_sells = list(c.execute(
+                """SELECT f.ts, f.token_id, f.price, f.size, f.realized, f.reason,
+                          COALESCE(p.question, f.token_id) AS question
+                   FROM fills f LEFT JOIN positions p ON p.token_id = f.token_id
+                   WHERE f.side='SELL' AND f.mode=? ORDER BY f.ts DESC, f.id DESC""",
+                (cfg.execution.mode,),
+            ).fetchall())
+            all_fees = float(c.execute(
+                "SELECT COALESCE(SUM(fee),0) s FROM fills WHERE mode=?",
+                (cfg.execution.mode,),
+            ).fetchone()["s"] or 0.0)
+
+        gains = sum(float(r["realized"] or 0.0) for r in all_sells if (r["realized"] or 0.0) > 0)
+        losses = -sum(float(r["realized"] or 0.0) for r in all_sells if (r["realized"] or 0.0) < 0)
+        n_wins = sum(1 for r in all_sells if (r["realized"] or 0.0) > 0)
+        pf = round(gains / losses, 2) if losses > 0 else (None if gains == 0 else 99.9)
+        out["overall"] = {
+            "exits": len(all_sells),
+            "wins": n_wins,
+            "win_rate_pct": round(n_wins / len(all_sells) * 100, 1) if all_sells else 0.0,
+            "profit_factor": pf,
+            "realized_pnl": round(sum(float(r["realized"] or 0.0) for r in all_sells), 2),
+            "fees": round(all_fees, 2),
+        }
+        out["recent_trades"] = [
+            {
+                "ts": int(r["ts"]),
+                "question": str(r["question"] or r["token_id"])[:50],
+                "size": round(float(r["size"] or 0.0), 2),
+                "price": round(float(r["price"] or 0.0), 4),
+                "realized": round(float(r["realized"] or 0.0), 2),
+                "reason": str(r["reason"] or "")[:40],
+            }
+            for r in all_sells[:8]
+        ]
 
         with store.tx() as c:
             row = c.execute(
@@ -171,6 +210,7 @@ def status_html(st: dict, *, refresh_sec: int = 30) -> str:
     halt = st.get("halt")
     bank = st.get("bankroll") or {}
     today = st.get("today") or {}
+    overall = st.get("overall") or {}
     soak = st.get("soak") or {"days": 0, "target_days": 7}
     ok = bool(h.get("healthy"))
     color = "#22c55e" if ok else "#ef4444"
@@ -194,13 +234,18 @@ def status_html(st: dict, *, refresh_sec: int = 30) -> str:
                 f"<div style='color:#6b7a90;font-size:11px;margin-top:4px'>{sub}</div></div>")
 
     unr_total = bank.get("unrealized_pnl") or 0.0
+    pf_val = overall.get("profit_factor")
+    pf_str = f"PF {pf_val}" if pf_val is not None else "PF —"
     cards = "".join([
         card("הון", f"{bank.get('equity', 0) or 0:.2f}", f"לא ממומש {unr_total:+.2f}"),
         card("מזומן", f"{bank.get('cash', 0) or 0:.2f}", "USDC"),
         card("חשיפה", f"{bank.get('exposure', 0) or 0:.2f}", "בשוק"),
         card("פוזיציות", str(bank.get("open_positions", 0) or 0), "פתוחות"),
         card("PnL היום", f"{today.get('realized_pnl', 0):+.2f}", f"{today.get('exits', 0)} יציאות"),
-        card("עמלות היום", f"{today.get('fees', 0):.2f}", "USDC"),
+        card("מצטבר", f"{overall.get('realized_pnl', 0) or 0:+.2f}",
+             f"{overall.get('exits', 0)} סגורות · {overall.get('win_rate_pct', 0):.0f}% · {pf_str}"),
+        card("עמלות", f"{overall.get('fees', today.get('fees', 0)) or 0:.2f}",
+             f"היום {today.get('fees', 0):.2f} USDC"),
         card("שבוע paper", f"{soak.get('days', 0)}/{soak.get('target_days', 7)}",
              "מוכן ל-live" if soak.get("days", 0) >= soak.get("target_days", 7) else "צובר ימים"),
     ])
@@ -233,6 +278,25 @@ def status_html(st: dict, *, refresh_sec: int = 30) -> str:
 
     rows = "".join(_pos_row(p) for p in (st.get("positions") or [])) or (
         "<tr><td colspan=8 style='padding:12px;color:#6b7a90'>אין פוזיציות פתוחות</td></tr>"
+    )
+
+    def _trade_row(t: dict) -> str:
+        rz = t.get("realized", 0.0)
+        rc = "#22c55e" if rz >= 0 else "#ef4444"
+        ts_txt = datetime.fromtimestamp(t["ts"], tz=timezone.utc).strftime("%d/%m %H:%M")
+        return (
+            f"<tr>"
+            f"<td style='padding:7px;border-bottom:1px solid #232b36;color:#6b7a90'>{ts_txt}</td>"
+            f"<td style='padding:7px;border-bottom:1px solid #232b36;color:#e8eef7'>{_esc(t['question'])}</td>"
+            f"<td style='padding:7px;border-bottom:1px solid #232b36'>{t['size']:.1f}</td>"
+            f"<td style='padding:7px;border-bottom:1px solid #232b36'>{t['price']:.3f}</td>"
+            f"<td style='padding:7px;border-bottom:1px solid #232b36;color:{rc};font-weight:600'>{rz:+.2f}</td>"
+            f"<td style='padding:7px;border-bottom:1px solid #232b36;color:#8b98ab'>{_esc(t['reason'])}</td>"
+            f"</tr>"
+        )
+
+    trade_rows = "".join(_trade_row(t) for t in (st.get("recent_trades") or [])) or (
+        "<tr><td colspan=6 style='padding:12px;color:#6b7a90'>אין עסקאות סגורות עדיין</td></tr>"
     )
 
     g = st.get("guards") or {}
@@ -314,6 +378,16 @@ font-family:system-ui,-apple-system,'Segoe UI',Rubik,Arial,sans-serif;padding:18
       <th style="padding:6px">נוכחי</th><th style="padding:6px">לא ממומש</th>
       <th style="padding:6px">SL / TP</th><th style="padding:6px">גיל</th></tr>
     {rows}
+  </table>
+  </div>
+  <h2 style="font-size:15px;color:#8b98ab;margin:0 0 8px">עסקאות סגורות אחרונות</h2>
+  <div style="overflow-x:auto;margin-bottom:22px">
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <tr style="color:#6b7a90;text-align:right">
+      <th style="padding:6px">זמן</th><th style="padding:6px">שוק</th>
+      <th style="padding:6px">גודל</th><th style="padding:6px">יציאה</th>
+      <th style="padding:6px">PnL</th><th style="padding:6px">סיבה</th></tr>
+    {trade_rows}
   </table>
   </div>
   <h2 style="font-size:15px;color:#8b98ab;margin:0 0 8px">אירועים אחרונים</h2>

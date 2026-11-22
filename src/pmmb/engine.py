@@ -133,6 +133,11 @@ class Engine:
     # ==================================================================
     cycle: int = 0
     notifier: Notifier | None = None
+    _stop_requested: bool = False
+
+    def request_stop(self) -> None:
+        """עצירה נקייה בסיום המחזור הנוכחי (לדוגמה על SIGTERM)."""
+        self._stop_requested = True
 
     def _notify(self, text: str) -> None:
         if self.notifier is None:
@@ -200,23 +205,49 @@ class Engine:
         return stats
 
     def run_forever(self, interval_sec: float = 60.0, max_cycles: int | None = None) -> None:
+        import signal as _signal
+
+        self._stop_requested = False
+        prev_term = None
+        installed = False
+        try:
+            def _on_sigterm(_signum, _frame):
+                log.warning("התקבל SIGTERM — עוצר נקי בסוף המחזור הנוכחי")
+                self._stop_requested = True
+
+            prev_term = _signal.getsignal(_signal.SIGTERM)
+            _signal.signal(_signal.SIGTERM, _on_sigterm)
+            installed = True
+        except (ValueError, OSError, AttributeError):
+            pass
+
         cycle = 0
-        while max_cycles is None or cycle < max_cycles:
-            cycle += 1
-            log.info("─── מחזור #%d (%s) ───", cycle, datetime.now(tz=timezone.utc).strftime("%H:%M:%S"))
-            try:
-                self.run_once()
-            except KeyboardInterrupt:
-                log.warning("נעצר ע\"י המשתמש")
-                break
-            except Exception as exc:
-                log.exception("מחזור נכשל: %s", exc)
-            if self.risk.halted:
-                log.error("הבוט עצור (%s) — מפסיק לרוץ", self.risk.halt_reason)
-                break
-            if max_cycles is not None and cycle >= max_cycles:
-                break
-            time.sleep(interval_sec)
+        try:
+            while (max_cycles is None or cycle < max_cycles) and not self._stop_requested:
+                cycle += 1
+                log.info("─── מחזור #%d (%s) ───", cycle, datetime.now(tz=timezone.utc).strftime("%H:%M:%S"))
+                try:
+                    self.run_once()
+                except KeyboardInterrupt:
+                    log.warning("נעצר ע\"י המשתמש")
+                    break
+                except Exception as exc:
+                    log.exception("מחזור נכשל: %s", exc)
+                if self.risk.halted:
+                    log.error("הבוט עצור (%s) — מפסיק לרוץ", self.risk.halt_reason)
+                    break
+                if self._stop_requested:
+                    log.info("עצירה נקייה הושלמה בסוף מחזור #%d", cycle)
+                    break
+                if max_cycles is not None and cycle >= max_cycles:
+                    break
+                time.sleep(interval_sec)
+        finally:
+            if installed and prev_term is not None:
+                try:
+                    _signal.signal(_signal.SIGTERM, prev_term)
+                except (ValueError, OSError):
+                    pass
 
     # ==================================================================
     #  שוק בודד
@@ -402,8 +433,12 @@ class Engine:
             )
             fill = self.broker.execute(order, book=book, aggressive=True)
             if fill is None:
-                log.warning("יציאה לא מומשה עבור %s (%s) — ננסה שוב במחזור הבא",
-                            mk.slug, reason)
+                if pos.size * mark < 1.0:
+                    log.warning("שארית זעירה (dust) מתחת למינימום עבור %s (%.2f מניות ≈ %.2f$) — מדלג",
+                                mk.slug, pos.size, pos.size * mark)
+                else:
+                    log.warning("יציאה לא מומשה עבור %s (%s) — ננסה שוב במחזור הבא",
+                                mk.slug, reason)
                 continue
 
             realized = self.portfolio.apply_fill(fill)

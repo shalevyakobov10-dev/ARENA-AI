@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import time
@@ -17,6 +18,55 @@ from pathlib import Path
 
 HEARTBEAT_NAME = "heartbeat.json"
 HALT_NAME = "halt.json"
+
+
+class ProcessLockError(RuntimeError):
+    """מופיע כשמנסים להריץ מופע כפול של הבוט על אותו מצב."""
+
+
+class ProcessLock:
+    """מניעת ריצה כפולה (singleton lock) באמצעות flock אטומי."""
+
+    def __init__(self, name: str, state_dir: str | Path | None = None) -> None:
+        base = Path(state_dir) if state_dir is not None else default_state_dir()
+        self.path = base / f"{name}.lock"
+        self._fh = None
+
+    def acquire(self) -> "ProcessLock":
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        fh = open(self.path, "a+", encoding="utf-8")
+        try:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            fh.seek(0)
+            owner = fh.read().strip() or "?"
+            fh.close()
+            raise ProcessLockError(
+                f"כבר רץ מופע פעיל ({self.path}, pid={owner}) — עצור אותו לפני הפעלה נוספת"
+            ) from exc
+        fh.seek(0)
+        fh.truncate()
+        fh.write(str(os.getpid()))
+        fh.flush()
+        self._fh = fh
+        return self
+
+    def release(self) -> None:
+        if self._fh is not None:
+            try:
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+            except OSError:
+                pass
+            try:
+                self._fh.close()
+            finally:
+                self._fh = None
+
+    def __enter__(self) -> "ProcessLock":
+        return self.acquire()
+
+    def __exit__(self, *args) -> None:
+        self.release()
 
 
 def default_state_dir() -> Path:

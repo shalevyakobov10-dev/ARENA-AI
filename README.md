@@ -127,7 +127,7 @@ corr(תנועה של 12 נרות → תנועה של 24 נרות קדימה) = -
 cd polymarket-momentum-bot
 pip install -e ".[dev]"
 cp .env.example .env        # ריק בכוונה — paper לא צריך מפתחות
-make test                   # 178 טסטים, אפס קריאות רשת
+make test                   # 182 טסטים, אפס קריאות רשת
 make doctor                 # חיבור ל-Gamma ול-CLOB + פילטרים
 make scan                   # סיגנלים עכשיו
 make paper                  # סימולציה מול ספר הפקודות האמיתי
@@ -282,7 +282,7 @@ polymarket-momentum-bot/
 │   ├── signals/                # indicators, momentum, meanrev, base, factory
 │   ├── risk/                   # sizing, manager
 │   └── execution/              # base (Portfolio), paper, live
-├── tests/                      # 178 טסטים, אפס רשת
+├── tests/                      # 182 טסטים, אפס רשת
 ├── scripts/                    # run_paper.sh, paper_forever.sh,
 │                               # create_api_keys.py, research_signal.py,
 │                               # cron_example.crontab

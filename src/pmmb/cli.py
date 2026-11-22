@@ -136,6 +136,8 @@ def cmd_scan(args, cfg: Config) -> int:
 
 
 def cmd_run(args, cfg: Config) -> int:
+    from .runtime import ProcessLock, ProcessLockError
+
     broker = None
     if args.command == "live":
         cfg.execution.mode = "live"
@@ -147,6 +149,12 @@ def cmd_run(args, cfg: Config) -> int:
             print(f"⛔ {exc}")
             return 2
         print("🔴 מצב LIVE — פקודות אמיתיות. Ctrl+C לעצירה.")
+
+    try:
+        lock = ProcessLock(f"pmmb-{cfg.execution.mode}").acquire()
+    except ProcessLockError as exc:
+        print(f"⛔ {exc}")
+        return 5
 
     engine = Engine(cfg, broker=broker)
     if broker is None:
@@ -162,6 +170,7 @@ def cmd_run(args, cfg: Config) -> int:
               f"חשיפה {snap.exposure:.2f} | פוזיציות {snap.open_positions} | "
               f"PnL ממומש {engine.portfolio.realized_pnl:+.2f}")
         engine.close()
+        lock.release()
     return 0
 
 
@@ -660,6 +669,7 @@ def cmd_resume(args, cfg: Config) -> int:
 
 def cmd_telegram(args, cfg: Config) -> int:
     """האזנה לפקודות Telegram מהטלפון (/status, /positions, /halt, /resume)."""
+    from .runtime import ProcessLock, ProcessLockError
     from .telegram_bot import TelegramController
 
     bot = TelegramController(cfg)
@@ -670,8 +680,16 @@ def cmd_telegram(args, cfg: Config) -> int:
         n = bot.poll_once(timeout=args.timeout)
         print(f"טופלו {n} פקודות")
         return 0
-    print("🤖 מאזין לפקודות Telegram (Ctrl+C לעצירה)...")
-    bot.run_forever(timeout=args.timeout)
+    try:
+        lock = ProcessLock("pmmb-telegram").acquire()
+    except ProcessLockError as exc:
+        print(f"⛔ {exc}")
+        return 5
+    try:
+        print("🤖 מאזין לפקודות Telegram (Ctrl+C לעצירה)...")
+        bot.run_forever(timeout=args.timeout)
+    finally:
+        lock.release()
     return 0
 
 

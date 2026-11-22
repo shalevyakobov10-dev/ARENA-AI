@@ -259,3 +259,27 @@ def test_min_entry_hours_blocks_near_resolution_entries(cfg, tmp_path):
     eng.close()
 
 
+def test_engine_graceful_stop_exits_after_current_cycle(cfg, tmp_path):
+    """request_stop() מסיים את המחזור הנוכחי ויוצא מ-run_forever בלי להמתין interval."""
+    import time
+
+    cfg.signal.engine = "momentum"
+    eng = Engine(cfg, store=Store(tmp_path / "stop.db"),
+                 clob=_FakeClob(trending_series(0.30, 0.80, n=140)),
+                 gamma=_FakeGamma([_gamma_market()]), state_dir=str(tmp_path / "s"))
+    orig = eng.run_once
+
+    def _run_and_stop():
+        st = orig()
+        eng.request_stop()
+        return st
+
+    eng.run_once = _run_and_stop  # type: ignore[method-assign]
+    t0 = time.monotonic()
+    eng.run_forever(interval_sec=60.0, max_cycles=5)
+    assert time.monotonic() - t0 < 2.0
+    assert eng.cycle == 1
+    eng.close()
+
+
+

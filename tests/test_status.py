@@ -138,3 +138,30 @@ def test_server_get_and_head_endpoints(tmp_path, cfg, monkeypatch):
         httpd.shutdown()
         httpd.server_close()
 
+
+def test_status_overall_and_recent_trades(tmp_path, cfg, monkeypatch):
+    from pmmb.execution.base import Portfolio
+    from pmmb.models import Fill
+
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
+    cfg.data.db_path = str(tmp_path / "hist.db")
+    store = Store(cfg.data.db_path)
+    pf = Portfolio(1000.0, mode="paper", store=store)
+    f1 = Fill("t1", "c1", "BUY", 0.40, 100.0, fee=0.5)
+    pf.apply_fill(f1)
+    f2 = Fill("t1", "c1", "SELL", 0.55, 100.0, fee=0.5)
+    f2.reason = "יעד"  # type: ignore[attr-defined]
+    pf.apply_fill(f2)
+    store.close()
+
+    st = build_status(cfg)
+    assert st["overall"]["exits"] == 1
+    assert st["overall"]["wins"] == 1
+    assert st["overall"]["win_rate_pct"] == 100.0
+    assert st["overall"]["realized_pnl"] == 14.5
+    assert len(st["recent_trades"]) == 1
+    html = status_html(st)
+    assert "עסקאות סגורות אחרונות" in html
+    assert "+14.50" in html
+
+
