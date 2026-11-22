@@ -318,9 +318,18 @@ class Engine:
         prices = [c.price for c in candles]
         self.store.insert_ticks([(mk.yes_token_id, c.ts, c.price) for c in candles])
 
+        bid_depth, ask_depth = yes_book.depth(5)
+        imb = yes_book.imbalance(5)
+        microprice = None
+        if yes_book.best_bid and yes_book.best_ask:
+            b_sz = float(getattr(yes_book, "bid_size", 0.0) or 0.0) or bid_depth
+            a_sz = float(getattr(yes_book, "ask_size", 0.0) or 0.0) or ask_depth
+            if b_sz + a_sz > 0:
+                microprice = round((yes_book.best_bid * a_sz + yes_book.best_ask * b_sz) / (b_sz + a_sz), 4)
+
         signal = self.signals.evaluate(
             mk, prices, market_price=market_price, spread=yes_book.spread,
-            extra={"fee_rate": mk.taker_fee_rate},
+            extra={"fee_rate": mk.taker_fee_rate, "imbalance": imb, "microprice": microprice},
         )
         if signal.direction != "FLAT":
             stats.signalled += 1
@@ -339,20 +348,19 @@ class Engine:
             entry_outcome = self._handle_entry(mk, signal, yes_book, stats)
 
         # ---------- איסוף מודיעין רב-ממדי מלא של השוק ----------
-        bid_depth, ask_depth = yes_book.depth(5)
-        imb = yes_book.imbalance(5)
-        microprice = None
-        if yes_book.best_bid and yes_book.best_ask:
-            b_sz = float(getattr(yes_book, "bid_size", 0.0) or 0.0) or bid_depth
-            a_sz = float(getattr(yes_book, "ask_size", 0.0) or 0.0) or ask_depth
-            if b_sz + a_sz > 0:
-                microprice = round((yes_book.best_bid * a_sz + yes_book.best_ask * b_sz) / (b_sz + a_sz), 4)
         chg_1h = round(prices[-1] - prices[-2], 4) if len(prices) >= 2 else None
         chg_6h = round(prices[-1] - prices[-7], 4) if len(prices) >= 7 else None
         chg_24h = round(prices[-1] - prices[-25], 4) if len(prices) >= 25 else None
         z_val = signal.features.get("z") if signal.features else None
         rsi_val = signal.features.get("rsi") if signal.features else None
         tier_val = (signal.features.get("setup_tier") if signal.features else None) or "B"
+
+        # סימון חכם לשוק שמתבשל לקראת איתות כניסה (WATCH -> NEAR)
+        if entry_outcome[0] == "WATCH" and z_val is not None:
+            if (-self.cfg.signal.meanrev.z_max <= float(z_val) <= -1.20) and (
+                rsi_val is None or float(rsi_val) <= 44.0
+            ):
+                entry_outcome = ("NEAR", entry_outcome[1])
 
         n_cnt, n_imp = 0, 0.0
         if self._news_articles:

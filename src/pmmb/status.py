@@ -258,16 +258,20 @@ def build_command_center_data(
                 fill_rows = list(c.execute(
                     """SELECT f.ts, f.side, f.price, f.size, f.fee, f.notional,
                               f.realized, f.reason, f.token_id,
-                              COALESCE(p.question, f.token_id) AS question
-                       FROM fills f LEFT JOIN positions p ON p.token_id = f.token_id
+                              COALESCE(NULLIF(p.question, ''), mi.question, f.token_id) AS question
+                       FROM fills f
+                       LEFT JOIN positions p ON p.token_id = f.token_id
+                       LEFT JOIN market_intel mi ON mi.token_id = f.token_id
                        WHERE f.mode=? ORDER BY f.ts DESC, f.id DESC LIMIT 60""",
                     (cfg.execution.mode,),
                 ).fetchall())
                 sig_rows = list(c.execute(
                     """SELECT s.ts, s.token_id, s.direction, s.score, s.fair_price,
                               s.market_price, s.edge, s.reason, s.features,
-                              COALESCE(p.question, '') AS question
-                       FROM signals s LEFT JOIN positions p ON p.token_id = s.token_id
+                              COALESCE(NULLIF(p.question, ''), mi.question, '') AS question
+                       FROM signals s
+                       LEFT JOIN positions p ON p.token_id = s.token_id
+                       LEFT JOIN market_intel mi ON mi.token_id = s.token_id
                        ORDER BY s.id DESC LIMIT 50""",
                 ).fetchall())
                 out["telemetry"] = {
@@ -295,10 +299,16 @@ def build_command_center_data(
             sigs = []
             for r in sig_rows:
                 z = None
+                rsi_s = None
+                tier_s = None
                 try:
                     feats = json.loads(r["features"] or "{}")
-                    if "z" in feats:
+                    if "z" in feats and feats["z"] is not None:
                         z = round(float(feats["z"]), 2)
+                    if "rsi" in feats and feats["rsi"] is not None:
+                        rsi_s = round(float(feats["rsi"]), 1)
+                    if "setup_tier" in feats:
+                        tier_s = str(feats["setup_tier"])
                 except Exception:
                     pass
                 sigs.append({
@@ -311,12 +321,14 @@ def build_command_center_data(
                     "market_price": round(float(r["market_price"] or 0.0), 3),
                     "edge": round(float(r["edge"] or 0.0), 4),
                     "z": z,
+                    "rsi": rsi_s,
+                    "setup_tier": tier_s,
                     "reason": str(r["reason"] or "")[:72],
                 })
             out["signals"] = sigs
 
-            # חדשות שווקים מכל העולם + מדד מצב גלובלי
-            from .data.news import compute_global_pulse
+            # חדשות שווקים מכל העולם + מדד מצב גלובלי + אזור גיאוגרפי
+            from .data.news import compute_global_pulse, infer_region
 
             out["news"] = [
                 {
@@ -325,11 +337,12 @@ def build_command_center_data(
                     "title": str(r["title"]),
                     "source": str(r["source"] or ""),
                     "category": str(r["category"] or "macro"),
+                    "region": infer_region(str(r["source"] or ""), str(r["category"] or ""), str(r["title"] or "")),
                     "sentiment": round(float(r["sentiment"] or 0.0), 2),
                     "impact": round(float(r["impact"] or 0.0), 2),
                     "matched_tokens": str(r["matched_tokens"] or ""),
                 }
-                for r in store.recent_news(hours=72, limit=140)
+                for r in store.recent_news(hours=72, limit=180)
             ]
             out["world_pulse"] = compute_global_pulse(out["news"])
 

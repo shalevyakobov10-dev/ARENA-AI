@@ -444,6 +444,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
           <div class="filter-pills" id="intel-filters">
             <button class="pill-btn active" onclick="setIntelFilter('ALL', this)">הכל</button>
             <button class="pill-btn" onclick="setIntelFilter('OPEN', this)">פתוחות</button>
+            <button class="pill-btn" onclick="setIntelFilter('NEAR', this)">מתחממים</button>
             <button class="pill-btn" onclick="setIntelFilter('APLUS', this)">A+/A</button>
             <button class="pill-btn" onclick="setIntelFilter('CATALYST_BLOCK', this)">נחסמו</button>
           </div>
@@ -506,18 +507,20 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
       <div class="card">
         <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="card-title">פיד חדשות מוסדי גלובלי (14 רשתות עולמיות)</span>
+            <span class="card-title">פיד חדשות מוסדי גלובלי (19 רשתות עולמיות)</span>
             <button class="btn btn-ghost btn-xs" onclick="postAction('/api/news-refresh', {{}})">רענן פיד גלובלי</button>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="news-search" class="input" style="max-width:220px" placeholder="חיפוש בכותרת או רשת..." oninput="renderNews()">
+            <input type="text" id="news-search" class="input" style="max-width:210px" placeholder="חיפוש בכותרת, אזור או רשת..." oninput="renderNews()">
             <div class="filter-pills">
               <button class="pill-btn active" onclick="setNewsFilter('ALL', this)">הכל</button>
               <button class="pill-btn" onclick="setNewsFilter('CATALYST', this)">חריגות</button>
-              <button class="pill-btn" onclick="setNewsFilter('MATCHED', this)">מותאם לשוק</button>
-              <button class="pill-btn" onclick="setNewsFilter('geopolitics', this)">גיאופוליטיקה</button>
-              <button class="pill-btn" onclick="setNewsFilter('macro', this)">מאקרו ושווקים</button>
-              <button class="pill-btn" onclick="setNewsFilter('crypto', this)">קריפטו וטק</button>
+              <button class="pill-btn" onclick="setNewsFilter('MATCHED', this)">קשור לשוק</button>
+              <button class="pill-btn" onclick="setNewsFilter('REG:אסיה', this)">אסיה</button>
+              <button class="pill-btn" onclick="setNewsFilter('REG:מזרח תיכון', this)">מזרח תיכון</button>
+              <button class="pill-btn" onclick="setNewsFilter('REG:אמריקה ושווקים', this)">אמריקה</button>
+              <button class="pill-btn" onclick="setNewsFilter('REG:אירופה', this)">אירופה</button>
+              <button class="pill-btn" onclick="setNewsFilter('sports', this)">ספורט</button>
             </div>
           </div>
         </div>
@@ -820,6 +823,7 @@ function renderHeader() {{
 
   const intel = STATE.market_intel || [];
   const aPlus = intel.filter(x => x.setup_tier === 'A+' || x.setup_tier === 'A').length;
+  const nearCnt = intel.filter(x => x.status === 'NEAR').length;
   const sent = Number(wp.avg_sentiment || 0);
   const sentCls = sent >= 0.05 ? 'pos' : (sent <= -0.05 ? 'neg' : '');
   document.getElementById('pulse-ribbon').innerHTML = `
@@ -827,7 +831,7 @@ function renderHeader() {{
       <div class="pulse-item"><span class="dot ${{running ? 'ok' : 'warn'}}"></span><strong>מצב רציף:</strong> <span>${{running ? 'סורק כל ' + Math.round((tr.interval_sec || 180)/60) + ' דק׳' : 'מושהה'}}</span></div>
       <div class="pulse-item"><strong>פיד עולמי:</strong> <span>${{wp.sources || 0}} רשתות · ${{wp.total || tel.news || 0}} כתבות</span></div>
       <div class="pulse-item"><strong>מצב מאקרו:</strong> <span class="${{sentCls}}">${{esc(wp.regime || 'מאוזן')}} (${{fmtSign(sent, 2)}})</span></div>
-      <div class="pulse-item"><strong>הזדמנויות A/A+:</strong> <span class="num">${{aPlus}}</span></div>
+      <div class="pulse-item"><strong>סטאפים A/A+:</strong> <span class="num">${{aPlus}}</span> · <strong>מתחממים:</strong> <span class="num">${{nearCnt}}</span></div>
     </div>
     <div class="pulse-group">
       <div class="pulse-item"><strong>עדכון גרפים:</strong> <span>${{fmtTime(tr.last_stream_ts)}}</span></div>
@@ -931,17 +935,32 @@ function renderOverview() {{
     </tr>`;
   }}).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:20px">אין כרגע פוזיציות פתוחות</td></tr>';
 
-  // Live Execution & Decision Tape
-  const evs = (STATE.events || []).slice(0, 10);
-  document.getElementById('tape-meta').textContent = `${{evs.length}} אירועים אחרונים`;
-  document.getElementById('decision-tape').innerHTML = evs.length ? evs.map(e => {{
-    const lvlCls = e.level === 'ERROR' ? 'badge-err' : (e.level === 'WARNING' ? 'badge-warn' : 'badge-info');
-    return `<div class="tape-item">
-      <span class="num" style="color:var(--text-3);flex-shrink:0">${{fmtTime(e.ts)}}</span>
-      <span class="badge ${{lvlCls}}">${{esc(e.kind || 'event')}}</span>
-      <span style="color:var(--text-2)">${{esc(e.msg || '')}}</span>
-    </div>`;
-  }}).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">יופיעו אירועים בזמן אמת</div>';
+  // Live Execution & Decision Tape (שילוב סיגנלים חריגים + אירועי מערכת)
+  const evs = (STATE.events || []).slice(0, 6);
+  const sigS = (STATE.signals || []).filter(s => s.direction !== 'FLAT' || (s.z !== null && Math.abs(Number(s.z)) >= 1.5)).slice(0, 6);
+  const tapeItems = [
+    ...sigS.map(s => ({{
+      ts: s.ts,
+      cls: s.direction !== 'FLAT' ? 'badge-ok' : 'badge-warn',
+      kind: s.direction !== 'FLAT' ? `${{s.direction}} ${{s.setup_tier || ''}}` : `Z=${{fmtSign(s.z, 1)}}`,
+      msg: `${{(s.question || s.token_id || '').slice(0, 38)}} — ${{s.reason || ''}}`,
+      tok: s.token_id,
+    }})),
+    ...evs.map(e => ({{
+      ts: e.ts,
+      cls: e.level === 'ERROR' ? 'badge-err' : (e.level === 'WARNING' ? 'badge-warn' : 'badge-info'),
+      kind: e.kind || 'event',
+      msg: e.msg || '',
+      tok: '',
+    }})),
+  ].sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0)).slice(0, 10);
+  document.getElementById('tape-meta').textContent = `${{tapeItems.length}} החלטות ואירועים אחרונים`;
+  document.getElementById('decision-tape').innerHTML = tapeItems.length ? tapeItems.map(it => `
+    <div class="tape-item" ${{it.tok ? `style="cursor:pointer" onclick="switchToMarket('${{esc(it.tok)}}')"` : ''}}>
+      <span class="num" style="color:var(--text-3);flex-shrink:0">${{fmtTime(it.ts)}}</span>
+      <span class="badge ${{it.cls}}">${{esc(it.kind)}}</span>
+      <span style="color:var(--text-2)">${{esc(it.msg)}}</span>
+    </div>`).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">יופיעו החלטות ואירועים בזמן אמת</div>';
 
   // עסקאות סגורות
   const trs = (STATE.recent_trades || []).slice(0, 10);
@@ -964,6 +983,7 @@ function renderMarketsIntel() {{
   const qSearch = (document.getElementById('wl-search')?.value || '').trim().toLowerCase();
   const filtered = rows.filter(r => {{
     if (INTEL_FILTER === 'OPEN' && r.status !== 'OPEN') return false;
+    if (INTEL_FILTER === 'NEAR' && r.status !== 'NEAR' && r.status !== 'CANDIDATE') return false;
     if (INTEL_FILTER === 'APLUS' && r.setup_tier !== 'A+' && r.setup_tier !== 'A') return false;
     if (INTEL_FILTER === 'CATALYST_BLOCK' && r.status !== 'CATALYST_BLOCK') return false;
     if (qSearch && !((r.question || '').toLowerCase().includes(qSearch) || (r.sector || '').toLowerCase().includes(qSearch))) return false;
@@ -978,6 +998,7 @@ function renderMarketsIntel() {{
     if (r.status === 'BUY') return '<span class="badge badge-ok">כניסה</span>';
     if (r.status === 'CATALYST_BLOCK') return '<span class="badge badge-warn">חסימת קטליזטור</span>';
     if (r.status === 'CANDIDATE') return '<span class="badge badge-ok">מועמד</span>';
+    if (r.status === 'NEAR') return '<span class="badge badge-info">מתחמם</span>';
     if (r.setup_tier === 'A+') return '<span class="badge badge-ok">A+</span>';
     if (r.setup_tier === 'A') return '<span class="badge badge-info">A</span>';
     return '<span class="badge badge-mute">מעקב</span>';
@@ -1071,13 +1092,14 @@ function renderDeskPanels() {{
 function renderNews() {{
   const wp = STATE.world_pulse || {{}};
   const byCat = wp.by_category || {{}};
+  const byReg = wp.by_region || {{}};
   const sent = Number(wp.avg_sentiment || 0);
   document.getElementById('news-pulse-kpis').innerHTML = [
     {{ l: 'פיד גלובלי', v: `${{wp.sources || 0}} רשתות`, s: `${{wp.total || 0}} כתבות אחרונות`, c: '' }},
     {{ l: 'משטר חדשות עולמי', v: wp.regime || 'מאוזן', s: `סנטימנט ממוצע: ${{fmtSign(sent, 2)}}`, c: sent >= 0.05 ? 'pos' : (sent <= -0.05 ? 'neg' : '') }},
     {{ l: 'התראות קטליזטור', v: String(wp.catalysts || 0), s: 'כתבות בעלות השפעה >= 0.45', c: '' }},
-    {{ l: 'גיאופוליטיקה ועולם', v: String(byCat.geopolitics || 0), s: `מאקרו ושווקים: ${{(byCat.macro || 0) + (byCat.markets || 0)}}`, c: '' }},
-    {{ l: 'קריפטו וטכנולוגיה', v: String((byCat.crypto || 0) + (byCat.tech || 0)), s: `פוליטיקה: ${{byCat.politics || 0}}`, c: '' }},
+    {{ l: 'אסיה ומזה״ת', v: String((byReg['אסיה'] || 0) + (byReg['מזרח תיכון'] || 0)), s: `אסיה ${{byReg['אסיה'] || 0}} · מזה״ת ${{byReg['מזרח תיכון'] || 0}}`, c: '' }},
+    {{ l: 'אמריקה, אירופה וספורט', v: String((byReg['אמריקה ושווקים'] || 0) + (byReg['אירופה'] || 0)), s: `ספורט ${{byReg['ספורט'] || 0}} · קריפטו ${{byReg['קריפטו'] || 0}}`, c: '' }},
   ].map(x => `<div class="kpi"><div class="kpi-label">${{esc(x.l)}}</div><div class="kpi-val ${{x.c}}" style="font-size:18px">${{esc(x.v)}}</div><div class="kpi-sub">${{esc(x.s)}}</div></div>`).join('');
 
   const news = STATE.news || [];
@@ -1085,14 +1107,13 @@ function renderNews() {{
   const filtered = news.filter(n => {{
     if (NEWS_FILTER === 'CATALYST' && Number(n.impact || 0) < 0.45) return false;
     else if (NEWS_FILTER === 'MATCHED' && !n.matched_tokens) return false;
-    else if (NEWS_FILTER === 'geopolitics' && n.category !== 'geopolitics') return false;
-    else if (NEWS_FILTER === 'macro' && n.category !== 'macro' && n.category !== 'markets') return false;
-    else if (NEWS_FILTER === 'crypto' && n.category !== 'crypto' && n.category !== 'tech') return false;
-    if (q && !((n.title || '').toLowerCase().includes(q) || (n.source || '').toLowerCase().includes(q))) return false;
+    else if (NEWS_FILTER.startsWith('REG:') && (n.region || '') !== NEWS_FILTER.slice(4)) return false;
+    else if (NEWS_FILTER === 'sports' && n.category !== 'sports' && (n.region || '') !== 'ספורט') return false;
+    if (q && !((n.title || '').toLowerCase().includes(q) || (n.source || '').toLowerCase().includes(q) || (n.region || '').toLowerCase().includes(q))) return false;
     return true;
   }});
 
-  document.getElementById('news-list').innerHTML = filtered.length ? filtered.slice(0, 60).map(n => {{
+  document.getElementById('news-list').innerHTML = filtered.length ? filtered.slice(0, 80).map(n => {{
     const s = Number(n.sentiment || 0);
     const imp = Number(n.impact || 0);
     const sBadge = s >= 0.15 ? '<span class="badge badge-ok">חיובי</span>'
@@ -1104,6 +1125,7 @@ function renderNews() {{
         <div class="news-title">${{esc(n.title)}}</div>
         <div class="news-meta">
           <strong style="color:var(--text-2)">${{esc(n.source || n.category || 'RSS')}}</strong>
+          ${{n.region ? `<span class="badge badge-mute">${{esc(n.region)}}</span>` : ''}}
           <span>${{esc(n.category || 'world')}}</span>
           <span class="num">${{fmtDateTime(n.ts)}}</span>
           ${{n.matched_tokens ? '<span style="color:var(--accent)">קשור לשוק פתוח/במעקב</span>' : ''}}

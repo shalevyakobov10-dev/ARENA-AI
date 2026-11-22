@@ -71,9 +71,11 @@ class MeanReversionEngine:
         # שוק "מת" לא אמור לייצר z אינסופי בגלל תנודה של סנט.
         typical = max(vol * p * math.sqrt(n), MIN_TYPICAL_MOVE)
         z = move / typical                                  # כמה חריגה התנועה
+        rsi_val = ind.rsi(prices, 14)
+        base_feats = {"z": z, "rsi": round(rsi_val, 1), "setup_tier": "B"}
 
         if abs(z) < mr.z_entry:
-            return self._flat(market, f"אין עודף חריג (z={z:+.2f})", z=z)
+            return self._flat(market, f"אין עודף חריג (z={z:+.2f})", z=z, extra=base_feats)
 
         # הקשר מגמה: צניחה בתוך מגמת עלייה חזקה היא לרוב לא עודף אלא
         # היפוך מגמה. מחקר על 12 שווקים: 33% hit מול 59% בהקשר ניטרלי.
@@ -86,6 +88,7 @@ class MeanReversionEngine:
                     market,
                     f"צניחה בתוך מגמת עלייה חזקה (trend={trend_norm:+.1f})",
                     z=z,
+                    extra=base_feats,
                 )
 
         # תנועה קיצונית אינה "עודף" — היא כמעט תמיד ידיעה חדשה
@@ -95,6 +98,7 @@ class MeanReversionEngine:
                 market,
                 f"תנועה קיצונית z={z:+.2f} > {mr.z_max:g} — מידע, לא עודף",
                 z=z,
+                extra=base_feats,
             )
 
         if z < 0:
@@ -104,7 +108,7 @@ class MeanReversionEngine:
             room = 1.0 - p
         else:
             if not mr.allow_short:
-                return self._flat(market, f"עלייה חדה (z={z:+.2f}) — הצד העולה כבוי", z=z)
+                return self._flat(market, f"עלייה חדה (z={z:+.2f}) — הצד העולה כבוי", z=z, extra=base_feats)
             direction = "SHORT"
             token_id = market.no_token_id
             side_price = 1.0 - market_price
@@ -131,13 +135,13 @@ class MeanReversionEngine:
         # עלות הלוך-חזור: ספרד מלא (קונים ב-ask, מוכרים ב-bid) + עמלות סבב.
         # העמלה היא p(1−p) — כלומר יקרה באמצע הטווח וזולה בקצוות.
         fee_rate = float((extra or {}).get("fee_rate", 0.0))
+        book_imb = float((extra or {}).get("imbalance") or 0.0)
         fees = round_trip_fee_per_share(p, fee_rate) if fee_rate > 0 else 0.0
         friction = spread + fees
         edge = fair - mkt - friction
 
-        rsi_val = ind.rsi(prices, 14)
         sp_to_edge = round(spread / max(edge, 1e-6), 2) if edge > 0 else 99.0
-        # סיווג איכות הסטאפ (A+ / A / B) ובוסט קונפלואנס מקצועי
+        # סיווג איכות הסטאפ (A+ / A / B) ובוסט קונפלואנס מקצועי (כולל ספר L2)
         tier = "B"
         conf_adj = 0.0
         if mr.confluence_boost:
@@ -147,6 +151,10 @@ class MeanReversionEngine:
                 conf_adj += 0.10
             if spread <= 0.015:
                 conf_adj += 0.05
+            if book_imb >= 0.20:
+                conf_adj += 0.05
+            elif book_imb <= -0.60:
+                conf_adj -= 0.08
             if abs(z) < 2.0 and rsi_val > 42.0:
                 conf_adj -= 0.08
         adj_score = ind.clamp(strength + conf_adj, 0.0, 1.0)
@@ -165,6 +173,7 @@ class MeanReversionEngine:
             "rsi": round(rsi_val, 1),
             "setup_tier": tier,
             "spread_to_edge": sp_to_edge,
+            "imbalance": round(book_imb, 3),
             "fair_yes": fair_yes,
             "friction": friction,
             "fees": fees,

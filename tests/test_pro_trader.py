@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from pmmb.data.clob import Book, Candle
-from pmmb.data.news import NewsArticle, compute_global_pulse, match_market_news
+from pmmb.data.news import NewsArticle, _WIRE_FEEDS, compute_global_pulse, infer_region, match_market_news
 from pmmb.engine import Engine
 from pmmb.models import Fill, Market, PortfolioSnapshot, Signal
 from pmmb.risk.manager import RiskManager
@@ -51,10 +51,21 @@ def test_meanrev_rsi_confluence_and_spread_to_edge_filter(cfg):
     assert sig_ok.features["setup_tier"] in ("A", "A+")
     assert sig_ok.features["rsi"] <= 45.0
 
-    # 2. ספרד יקר יחסית ל-edge -> נדחה ("ספרד יקר יחסית ל-edge")
+    # 2. ספרד יקר יחסית ל-edge -> נדחה ("ספרד יקר יחסית ל-edge") אבל מחזיר RSI מלא
     sig_sp = eng.evaluate(mk, prices, market_price=0.46, spread=0.045)
     assert sig_sp.direction == "FLAT"
     assert "edge" in sig_sp.reason
+    assert "rsi" in sig_sp.features
+
+    # 3. גם במצב ניטרלי (ללא עודף) מוחזר RSI חי למעקב Watchlist + קונפלואנס L2 book imbalance
+    flat_prices = [0.55 + 0.002 * math.sin(i) for i in range(55)]
+    sig_flat = eng.evaluate(mk, flat_prices, market_price=0.55, spread=0.01)
+    assert sig_flat.direction == "FLAT"
+    assert "rsi" in sig_flat.features
+
+    sig_imb_pos = eng.evaluate(mk, prices, market_price=0.46, spread=0.01, extra={"imbalance": 0.45})
+    sig_imb_neg = eng.evaluate(mk, prices, market_price=0.46, spread=0.01, extra={"imbalance": -0.75})
+    assert sig_imb_pos.score >= sig_imb_neg.score
 
 
 def test_risk_manager_drawdown_throttling(cfg):
@@ -202,3 +213,11 @@ def test_news_matching_rejects_generic_false_positives():
     )
     assert m.article_count == 1
     assert "Taiwan" in m.latest_title
+
+
+def test_wire_feeds_global_regions():
+    assert len(_WIRE_FEEDS) >= 19
+    assert infer_region("CNA Asia", "geopolitics", "Taiwan trade talks") == "אסיה"
+    assert infer_region("Al Jazeera", "geopolitics", "Ceasefire talks") == "מזרח תיכון"
+    assert infer_region("Fed Reserve", "macro", "FOMC statement") == "אמריקה ושווקים"
+    assert infer_region("Sky Sports", "sports", "Arsenal win") == "ספורט"

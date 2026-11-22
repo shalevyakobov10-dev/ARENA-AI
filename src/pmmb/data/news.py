@@ -30,7 +30,7 @@ _DEFAULT_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("sports", "Sports Injuries & Breaking", "NBA OR NFL OR UFC injured OR suspended OR trade"),
 )
 
-# 14 רשתות חדשות מוסדיות מכל העולם — נמשכות במקביל (~0.5 שנ'), ללא מגבלות 429
+# 19 רשתות חדשות מוסדיות מכל העולם — נמשכות במקביל (~0.5 שנ'), ללא מגבלות 429
 _WIRE_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("geopolitics", "BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
     ("macro", "BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
@@ -46,6 +46,11 @@ _WIRE_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("geopolitics", "NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
     ("macro", "NYT Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
     ("geopolitics", "Guardian World", "https://www.theguardian.com/world/rss"),
+    ("sports", "Sky Sports", "https://www.skysports.com/rss/12040"),
+    ("geopolitics", "SCMP Asia", "https://www.scmp.com/rss/91/feed"),
+    ("geopolitics", "CNA Asia", "https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml"),
+    ("macro", "Fed Reserve", "https://www.federalreserve.gov/feeds/press_all.xml"),
+    ("politics", "Politico", "https://rss.politico.com/politics-news.xml"),
 )
 
 _STOP_WORDS = frozenset({
@@ -355,29 +360,51 @@ class NewsClient:
         return sorted(seen.values(), key=lambda a: -a.ts)
 
 
+def infer_region(source: str, category: str, title: str) -> str:
+    """משייך ידיעה לאזור גיאוגרפי / שוק דומיננטי לתצוגת רדאר בינלאומי."""
+    blob = f"{source} {title}".lower()
+    if any(k in blob for k in ("taiwan", "china", "beijing", "scmp", "cna asia", "japan", "korea", "taipei", "hong kong", "singapore", "asia")):
+        return "אסיה"
+    if any(k in blob for k in ("israel", "iran", "gaza", "lebanon", "syria", "al jazeera", "middle east", "saudi", "qatar", "netanyahu", "tehran")):
+        return "מזרח תיכון"
+    if any(k in blob for k in ("bbc", "france 24", "dw", "guardian", "ukraine", "russia", "europe", "eu ", "nato", "spain", "germany", "uk ", "london", "paris")):
+        return "אירופה"
+    if category == "sports" or any(k in blob for k in ("nba", "nfl", "ufc", "sky sports", "premier league", "arsenal", "broncos", "thunder")):
+        return "ספורט"
+    if category == "crypto" or any(k in blob for k in ("coindesk", "bitcoin", "ethereum", "crypto", "solana")):
+        return "קריפטו"
+    if any(k in blob for k in ("fed", "federal reserve", "politico", "npr", "cnbc", "nyt", "marketwatch", "wall street", "congress", "trump", "senate", "us ")):
+        return "אמריקה ושווקים"
+    return "גלובלי"
+
+
 def compute_global_pulse(articles: Iterable[NewsArticle | dict]) -> dict:
-    """מחשב מדד מצב חדשות גלובלי בזמן אמת (סנטימנט, צפיפות קטליזטורים, סקטורים ומקורות)."""
+    """מחשב מדד מצב חדשות גלובלי בזמן אמת (סנטימנט, צפיפות קטליזטורים, סקטורים, אזורים ומקורות)."""
     items = list(articles)
     if not items:
         return {
             "total": 0, "avg_sentiment": 0.0, "catalysts": 0,
-            "regime": "שקט", "sources": 0, "by_category": {},
+            "regime": "שקט", "sources": 0, "by_category": {}, "by_region": {},
         }
     sents: list[float] = []
     catalysts = 0
     sources: set[str] = set()
     by_cat: dict[str, int] = {}
+    by_reg: dict[str, int] = {}
     for a in items:
         s = float(a.get("sentiment") or 0.0) if isinstance(a, dict) else float(a.sentiment)
         imp = float(a.get("impact") or 0.0) if isinstance(a, dict) else float(a.impact)
         src = str(a.get("source") or "") if isinstance(a, dict) else str(a.source)
         cat = str(a.get("category") or "world") if isinstance(a, dict) else str(a.category)
+        ttl = str(a.get("title") or "") if isinstance(a, dict) else str(a.title)
+        reg = infer_region(src, cat, ttl)
         sents.append(s)
         if imp >= 0.45:
             catalysts += 1
         if src:
             sources.add(src)
         by_cat[cat] = by_cat.get(cat, 0) + 1
+        by_reg[reg] = by_reg.get(reg, 0) + 1
 
     avg_s = sum(sents) / len(sents)
     cat_ratio = catalysts / len(items)
@@ -399,6 +426,7 @@ def compute_global_pulse(articles: Iterable[NewsArticle | dict]) -> dict:
         "regime": regime,
         "sources": len(sources),
         "by_category": dict(sorted(by_cat.items(), key=lambda kv: -kv[1])),
+        "by_region": dict(sorted(by_reg.items(), key=lambda kv: -kv[1])),
     }
 
 
