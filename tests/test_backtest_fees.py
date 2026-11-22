@@ -68,7 +68,9 @@ def test_fee_accounting_is_exact(cfg):
     exit_fee = taker_fee(t.size, t.exit, 0.05)
     expected = (t.exit - t.entry) * t.size - entry_fee - exit_fee
     assert abs(t.pnl - expected) < 1e-3
-    # העסקה היחידה/ראשונה: סך העמלות = כניסה + יציאה שלה
+    # העסקה היחידה/ראשונה: סך העמלות = כניסה + יציאה שלה, בלי כפילות
+    if res.n_trades == 1:
+        assert abs(res.fees_paid - (entry_fee + exit_fee)) < 1e-3
     assert res.fees_paid >= entry_fee + exit_fee - 1e-3
 
 

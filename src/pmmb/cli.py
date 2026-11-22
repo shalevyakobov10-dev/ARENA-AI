@@ -113,7 +113,8 @@ def cmd_scan(args, cfg: Config) -> int:
         if book is None or book.mid is None:
             continue
         sig = engine.evaluate(mk, [c.price for c in candles],
-                             market_price=book.mid, spread=book.spread)
+                             market_price=book.mid, spread=book.spread,
+                             extra={"fee_rate": mk.taker_fee_rate})
         if args.all or sig.direction != "FLAT":
             rows.append([
                 mk.question[:42],
@@ -197,11 +198,13 @@ def cmd_backtest(args, cfg: Config) -> int:
           f"{args.lookback} נרות\n")
 
     results = []
+    datasets = []
     for mk in markets:
         candles = bt.fetch(mk.yes_token_id, fidelity=args.fidelity, lookback=args.lookback)
         if len(candles) < bt.engine.min_candles + 10:
             log.debug("מדלג על %s (היסטוריה קצרה: %d נרות)", mk.slug, len(candles))
             continue
+        datasets.append((mk, candles))
         res = bt.run(mk, candles, label=mk.slug, spread=max(mk.spread, args.spread),
                      entry_style=args.entry, passive_wait=args.wait)
         results.append(res)
@@ -210,6 +213,18 @@ def cmd_backtest(args, cfg: Config) -> int:
     if not results:
         print("לא נמצאו שווקים עם היסטוריה מספקת.")
         return 1
+
+    if getattr(args, "portfolio", False):
+        from .backtest import write_portfolio_report
+
+        pres = bt.run_portfolio(datasets, spread=args.spread)
+        ppath = write_portfolio_report(pres, args.out, engine=cfg.signal.engine)
+        print("\n" + _summary_line(pres))
+        print(f"📄 סימולציית תיק משותף נכתבה ל-{ppath} | "
+              f"הון סופי {pres.ending_equity:.2f} ({pres.total_return_pct:+.2f}%) | "
+              f"MaxDD {pres.max_drawdown_pct:.2f}% | עמלות {pres.fees_paid:.2f}")
+        return 0
+
     path = write_report(results, args.out, engine=cfg.signal.engine)
     n = sum(r.n_trades for r in results)
     pnl = sum(t.pnl for r in results for t in r.trades)
@@ -513,7 +528,8 @@ def cmd_daily(args, cfg: Config) -> int:
 
     store = Store(cfg.data.db_path)
     rep = build_daily_report(store, hours=args.hours, starting_cash=cfg.execution.starting_cash,
-                             planned_horizon_hours=cfg.signal.exit.time_stop_hours)
+                             planned_horizon_hours=cfg.signal.exit.time_stop_hours,
+                             mode=cfg.execution.mode)
     store.close()
     print(rep.to_markdown())
     if not args.no_write:
@@ -727,9 +743,35 @@ def cmd_fees(args, cfg: Config) -> int:
 
 def cmd_report(args, cfg: Config) -> int:
     store = Store(cfg.data.db_path)
+    mode = cfg.execution.mode
+    sells = store._conn.execute(
+        """SELECT f.ts, f.token_id, f.price, f.size, f.realized, f.reason,
+                  COALESCE(p.question, f.token_id) AS question
+           FROM fills f LEFT JOIN positions p ON p.token_id = f.token_id
+           WHERE f.side='SELL' AND f.mode=? ORDER BY f.ts, f.id""",
+        (mode,),
+    ).fetchall()
+    if sells:
+        wins = [s for s in sells if (s["realized"] or 0) > 0]
+        total = sum((s["realized"] or 0) for s in sells)
+        fees = sum((r["f"] or 0) for r in store._conn.execute(
+            "SELECT SUM(fee) f FROM fills WHERE mode=?", (mode,)
+        ).fetchall())
+        rows = []
+        for s in sells[-args.limit:]:
+            ts = datetime.fromtimestamp(s["ts"], tz=timezone.utc).strftime("%m-%d %H:%M")
+            rows.append([ts, (s["question"] or s["token_id"])[:34], f"{s['size']:.1f}",
+                         f"{s['price']:.3f}", f"{s['realized']:+.2f}", (s["reason"] or "")[:28]])
+        print(_table(rows, ["נסגר", "שוק", "כמות", "יציאה", "PnL", "סיבה"]))
+        print(f"\nסה\"כ {len(sells)} יציאות ({mode}) | win rate {len(wins) / len(sells) * 100:.1f}% | "
+              f"PnL ממומש {total:+.2f} USDC | עמלות {fees:.2f}")
+        store.close()
+        return 0
+
     trades = store.closed_trades()
     if not trades:
         print("אין עסקאות סגורות ב-DB עדיין.")
+        store.close()
         return 0
     wins = [t for t in trades if (t["realized_pnl"] or 0) > 0]
     total = sum((t["realized_pnl"] or 0) for t in trades)
@@ -775,6 +817,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="taker = חוצים את הספרד ומשלמים עמלה · passive = מגבלה על ה-bid (מייקר, פטור מעמלה)")
     b.add_argument("--wait", type=int, default=3,
                    help="כמה נרות להמתין למילוי פסיבי לפני מעבר לטאקר")
+    b.add_argument("--portfolio", action="store_true",
+                   help="סימולציית תיק משותף אמיתי (מגבלות פוזיציות, חשיפה ואירוע)")
     b.add_argument("--out", default="reports")
 
     a = sub.add_parser("analyze", help="אבחון כוח ניבוי הסיגנל (IC / hit rate)")

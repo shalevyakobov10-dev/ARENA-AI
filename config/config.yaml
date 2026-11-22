@@ -21,7 +21,8 @@ universe:
   min_liquidity: 2000
   max_spread: 0.04             # ספרד מקסימלי בין bid/ask
   price_band: [0.05, 0.95]     # לא נוגעים בקיצון — שם המומנטום חסר משמעות
-  min_hours_to_resolution: 6   # לא נכנסים לשוק שעומד להיסגר
+  min_hours_to_resolution: 6   # יציאה כפויה לפני סגירה (לא מחזיקים אירוע בינארי)
+  min_entry_hours_to_resolution: 24  # לא פותחים פוזיציה חדשה אם נותר פחות מ-24ש' לסגירה
   max_hours_to_resolution: 720 # שבועיים
   # החרגה סקטוריאלית — מבוססת מדידה (pmmb sectors):
   # קריפטו: 36 סיגנלים, 8% hit, -0.27 לעסקה. שווקי סף של BTC נטויים לקצה.
@@ -35,8 +36,8 @@ signal:
   # מנוע הסיגנל: meanrev (מומלץ, מבוסס מדידה) או momentum (האסטרטגיה המקורית)
   engine: meanrev
   meanrev:
-    lookback_candles: 12        # חלון מדידת העודף
-    z_entry: 1.5                # סף חריגות — מתחת לזה התיקון לא מכסה ספרד
+    lookback_candles: 24        # חלון 24 שעות (מאומת walk-forward תחת ספרד מלא)
+    z_entry: 1.8                # סף חריגות — נבחר בחלונות OOS עם ספרד מלא
     z_max: 5.0                  # מעל זה: ידיעה חדשה (לא עודף) — לא נכנסים
     reversion_ratio: 0.55       # מכויל: צפי/מציאות = 0.90 באופק 48ש'
     max_room_pct: 0.6
@@ -68,6 +69,8 @@ risk:
   max_position_pct: 0.10       # תקרה לפוזיציה בודדת
   max_total_exposure_pct: 0.40 # חשיפה כוללת מקסימלית
   max_open_positions: 5
+  max_positions_per_event: 1   # מונע ריכוזית באותו אירוע אב (כגון בחירות/תאריכים)
+  max_positions_per_sector: 3  # פיזור בין סקטורים שונים
   max_daily_loss_pct: 0.05     # עצירה יומית
   max_drawdown_pct: 0.20       # kill switch
   cooldown_minutes: 30         # אחרי יציאה — לא חוזרים לאותו שוק מיד

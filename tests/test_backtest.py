@@ -71,3 +71,46 @@ def test_backtest_charges_half_spread_on_taker(cfg, market):
         assert t.entry >= by_ts[t.entry_ts] + spread / 2 - 1e-6
         if t.reason != "סוף התקופה":
             assert t.exit <= by_ts[t.exit_ts] - spread / 2 + 1e-6
+
+
+def test_portfolio_backtest_enforces_event_and_position_caps(cfg, market):
+    """סימולציית תיק משותף אוכפת מקסימום פוזיציה אחת לכל event_id ותקרת חשיפה."""
+    from pmmb.models import Market
+    from pmmb.signals.meanrev import MeanReversionEngine
+
+    px = [0.55, 0.549, 0.55, 0.56, 0.559, 0.559, 0.561, 0.553, 0.553, 0.556, 0.563, 0.553,
+          0.548, 0.538, 0.545, 0.55, 0.539, 0.551, 0.562, 0.566, 0.569, 0.561, 0.549, 0.55,
+          0.539, 0.532, 0.526, 0.515, 0.514, 0.513, 0.521, 0.521, 0.524, 0.524, 0.528, 0.527,
+          0.522, 0.534, 0.546, 0.554, 0.559, 0.555, 0.549, 0.544, 0.534, 0.54, 0.538, 0.546,
+          0.543, 0.554, 0.524, 0.484, 0.464, 0.464, 0.472, 0.48, 0.488, 0.496, 0.504, 0.512,
+          0.52, 0.528, 0.536, 0.544]
+
+    cfg.signal.engine = "meanrev"
+    cfg.signal.min_edge = 0.005
+    cfg.risk.max_open_positions = 5
+    bt = _NoNet(cfg)
+    bt.engine = MeanReversionEngine(cfg.signal)
+
+    m1 = Market(
+        condition_id="c1", question="Candidate A", slug="cand-a",
+        yes_token_id="y1", no_token_id="n1", yes_price=0.5, no_price=0.5,
+        spread=0.01, volume_24h=50_000, liquidity=50_000, end_date=market.end_date,
+        event_id="ev-shared",
+    )
+    m2 = Market(
+        condition_id="c2", question="Candidate B", slug="cand-b",
+        yes_token_id="y2", no_token_id="n2", yes_price=0.5, no_price=0.5,
+        spread=0.01, volume_24h=50_000, liquidity=50_000, end_date=market.end_date,
+        event_id="ev-shared",
+    )
+    candles = _candles(px, step=3600)
+
+    cfg.risk.max_positions_per_event = 1
+    res_capped = Backtester.run_portfolio(bt, [(m1, candles), (m2, candles)], spread=0.01)
+    assert res_capped.taker_fills >= 1
+
+    cfg.risk.max_positions_per_event = 2
+    res_uncapped = Backtester.run_portfolio(bt, [(m1, candles), (m2, candles)], spread=0.01)
+    assert res_uncapped.taker_fills == res_capped.taker_fills * 2
+
+

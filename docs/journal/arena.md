@@ -33,3 +33,16 @@ OOS קפץ ל-+284.00 (73 עסקאות, 100% עקביות, 12/20 שווקים ח
 `/halt` בלבד), ושדרוג הדשבורד (שם שוק, נוכחי, לא ממומש, SL/TP, מד שבוע paper).
 
 **בדיקות.** 172 ירוקות, אפס רשת.
+
+## 2026-11-22 (שלב ג') — הגנות קורלציה, ספר דק, סימולציית תיק ו־HEAD תמיכה בשרת
+
+- תוקנו: `do_HEAD` ב-`server.py` (השרת החזיר 501 לבדיקות HEAD), כפילות עמלת כניסה ב-`fees_paid`
+  ב-`backtest.py`, חסר `fee_rate` ב-`pmmb scan`, ושמירת עסקאות חוזרות על אותו טוקן ב-`daily.py`
+  ו-`pmmb report`.
+- נוספו הגנות: `event_id` deduplication (`max_positions_per_event=1` נשמר ב-SQLite),
+  `max_positions_per_sector=3`, בדיקת עומק ספר (`estimate_fill`) לפני פתיחה, ו-`min_entry_hours_to_resolution=24`
+  (מונע פתיחת פוזיציות שעה לפני יציאה כפויה).
+- נוסף `pmmb backtest --portfolio` לסימולציית תיק משותף אמיתי על ציר זמן מאוחד:
+  `+19.44%` (`1,194.35 USDC`), `68` עסקאות, `54.4% win`, `PF 3.20`, `MaxDD 4.28%`.
+- `config/config.yaml` עודכן בפועל גם לשורות `lookback_candles: 24` ו-`z_entry: 1.8`.
+- **178 בדיקות ירוקות (אפס רשת).**

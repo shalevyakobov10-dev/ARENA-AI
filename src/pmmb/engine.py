@@ -41,6 +41,9 @@ _SKIP_BUCKETS: tuple[tuple[str, str], ...] = (
     ("ספר", "ספר פקודות דק או חסר"),
     ("מילוי", "מילוי לא מומש"),
     ("cooldown", "קירור אחרי יציאה"),
+    ("לפדיון", "קרוב מדי לפדיון"),
+    ("באירוע", "כבר חשוף לאירוע"),
+    ("סקטור", "תקרת סקטור"),
     ("פוזיציה", "כבר יש פוזיציה"),
 )
 
@@ -285,17 +288,49 @@ class Engine:
             stats.skip("אין ask בתחום")
             return
 
+        open_events: dict[str, int] = {}
+        open_sectors: dict[str, int] = {}
+        from .sectors import classify
+        for p in self.portfolio.positions.values():
+            ev = p.event_id or (self.markets[p.condition_id].event_id if p.condition_id in self.markets else "")
+            if ev:
+                open_events[ev] = open_events.get(ev, 0) + 1
+            sec = (self.markets[p.condition_id].sector if p.condition_id in self.markets
+                   else classify(p.question, ""))
+            if sec:
+                open_sectors[sec] = open_sectors.get(sec, 0) + 1
+
         snap = self.portfolio.snapshot(self._last_marks)
         decision = self.risk.evaluate_entry(
             signal, mk, snap,
             price=price,
             tick=book.tick_size or mk.tick_size,
             min_order_size=max(book.min_order_size, self.cfg.risk.min_order_size),
+            open_events=open_events,
+            open_sectors=open_sectors,
         )
         if not decision.approved:
             stats.skip(f"סיכון: {decision.reason}")
             log.debug("⛔ %s | %s", mk.question[:60], decision.reason)
             return
+
+        # בדיקת עומק ספר הפקודות לפני שליחת הוראה: מוודאים שהליכת הספר לא בולעת את ה-edge
+        est_fn = getattr(self.clob, "estimate_fill", None)
+        if callable(est_fn) and book.asks:
+            est = est_fn(book, "BUY", decision.notional,
+                         max_impact_pct=max(self.cfg.risk.max_price_impact_pct, 0.05),
+                         allow_partial=False)
+            if est is None:
+                stats.skip("ספר פקודות דק או חסר")
+                return
+            est_px, _ = est
+            if est_px - price > self.cfg.risk.max_price_impact_pct * max(price, 0.01):
+                stats.skip("ספר פקודות דק או חסר")
+                return
+            fees_rt = float(signal.features.get("fees", 0.0))
+            if est_px + fees_rt >= signal.fair_price:
+                stats.skip("edge לא מכסה עלויות")
+                return
 
         order = Order(
             token_id=token_id,
@@ -318,6 +353,7 @@ class Engine:
             pos.direction = signal.direction
             pos.entry_score = signal.score
             pos.question = mk.question
+            pos.event_id = mk.event_id
             ex = self.cfg.signal.exit
             pos.stop_price, pos.target_price = stop_and_target(
                 fill.price, "LONG", ex.stop_loss, ex.take_profit,

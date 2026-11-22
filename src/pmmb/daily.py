@@ -107,6 +107,7 @@ def build_daily_report(
     now: datetime | None = None,
     planned_horizon_hours: float = 48.0,
     starting_cash: float = 1000.0,
+    mode: str | None = None,
 ) -> DailyReport:
     now = now or datetime.now(tz=timezone.utc)
     since = now - timedelta(hours=hours)
@@ -119,14 +120,17 @@ def build_daily_report(
         "SELECT COUNT(*) c FROM signals WHERE ts >= ? AND ts <= ?", (ts_since, ts_now)
     ).fetchone()["c"]
 
+    m_clause = " AND mode = ?" if mode else ""
+    m_args: tuple = (mode,) if mode else ()
+
     conn_entries = conn.execute(
-        "SELECT COUNT(*) c FROM fills WHERE ts >= ? AND ts <= ? AND side='BUY'",
-        (ts_since, ts_now),
+        f"SELECT COUNT(*) c FROM fills WHERE ts >= ? AND ts <= ? AND side='BUY'{m_clause}",
+        (ts_since, ts_now, *m_args),
     ).fetchone()["c"]
     rep.entries = conn_entries
     rep.exits = conn.execute(
-        "SELECT COUNT(*) c FROM fills WHERE ts >= ? AND ts <= ? AND side='SELL'",
-        (ts_since, ts_now),
+        f"SELECT COUNT(*) c FROM fills WHERE ts >= ? AND ts <= ? AND side='SELL'{m_clause}",
+        (ts_since, ts_now, *m_args),
     ).fetchone()["c"]
 
     rep.errors = conn.execute(
@@ -134,18 +138,32 @@ def build_daily_report(
         (ts_since, ts_now),
     ).fetchone()["c"]
 
-    # רווח ממומש נלקח מה-fills (כולל יציאות חלקיות), לא מ-positions:
-    # פוזיציה שנסגרה חלקית עדיין פתוחה, אבל הרווח שלה כבר ממומש.
+    # רווח ממומש נלקח מה-fills (כולל יציאות חלקיות ועסקאות חוזרות על אותו טוקן)
     rep.realized_pnl = float(conn.execute(
-        "SELECT COALESCE(SUM(realized),0) s FROM fills WHERE ts >= ? AND ts <= ?",
-        (ts_since, ts_now),
+        f"SELECT COALESCE(SUM(realized),0) s FROM fills WHERE ts >= ? AND ts <= ?{m_clause}",
+        (ts_since, ts_now, *m_args),
     ).fetchone()["s"] or 0.0)
 
     closed = conn.execute(
-        "SELECT * FROM positions WHERE closed_at >= ? AND closed_at <= ? ORDER BY closed_at",
-        (ts_since, ts_now),
+        f"SELECT * FROM positions WHERE closed_at >= ? AND closed_at <= ?{m_clause} ORDER BY closed_at",
+        (ts_since, ts_now, *m_args),
     ).fetchall()
-    if closed:
+    sell_trades = conn.execute(
+        f"""SELECT f.token_id, f.realized, COALESCE(p.question, '') AS question
+            FROM fills f LEFT JOIN positions p ON p.token_id = f.token_id
+            WHERE f.ts >= ? AND f.ts <= ? AND f.side='SELL' AND f.realized != 0{m_clause.replace('mode', 'f.mode')}
+            ORDER BY f.ts""",
+        (ts_since, ts_now, *m_args),
+    ).fetchall()
+
+    if len(sell_trades) > len(closed):
+        rep.wins = sum(1 for r in sell_trades if (r["realized"] or 0) > 0)
+        rep.losses = sum(1 for r in sell_trades if (r["realized"] or 0) <= 0)
+        best = max(sell_trades, key=lambda r: r["realized"] or 0)
+        worst = min(sell_trades, key=lambda r: r["realized"] or 0)
+        rep.best_market, rep.best_pnl = best["question"] or best["token_id"], float(best["realized"] or 0)
+        rep.worst_market, rep.worst_pnl = worst["question"] or worst["token_id"], float(worst["realized"] or 0)
+    elif closed:
         rep.wins = sum(1 for r in closed if (r["realized_pnl"] or 0) > 0)
         rep.losses = sum(1 for r in closed if (r["realized_pnl"] or 0) <= 0)
         best = max(closed, key=lambda r: r["realized_pnl"] or 0)
@@ -153,19 +171,25 @@ def build_daily_report(
         rep.best_market, rep.best_pnl = best["question"] or best["token_id"], float(best["realized_pnl"] or 0)
         rep.worst_market, rep.worst_pnl = worst["question"] or worst["token_id"], float(worst["realized_pnl"] or 0)
 
+    eq_mode = " AND (mode = ? OR mode IS NULL)" if mode else ""
     eq = conn.execute(
-        "SELECT equity FROM equity WHERE ts >= ? ORDER BY ts LIMIT 1", (ts_since,)
+        f"SELECT equity FROM equity WHERE ts >= ?{eq_mode} ORDER BY ts LIMIT 1",
+        (ts_since, *m_args),
     ).fetchone()
     if eq:
         rep.equity_start = float(eq["equity"])
     else:
-        prev = conn.execute("SELECT equity FROM equity ORDER BY ts DESC LIMIT 1").fetchone()
+        prev = conn.execute(
+            f"SELECT equity FROM equity WHERE 1=1{eq_mode} ORDER BY ts DESC LIMIT 1", m_args
+        ).fetchone()
         rep.equity_start = float(prev["equity"]) if prev else starting_cash
-    last = conn.execute("SELECT equity FROM equity ORDER BY ts DESC LIMIT 1").fetchone()
+    last = conn.execute(
+        f"SELECT equity FROM equity WHERE 1=1{eq_mode} ORDER BY ts DESC LIMIT 1", m_args
+    ).fetchone()
     rep.equity_end = float(last["equity"]) if last else rep.equity_start
 
     open_rows = conn.execute(
-        "SELECT * FROM positions WHERE closed_at IS NULL AND size > 0"
+        f"SELECT * FROM positions WHERE closed_at IS NULL AND size > 0{m_clause}", m_args
     ).fetchall()
     for r in open_rows:
         opened = datetime.fromtimestamp(r["opened_at"], tz=timezone.utc)

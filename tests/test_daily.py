@@ -114,3 +114,20 @@ def test_partial_exit_realized_is_not_lost(store):
 
     rep = build_daily_report(store, now=datetime.now(tz=timezone.utc), hours=1)
     assert abs(rep.realized_pnl - 4.0) < 1e-9
+
+
+def test_repeat_trades_on_same_token_are_all_counted(store):
+    """פוזיציה שנסגרה ונפתחה שוב לא מאבדת עסקאות קודמות בדוח היומי."""
+    from pmmb.execution.base import Portfolio
+    from pmmb.models import Fill as F
+
+    pf = Portfolio(cash=1000.0, mode="paper", store=store)
+    pf.apply_fill(F(token_id="t-rep", condition_id="c-rep", side="BUY", price=0.40, size=50))
+    pf.apply_fill(F(token_id="t-rep", condition_id="c-rep", side="SELL", price=0.50, size=50))
+    pf.apply_fill(F(token_id="t-rep", condition_id="c-rep", side="BUY", price=0.45, size=50))
+    pf.apply_fill(F(token_id="t-rep", condition_id="c-rep", side="SELL", price=0.35, size=50))
+
+    rep = build_daily_report(store, now=datetime.now(tz=timezone.utc), hours=1, mode="paper")
+    assert rep.wins == 1 and rep.losses == 1
+    assert abs(rep.realized_pnl - 0.0) < 1e-9
+

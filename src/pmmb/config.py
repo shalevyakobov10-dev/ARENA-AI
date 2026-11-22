@@ -55,6 +55,7 @@ class UniverseConfig:
     max_spread: float = 0.04
     price_band: tuple[float, float] = (0.05, 0.95)
     min_hours_to_resolution: float = 6
+    min_entry_hours_to_resolution: float = 24
     max_hours_to_resolution: float = 720
     exclude_tags: list[str] = field(default_factory=list)
     exclude_slug_contains: list[str] = field(default_factory=list)
@@ -127,6 +128,8 @@ class RiskConfig:
     max_position_pct: float = 0.10
     max_total_exposure_pct: float = 0.40
     max_open_positions: int = 5
+    max_positions_per_event: int = 1
+    max_positions_per_sector: int = 0
     max_daily_loss_pct: float = 0.05
     max_drawdown_pct: float = 0.20
     cooldown_minutes: float = 30

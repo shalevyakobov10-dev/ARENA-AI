@@ -33,6 +33,8 @@ class RiskManager:
         price: float,
         tick: float,
         min_order_size: float,
+        open_events: dict[str, int] | None = None,
+        open_sectors: dict[str, int] | None = None,
     ) -> RiskDecision:
         r = self.risk
 
@@ -41,6 +43,21 @@ class RiskManager:
 
         if signal.direction == "FLAT":
             return RiskDecision(False, reason="אין סיגנל")
+
+        min_entry_h = self.cfg.universe.min_entry_hours_to_resolution
+        if min_entry_h > 0 and market.hours_to_resolution < min_entry_h:
+            return RiskDecision(
+                False,
+                reason=f"קרוב מדי לפדיון לכניסה ({market.hours_to_resolution:.1f}ש' < {min_entry_h:g}ש')",
+            )
+
+        # --- הגנות קורלציה: אירוע אב וסקטור ---
+        if market.event_id and r.max_positions_per_event > 0:
+            if (open_events or {}).get(market.event_id, 0) >= r.max_positions_per_event:
+                return RiskDecision(False, reason=f"כבר יש פוזיציה באירוע ({market.event_id[:16]})")
+        if market.sector and r.max_positions_per_sector > 0:
+            if (open_sectors or {}).get(market.sector, 0) >= r.max_positions_per_sector:
+                return RiskDecision(False, reason=f"תקרת סקטור {market.sector} ({r.max_positions_per_sector})")
 
         # --- מדדים תיקיים ---
         if portfolio.open_positions >= r.max_open_positions:

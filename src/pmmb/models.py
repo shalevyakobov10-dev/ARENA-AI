@@ -43,6 +43,7 @@ class Market:
     taker_fee_rate: float = 0.0     # שיעור העמלה לטאקר (0 = פטור)
     fees_enabled: bool = False
     sector: str = "other"
+    event_id: str = ""              # מזהה אירוע אב (מונע ריכוז כפול באותו אירוע)
 
     # --- עזר ---
     @property
@@ -111,6 +112,10 @@ class Market:
                 fees_enabled=fees_enabled,
             )
 
+            events = m.get("events") or []
+            ev0 = events[0] if events and isinstance(events[0], dict) else {}
+            ev_id = str(ev0.get("id") or ev0.get("slug") or "")
+
             return cls(
                 condition_id=m.get("conditionId", ""),
                 question=m.get("question", ""),
@@ -129,7 +134,8 @@ class Market:
                 taker_fee_rate=fee.rate,
                 fees_enabled=bool(fees_enabled),
                 sector=sector,
-                tags=[t.get("label", "") for t in (m.get("events") or [{}])[0].get("tags", [])] if m.get("events") else [],
+                event_id=ev_id,
+                tags=[t.get("label", "") for t in ev0.get("tags", [])] if ev0 else [],
             )
         except (TypeError, ValueError, KeyError, IndexError, AttributeError):
             return None
@@ -220,6 +226,7 @@ class Position:
     stop_price: float | None = None
     target_price: float | None = None
     question: str = ""
+    event_id: str = ""
 
     @property
     def notional_at_cost(self) -> float:

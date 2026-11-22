@@ -187,3 +187,75 @@ def test_abs_stop_and_target():
     # במחיר נמוך הסטופ לא קורס מתחת לאפס
     stop2, target2 = stop_and_target(0.05, "LONG", 0.08, 0.05, 0.001, mode="abs")
     assert stop2 == 0.01 and target2 == 0.10
+
+
+def test_event_id_dedup_survives_restart(cfg, tmp_path):
+    """שני שווקים תחת אותו event_id — נכנסים רק לאחד, וגם אחרי ריסטארט השני חסום."""
+    cfg.signal.engine = "momentum"
+    cfg.signal.min_score = 0.5
+    cfg.signal.min_edge = 0.02
+    cfg.risk.max_positions_per_event = 1
+    db_path = tmp_path / "ev.db"
+    state_dir = tmp_path / "state"
+
+    def _ev_mk(cid, tok, slug, q):
+        import json
+        m = _gamma_market(cid=cid, slug=slug, question=q)
+        m["clobTokenIds"] = json.dumps([tok, tok + "-no"])
+        m["events"] = [{"id": "ev-999", "slug": "election-999", "tags": []}]
+        return m
+
+    m1 = _ev_mk("0xc1", "tok-1", "cand-1", "Will A win?")
+    m2 = _ev_mk("0xc2", "tok-2", "cand-2", "Will B win?")
+    clob = _FakeClob(trending_series(0.30, 0.80, n=140))
+
+    eng1 = Engine(cfg, store=Store(db_path), clob=clob, gamma=_FakeGamma([m1]), state_dir=str(state_dir))
+    assert eng1.run_once().entries == 1
+    assert eng1.portfolio.positions["tok-1"].event_id == "ev-999"
+    eng1.close()
+
+    # אחרי ריסטארט מופיע שוק שני מאותו אירוע — חובה לחסום אותו
+    eng2 = Engine(cfg, store=Store(db_path), clob=clob, gamma=_FakeGamma([m1, m2]), state_dir=str(state_dir))
+    st2 = eng2.run_once()
+    assert st2.entries == 0
+    assert "tok-2" not in eng2.portfolio.positions
+    eng2.close()
+
+
+def test_thin_book_depth_blocks_entry_before_broker(cfg, tmp_path):
+    """אם הליכת הספר (estimate_fill) עוברת את max_price_impact_pct — מדלגים מראש."""
+    cfg.signal.engine = "momentum"
+    cfg.signal.min_score = 0.5
+    cfg.signal.min_edge = 0.02
+    cfg.risk.max_price_impact_pct = 0.02
+
+    class _ThinClob(_FakeClob):
+        def estimate_fill(self, book, side, notional_usdc, max_impact_pct=0.02, allow_partial=False):
+            # מחזיר מחיר מילוי יקר ב-10% מה-best_ask
+            return round(book.best_ask * 1.10, 4), notional_usdc / book.best_ask
+
+    eng = Engine(cfg, store=Store(tmp_path / "thin.db"),
+                 clob=_ThinClob(trending_series(0.30, 0.80, n=140)),
+                 gamma=_FakeGamma([_gamma_market()]), state_dir=str(tmp_path / "s"))
+    st = eng.run_once()
+    assert st.entries == 0
+    assert st.skipped.get("ספר פקודות דק או חסר", 0) >= 1
+    eng.close()
+
+
+def test_min_entry_hours_blocks_near_resolution_entries(cfg, tmp_path):
+    """שוק שנותרו לו 10 שעות לסגירה לא נפתח (min_entry_hours=24), גם אם > 6."""
+    cfg.signal.engine = "momentum"
+    cfg.signal.min_score = 0.5
+    cfg.signal.min_edge = 0.02
+    cfg.universe.min_hours_to_resolution = 6
+    cfg.universe.min_entry_hours_to_resolution = 24
+
+    eng = Engine(cfg, store=Store(tmp_path / "near.db"),
+                 clob=_FakeClob(trending_series(0.30, 0.80, n=140)),
+                 gamma=_FakeGamma([_gamma_market(hours=10)]), state_dir=str(tmp_path / "s"))
+    st = eng.run_once()
+    assert st.entries == 0
+    eng.close()
+
+
