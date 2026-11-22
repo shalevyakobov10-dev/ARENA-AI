@@ -57,3 +57,13 @@ OOS קפץ ל-+284.00 (73 עסקאות, 100% עקביות, 12/20 שווקים ח
   טיפול ב-`SIGTERM` לעצירה נקייה בסוף מחזור, וטיפול בשאריות dust ביציאה.
 - שדרוג `status.py`: כרטיסיית `מצטבר` (`overall`: win%, PF, PnL, עמלות) וטבלת `עסקאות סגורות אחרונות`.
 - **182 בדיקות ירוקות (אפס רשת).**
+
+## 2026-11-22 (שלב ה') — תוכנת הבקרה המלאה PMMB Command Center
+
+- נבנתה תוכנת בקרה גרפית שלמה (RTL, אפס תלויות ו-URLs חיצוניים): `src/pmmb/ui.py` +
+  `build_command_center_data()` ב-`status.py` + נקודות API אינטראקטיביות ב-`server.py`
+  (`GET /`, `/lite`, `/api/state`, `/status.json`, `/healthz`, ו-`POST /api/halt|resume|backup|reconcile|paper-cycle|trader/start|trader/stop`).
+- הרצת מסחר דרך הדפדפן מוגבלת ל-`paper` בלבד (`403` במצב `live`) ומוגנת ב-`ProcessLock` + Token אופציונלי.
+- נוסף `--html-out` ל-`pmmb status` לייצוא דוח תוכנה עצמאי (`reports/pmmb_command_center.html`).
+- **184 בדיקות ירוקות (אפס רשת).**
+

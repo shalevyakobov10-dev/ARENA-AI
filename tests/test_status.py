@@ -112,6 +112,7 @@ def test_server_get_and_head_endpoints(tmp_path, cfg, monkeypatch):
     import urllib.request
     from pmmb.server import serve
 
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
     cfg.data.db_path = str(tmp_path / "srv.db")
     Store(cfg.data.db_path).close()
@@ -134,6 +135,72 @@ def test_server_get_and_head_endpoints(tmp_path, cfg, monkeypatch):
 
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/healthz", timeout=5) as resp:
             assert resp.status == 200
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=5) as resp:
+            body = resp.read().decode("utf-8")
+            assert resp.status == 200
+            assert "PMMB Command Center" in body
+            assert "http://" not in body and "https://" not in body
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/lite", timeout=5) as resp:
+            assert resp.status == 200
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state", timeout=5) as resp:
+            assert resp.status == 200
+            assert b'"readiness"' in resp.read()
+
+        # POST halt + resume + backup
+        import json as _json
+        for ep, payload, expect in (
+            ("/api/halt", {"reason": "ui-test"}, "עצירת חירום"),
+            ("/api/resume", {}, "בוטלה"),
+            ("/api/backup", {}, "גיבוי נשמר"),
+            ("/api/reconcile", {}, "פערים"),
+        ):
+            preq = urllib.request.Request(
+                f"http://127.0.0.1:{port}{ep}",
+                data=_json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(preq, timeout=5) as resp:
+                data = _json.loads(resp.read().decode("utf-8"))
+                assert resp.status == 200 and data["ok"] is True
+                assert expect in data["message"]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_server_blocks_paper_cycle_in_live_mode(tmp_path, cfg, monkeypatch):
+    import json as _json
+    import threading
+    import urllib.error
+    import urllib.request
+    from pmmb.server import serve
+
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
+    cfg.execution.mode = "live"
+    cfg.data.db_path = str(tmp_path / "live_ui.db")
+    Store(cfg.data.db_path).close()
+
+    httpd = serve(cfg, host="127.0.0.1", port=0, token="")
+    port = httpd.server_address[1]
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/paper-cycle",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            raise AssertionError("צריך לחסום הרצת paper במצב live")
+        except urllib.error.HTTPError as err:
+            assert err.code == 403
+            assert "paper" in _json.loads(err.read().decode())["error"]
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -163,5 +230,53 @@ def test_status_overall_and_recent_trades(tmp_path, cfg, monkeypatch):
     html = status_html(st)
     assert "עסקאות סגורות אחרונות" in html
     assert "+14.50" in html
+
+
+def test_command_center_builder_and_html(tmp_path, cfg, monkeypatch):
+    import json as _json
+    from pmmb.execution.base import Portfolio
+    from pmmb.models import Fill, Signal
+    from pmmb.status import build_command_center_data
+    from pmmb.ui import command_center_html
+
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
+    cfg.data.db_path = str(tmp_path / "cc.db")
+    store = Store(cfg.data.db_path)
+    pf = Portfolio(1000.0, mode="paper", store=store)
+    pf.apply_fill(Fill("t1", "c1", "BUY", 0.35, 100.0, fee=0.25))
+    store.record_signal(Signal(
+        condition_id="c1", token_id="t1", direction="BUY",
+        score=0.72, fair_price=0.39, market_price=0.35, edge=0.04,
+        reason="זינוק מתחת לממוצע (z=-2.1)", features={"z": -2.1},
+    ))
+    store.close()
+
+    rep = tmp_path / "reports"
+    rep.mkdir()
+    (rep / "walkforward.json").write_text(_json.dumps({
+        "engine": "meanrev", "oos_pnl": 284.0, "oos_trades": 73,
+        "oos_win_rate": 60.3, "consistency": 1.0, "oos_pnl_ex_top": 16.94,
+        "markets_count": 30, "positive_markets": 18, "folds": [],
+    }), encoding="utf-8")
+    bks = tmp_path / "backups"
+    bks.mkdir()
+    (bks / "pmmb-20261122-100000.db").write_bytes(b"sqlite")
+
+    data = build_command_center_data(cfg, reports_dir=rep, backups_dir=bks)
+    assert len(data["fills"]) == 1
+    assert data["signals"][0]["z"] == -2.1
+    assert data["analytics"]["walkforward"]["oos_pnl"] == 284.0
+    assert data["readiness"]["checks"]
+    assert data["backups"][0]["name"] == "pmmb-20261122-100000.db"
+    assert data["config"]["signal"]["z_entry"] == cfg.signal.meanrev.z_entry
+    assert data["config"]["signal"]["stop_mode"] == cfg.signal.exit.stop_mode
+
+    for interactive in (True, False):
+        html = command_center_html(data, refresh_sec=15 if interactive else 0, interactive=interactive)
+        assert "PMMB Command Center" in html
+        assert "pmmb-boot" in html
+        assert "http://" not in html and "https://" not in html
+        assert "Walk-Forward" in html
+
 
 

@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PMMB — Command Center</title>
+<style>
+:root {
+  --bg:#090d13; --panel:#111722; --panel2:#161e2c; --border:#232e42;
+  --text:#e8eef8; --muted:#8c9bb3; --dim:#5c6b82;
+  --green:#22c55e; --red:#ef4444; --amber:#f59e0b; --blue:#3b82f6; --cyan:#06b6d4;
+}
+* { box-sizing:border-box; }
+body {
+  margin:0; background:var(--bg); color:var(--text);
+  font-family:system-ui,-apple-system,'Segoe UI',Rubik,Arial,sans-serif;
+  line-height:1.45; font-size:14px;
+}
+.topbar {
+  position:sticky; top:0; z-index:40;
+  background:rgba(11,16,24,.94); border-bottom:1px solid var(--border);
+  padding:12px 20px; display:flex; flex-wrap:wrap; align-items:center;
+  justify-content:space-between; gap:12px;
+}
+.brand { display:flex; align-items:center; gap:10px; }
+.dot { width:11px; height:11px; border-radius:50%; background:var(--green); }
+.dot.bad { background:var(--red); box-shadow:0 0 12px var(--red); }
+.dot.ok { background:var(--green); box-shadow:0 0 12px var(--green); }
+.badge {
+  font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px;
+  background:#1d283a; color:#93c5fd; border:1px solid #2b3a55;
+}
+.badge.live { background:#3b1116; color:#fca5a5; border-color:#ef4444; }
+.badge.ok { background:#0f2d1e; color:#86efac; border-color:#16a34a; }
+.badge.warn { background:#332308; color:#fcd34d; border-color:#d97706; }
+.actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+button {
+  background:#1a2436; color:var(--text); border:1px solid #2d3c56;
+  padding:7px 12px; border-radius:8px; cursor:pointer; font-size:12px; font-weight:600;
+}
+button:hover { background:#223047; border-color:#42587d; }
+button.primary { background:#1d4ed8; border-color:#2563eb; }
+button.primary:hover { background:#1e40af; }
+button.danger { background:#7f1d1d; border-color:#dc2626; color:#fee2e2; }
+button.danger:hover { background:#991b1b; }
+button.success { background:#14532d; border-color:#16a34a; color:#dcfce7; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+.nav {
+  display:flex; gap:6px; padding:10px 20px 0; border-bottom:1px solid var(--border);
+  background:var(--panel); overflow-x:auto;
+}
+.tab {
+  padding:10px 16px; border:none; border-bottom:2px solid transparent;
+  background:transparent; color:var(--muted); border-radius:6px 6px 0 0; font-size:13px;
+}
+.tab.active { color:var(--text); border-bottom-color:var(--blue); background:var(--bg); }
+.wrap { max-width:1260px; margin:0 auto; padding:18px 20px 48px; }
+.grid { display:grid; gap:12px; }
+.g-kpi { grid-template-columns:repeat(auto-fit,minmax(145px,1fr)); margin-bottom:16px; }
+.g-2 { grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); margin-bottom:16px; }
+.g-3 { grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); margin-bottom:16px; }
+.card {
+  background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px 16px;
+}
+.kpi-title { color:var(--muted); font-size:12px; margin-bottom:4px; }
+.kpi-val { font-size:22px; font-weight:700; letter-spacing:-0.3px; }
+.kpi-sub { color:var(--dim); font-size:11px; margin-top:3px; }
+h2 { font-size:15px; color:var(--muted); margin:0 0 10px; font-weight:600; }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th { text-align:right; color:var(--dim); font-weight:600; padding:7px 8px; border-bottom:1px solid var(--border); }
+td { padding:8px; border-bottom:1px solid #1b2434; vertical-align:middle; }
+tr:hover td { background:rgba(255,255,255,.02); }
+.pos { color:var(--green); font-weight:600; }
+.neg { color:var(--red); font-weight:600; }
+.muted { color:var(--muted); }
+.dim { color:var(--dim); }
+.bar-bg { background:#1b2435; border-radius:6px; height:8px; overflow:hidden; flex:1; }
+.bar-fg { height:100%; border-radius:6px; background:var(--blue); }
+.banner {
+  padding:12px 15px; border-radius:10px; margin-bottom:14px; font-size:13px;
+  display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;
+}
+.banner.halt { background:#3b1116; border:1px solid var(--red); color:#fecaca; }
+.banner.warn { background:#2c1e07; border:1px solid var(--amber); color:#fde68a; }
+.range-track { position:relative; width:96px; height:6px; background:#232f44; border-radius:4px; display:inline-block; }
+.range-pin { position:absolute; top:-3px; width:4px; height:12px; background:var(--cyan); border-radius:2px; }
+.check-item {
+  display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
+  padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--panel2);
+}
+.search {
+  background:var(--panel2); color:var(--text); border:1px solid var(--border);
+  border-radius:8px; padding:6px 10px; font-size:12px; min-width:220px;
+}
+pre {
+  background:#0a0f17; border:1px solid var(--border); border-radius:8px; padding:12px;
+  overflow:auto; font-size:12px; color:#cbd5e1; white-space:pre-wrap; margin:0;
+}
+.toast {
+  position:fixed; bottom:18px; left:18px; background:#1e293b; color:var(--text);
+  border:1px solid var(--blue); border-radius:10px; padding:10px 14px; z-index:99;
+  display:none; max-width:440px; font-size:12.5px; box-shadow:0 10px 30px rgba(0,0,0,.5);
+}
+.hide { display:none !important; }
+.scroll-x { overflow-x:auto; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <div id="h-dot" class="dot"></div>
+    <div>
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        <strong style="font-size:16px">PMMB Command Center</strong>
+        <span id="b-mode" class="badge">PAPER</span>
+        <span id="b-eng" class="badge">MEANREV</span>
+        <span id="b-trader" class="badge">סוחר ידני</span>
+      </div>
+      <div id="h-sub" class="muted" style="font-size:12px">טוען נתונים...</div>
+    </div>
+  </div>
+  <div class="actions" id="ctrl-bar">
+    <button class="primary" onclick="act('api/paper-cycle', null, 'מריץ מחזור Paper...')">⚡ הרץ מחזור</button>
+    <button id="btn-trader" class="success" onclick="toggleTrader()">▶️ סוחר אוטומטי</button>
+    <button id="btn-halt" class="danger" onclick="toggleHalt()">🛑 עצירת חירום</button>
+    <button onclick="refreshNow()">🔄 רענן</button>
+  </div>
+</div>
+
+<div class="nav">
+  <button class="tab active" data-tab="overview" onclick="switchTab('overview')">📊 סקירה חיה</button>
+  <button class="tab" data-tab="trading" onclick="switchTab('trading')">💼 פוזיציות, מילויים וסיגנלים</button>
+  <button class="tab" data-tab="research" onclick="switchTab('research')">🔬 מחקר, Walk-Forward ומוכנות</button>
+  <button class="tab" data-tab="ops" onclick="switchTab('ops')">⚙️ קונפיגורציה, גיבויים ותפעול</button>
+</div>
+
+<div class="wrap">
+  <div id="banners"></div>
+
+  <section id="tab-overview">
+    <div id="kpi-grid" class="grid g-kpi"></div>
+    <div class="grid g-2">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h2 style="margin:0">עקומת הון</h2>
+          <span id="eq-delta" class="dim" style="font-size:12px"></span>
+        </div>
+        <div id="eq-chart"></div>
+      </div>
+      <div class="card">
+        <h2>מגיני סיכון חיים</h2>
+        <div id="guards-box"></div>
+      </div>
+    </div>
+    <div class="grid g-2">
+      <div class="card">
+        <h2>משפך החלטות (למה לא נסחר במחזור האחרון)</h2>
+        <div id="skip-box"></div>
+      </div>
+      <div class="card">
+        <h2>מוכנות למעבר ל-Live</h2>
+        <div id="ready-mini"></div>
+      </div>
+    </div>
+    <div class="grid g-2">
+      <div class="card scroll-x">
+        <h2>פוזיציות פתוחות כרגע</h2>
+        <div id="ov-positions"></div>
+      </div>
+      <div class="card scroll-x">
+        <h2>עסקאות סגורות אחרונות</h2>
+        <div id="ov-trades"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-trading" class="hide">
+    <div class="card scroll-x" style="margin-bottom:16px">
+      <h2>פוזיציות פתוחות (כולל מרחק מ-SL ל-TP)</h2>
+      <div id="tr-positions"></div>
+    </div>
+    <div class="card scroll-x" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h2 style="margin:0">יומן מילויים מלא (Fills Ledger)</h2>
+        <input id="fill-q" class="search" placeholder="חפש שוק, BUY/SELL או סיבה..." oninput="renderFills()">
+      </div>
+      <div id="tr-fills"></div>
+    </div>
+    <div class="card scroll-x">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h2 style="margin:0">סיגנלים אחרונים שנמדדו בשווקים</h2>
+        <input id="sig-q" class="search" placeholder="סנן לפי כיוון (BUY/HOLD) או הסבר..." oninput="renderSignals()">
+      </div>
+      <div id="tr-signals"></div>
+    </div>
+  </section>
+
+  <section id="tab-research" class="hide">
+    <div class="card" style="margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">
+        <h2 style="margin:0">שער המעבר ל-Live (9 בדיקות אוטומטיות)</h2>
+        <span id="ready-badge" class="badge"></span>
+      </div>
+      <div id="ready-grid" class="grid g-3"></div>
+    </div>
+    <div class="grid g-2">
+      <div class="card scroll-x">
+        <h2>Walk-Forward Out-of-Sample</h2>
+        <div id="wf-box"></div>
+      </div>
+      <div class="card scroll-x">
+        <h2>פילוח ביצועים לפי סקטור</h2>
+        <div id="sec-box"></div>
+      </div>
+    </div>
+    <div class="grid g-2">
+      <div class="card scroll-x">
+        <h2>סימולציית תיק משותף אמיתי (Portfolio Backtest)</h2>
+        <pre id="port-md"></pre>
+      </div>
+      <div class="card">
+        <h2>מדריך נתוני Order-Book Imbalance</h2>
+        <pre id="imb-md"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-ops" class="hide">
+    <div class="grid g-2">
+      <div class="card">
+        <h2>פעולות תפעול ובקרה</h2>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px" id="ops-btns">
+          <button class="primary" onclick="act('api/paper-cycle', null, 'מריץ מחזור Paper...')">⚡ מחזור Paper</button>
+          <button onclick="act('api/reconcile', null, 'בודק סנכרון חשבון...')">🔍 סנכרון (Reconcile)</button>
+          <button onclick="act('api/backup', null, 'מגבה מסד נתונים...')">💾 גיבוי DB חם</button>
+          <button class="danger" onclick="act('api/halt', {reason:'עצירה ידנית מהתוכנה'}, 'מפעיל עצירת חירום...')">🛑 הפעל Halt</button>
+          <button class="success" onclick="act('api/resume', null, 'משחרר עצירה...')">▶️ בטל Halt</button>
+        </div>
+        <pre id="ops-out">מוכן לפקודות בקרה.</pre>
+      </div>
+      <div class="card scroll-x">
+        <h2>גיבויי מסד נתונים (backups/)</h2>
+        <div id="backups-box"></div>
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:16px">
+      <h2>פרמטרים פעילים (Config)</h2>
+      <div id="cfg-grid" class="grid g-3"></div>
+    </div>
+    <div class="grid g-2">
+      <div class="card">
+        <h2>יומן אירועי מערכת אחרונים</h2>
+        <div id="events-box"></div>
+      </div>
+      <div class="card">
+        <h2>מדריך פקודות CLI (24 פקודות)</h2>
+        <pre>pmmb paper --cycles 1          מחזור סימולציה מול ספר אמיתי
+pmmb serve --port 8787         הפעלת תוכנת הבקרה
+pmmb scan --all                סריקת שווקים וסיגנלים חיים
+pmmb backtest --portfolio      סימולציית תיק משותף אמיתי
+pmmb walkforward --markets 32  אימות מחוץ למדגם (OOS)
+pmmb readiness                 בדיקת מוכנות ל-live
+pmmb reconcile --fix           סנכרון ותיקון DB מול חשבון
+pmmb backup                    גיבוי SQLite חם ומאומת
+pmmb halt / resume             עצירת חירום מתמדת
+pmmb telegram                  הפעלת בוט פקודות לטלפון</pre>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="toast" class="toast"></div>
+<script id="pmmb-boot" type="application/json">{"generated_at": "2026-11-22T13:05:45.181871+00:00", "mode": "paper", "engine": "meanrev", "health": {"healthy": true, "reason": "תקין", "age_sec": 37.9, "halted": false, "heartbeat": {"ts": 1795352707.319, "iso": "2026-11-22T13:05:07.319000+00:00", "cycle": 1, "mode": "paper", "engine": "meanrev", "equity": 971.8, "cash": 845.89, "exposure": 125.91, "positions": 4, "last_cycle": {"scanned": 41, "signalled": 2, "entries": 0, "exits": 0, "errors": 0}, "halted": false, "halt_reason": "", "pid": 4834, "skipped": {"אין עודף חריג": 23, "תנועה קיצונית (מעל z_max)": 4, "אין מספיק היסטוריה": 9, "כבר יש פוזיציה": 1, "edge לא מכסה עלויות": 1, "עלייה חדה — לא קונים": 2, "סיכון: הגענו ל-5 פוזיציות פתוחות": 1}, "guards": {"daily_loss_limit": 48.59, "daily_loss_used": 17.83, "daily_room": 30.76, "drawdown_pct": 5.21, "drawdown_limit_pct": 20.0, "exposure_room": 262.81, "positions_room": 1}}}, "halt": null, "heartbeat": {"ts": 1795352707.319, "iso": "2026-11-22T13:05:07.319000+00:00", "cycle": 1, "mode": "paper", "engine": "meanrev", "equity": 971.8, "cash": 845.89, "exposure": 125.91, "positions": 4, "last_cycle": {"scanned": 41, "signalled": 2, "entries": 0, "exits": 0, "errors": 0}, "halted": false, "halt_reason": "", "pid": 4834, "skipped": {"אין עודף חריג": 23, "תנועה קיצונית (מעל z_max)": 4, "אין מספיק היסטוריה": 9, "כבר יש פוזיציה": 1, "edge לא מכסה עלויות": 1, "עלייה חדה — לא קונים": 2, "סיכון: הגענו ל-5 פוזיציות פתוחות": 1}, "guards": {"daily_loss_limit": 48.59, "daily_loss_used": 17.83, "daily_room": 30.76, "drawdown_pct": 5.21, "drawdown_limit_pct": 20.0, "exposure_room": 262.81, "positions_room": 1}}, "positions": [{"token_id": "101470221613", "condition_id": "0xdaf7b694cf", "question": "Will PP win the most seats in Santa Cruz de Tenerife in the 2026 Spanish general election?", "direction": "LONG", "size": 316.64, "avg_price": 0.3003, "mark_price": 0.29, "unrealized_pnl": -3.26, "unrealized_pct": -3.4, "stop_price": 0.264, "target_price": 0.33, "opened_at": 1795333520, "age_hours": 5.3, "realized_pnl": 0.0}, {"token_id": "953522295175", "condition_id": "0x71c59551fa", "question": "Thunder vs. Heat", "direction": "LONG", "size": 39.09, "avg_price": 0.4304, "mark_price": 0.41, "unrealized_pnl": -0.8, "unrealized_pct": -4.7, "stop_price": 0.379, "target_price": 0.473, "opened_at": 1795335010, "age_hours": 4.9, "realized_pnl": 0.0}, {"token_id": "136281899826", "condition_id": "0xea3b1d0099", "question": "Will the Democratic Progressive Party (DPP) win the most head of local government elections in the 2026 Taiwan local elections?", "direction": "LONG", "size": 57.3, "avg_price": 0.2362, "mark_price": 0.214, "unrealized_pnl": -1.27, "unrealized_pct": -9.4, "stop_price": 0.156, "target_price": 0.286, "opened_at": 1795342508, "age_hours": 2.8, "realized_pnl": 0.0}, {"token_id": "229347916991", "condition_id": "0x91e2086024", "question": "Will Pedro Sánchez be the next Prime Minister of Spain?", "direction": "LONG", "size": 63.69, "avg_price": 0.0821, "mark_price": 0.091, "unrealized_pnl": 0.57, "unrealized_pct": 10.8, "stop_price": 0.01, "target_price": 0.132, "opened_at": 1795342511, "age_hours": 2.8, "realized_pnl": 0.0}], "today": {"fills": 17, "entries": 11, "exits": 6, "realized_pnl": -17.83, "fees": 6.41, "notional": 451.46}, "overall": {"exits": 6, "wins": 1, "win_rate_pct": 16.7, "profit_factor": 0.64, "realized_pnl": -17.83, "fees": 6.41}, "recent_trades": [{"ts": 1795352707, "question": "Will Elon Musk post 40-64 tweets from November 21 ", "size": 106.8, "price": 0.0201, "realized": -17.1, "reason": "יציאה: השוק יצא מהיקום"}, {"ts": 1795341101, "question": "Will xQc finish GTA VI by November 22?", "size": 109.43, "price": 0.5625, "realized": -23.53, "reason": "יציאה: השוק יצא מהיקום"}, {"ts": 1795341099, "question": "Will Anthropic close below its IPO price by Novemb", "size": 56.79, "price": 0.3496, "realized": -5.23, "reason": "יציאה: סטופ (0.350 ≤ 0.379)"}, {"ts": 1795335095, "question": "Helsinki: Nicolai Budkov Kjaer vs Mika Brunold", "size": 59.63, "price": 1.0, "realized": 32.17, "reason": "סליקה: השוק הוכרע"}, {"ts": 1795335030, "question": "Howard Lutnick out as Secretary of Commerce by Nov", "size": 138.47, "price": 0.0599, "realized": -0.03, "reason": "יציאה: השוק יצא מהיקום"}, {"ts": 1795335020, "question": "Will Elon Musk post 40-64 tweets from November 21 ", "size": 138.86, "price": 0.1317, "realized": -4.12, "reason": "יציאה: סטופ (0.140 ≤ 0.141)"}], "bankroll": {"equity": 971.8, "cash": 845.89, "exposure": 125.91, "open_positions": 4, "unrealized_pnl": -4.76}, "soak": {"days": 2, "target_days": 7}, "guards": {"daily_loss_limit": 48.59, "daily_loss_used": 17.83, "daily_room": 30.76, "drawdown_pct": 5.21, "drawdown_limit_pct": 20.0, "exposure_room": 262.81, "positions_room": 1}, "skipped": {"אין עודף חריג": 23, "תנועה קיצונית (מעל z_max)": 4, "אין מספיק היסטוריה": 9, "כבר יש פוזיציה": 1, "edge לא מכסה עלויות": 1, "עלייה חדה — לא קונים": 2, "סיכון: הגענו ל-5 פוזיציות פתוחות": 1}, "equity_curve": [{"ts": 1794847560, "equity": 998.27}, {"ts": 1795333529, "equity": 998.75}, {"ts": 1795333833, "equity": 997.84}, {"ts": 1795334058, "equity": 998.75}, {"ts": 1795334088, "equity": 998.75}, {"ts": 1795335006, "equity": 982.85}, {"ts": 1795335030, "equity": 986.32}, {"ts": 1795335095, "equity": 1016.69}, {"ts": 1795336705, "equity": 1025.21}, {"ts": 1795341101, "equity": 995.16}, {"ts": 1795342524, "equity": 992.6}, {"ts": 1795352707, "equity": 971.8}], "events": [{"ts": 1795352707, "level": "INFO", "kind": "orphan_close", "msg": "Will Elon Musk post 40-64 tweets from November 21 to November 23, 2026?"}, {"ts": 1795342511, "level": "INFO", "kind": "entry", "msg": "LONG will-pedro-sanchez-be-the-next-prime-minister-of-spain-20260625005710096"}, {"ts": 1795342508, "level": "INFO", "kind": "entry", "msg": "LONG will-the-democratic-progressive-party-dpp-win-the-most-head-of-local-government-elections-in-the-2026-taiwan-local-elections"}, {"ts": 1795341101, "level": "INFO", "kind": "orphan_close", "msg": "Will xQc finish GTA VI by November 22?"}, {"ts": 1795341099, "level": "INFO", "kind": "exit", "msg": "will-anthropic-close-below-its-ipo-price-by-november-27-2026 — סטופ (0.350 ≤ 0.379)"}, {"ts": 1795336695, "level": "INFO", "kind": "entry", "msg": "LONG elon-musk-of-tweets-november-21-november-23-2026-40-64"}, {"ts": 1795335095, "level": "INFO", "kind": "settlement", "msg": "Helsinki: Nicolai Budkov Kjaer vs Mika Brunold"}, {"ts": 1795335091, "level": "INFO", "kind": "entry", "msg": "LONG will-anthropic-close-below-its-ipo-price-by-november-27-2026"}, {"ts": 1795335030, "level": "INFO", "kind": "orphan_close", "msg": "Howard Lutnick out as Secretary of Commerce by November 30?"}, {"ts": 1795335023, "level": "INFO", "kind": "entry", "msg": "LONG will-xqc-finish-gta-vi-by-november-22"}, {"ts": 1795335020, "level": "INFO", "kind": "exit", "msg": "elon-musk-of-tweets-november-21-november-23-2026-40-64 — סטופ (0.140 ≤ 0.141)"}, {"ts": 1795335010, "level": "INFO", "kind": "entry", "msg": "LONG nba-okc-mia-2026-11-22"}, {"ts": 1795335006, "level": "INFO", "kind": "reconcile", "msg": "סונכרנו 2 פערים ב-paper"}, {"ts": 1795334079, "level": "INFO", "kind": "entry", "msg": "LONG will-pp-win-the-most-seats-in-santa-cruz-de-tenerife-in-the-2026-spanish-general-election"}, {"ts": 1795334049, "level": "INFO", "kind": "entry", "msg": "LONG will-pp-win-the-most-seats-in-santa-cruz-de-tenerife-in-the-2026-spanish-general-election"}], "fills": [{"ts": 1795352707, "side": "SELL", "price": 0.0201, "size": 106.8, "fee": 0.0, "notional": 2.15, "realized": -17.1, "reason": "יציאה: השוק יצא מהיקום", "question": "Will Elon Musk post 40-64 tweets from November 21 to No"}, {"ts": 1795342511, "side": "BUY", "price": 0.0821, "size": 63.69, "fee": 0.048, "notional": 5.23, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-3.78 move=-0.036 edge=+0.017 (fair 0.101 ", "question": "Will Pedro Sánchez be the next Prime Minister of Spain?"}, {"ts": 1795342508, "side": "BUY", "price": 0.2362, "size": 57.3, "fee": 0.517, "notional": 13.53, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-2.65 move=-0.091 edge=+0.015 (fair 0.278 ", "question": "Will the Democratic Progressive Party (DPP) win the mos"}, {"ts": 1795341101, "side": "SELL", "price": 0.5625, "size": 109.43, "fee": 0.0, "notional": 61.55, "realized": -23.53, "reason": "יציאה: השוק יצא מהיקום", "question": "Will xQc finish GTA VI by November 22?"}, {"ts": 1795341099, "side": "SELL", "price": 0.3496, "size": 56.79, "fee": 0.646, "notional": 19.85, "realized": -5.23, "reason": "יציאה: סטופ (0.350 ≤ 0.379)", "question": "Will Anthropic close below its IPO price by November 27"}, {"ts": 1795336695, "side": "BUY", "price": 0.1802, "size": 106.8, "fee": 0.158, "notional": 19.25, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-2.72 move=-0.130 edge=+0.049 (fair 0.241 ", "question": "Will Elon Musk post 40-64 tweets from November 21 to No"}, {"ts": 1795335095, "side": "SELL", "price": 1.0, "size": 59.63, "fee": 0.0, "notional": 59.63, "realized": 32.17, "reason": "סליקה: השוק הוכרע", "question": "Helsinki: Nicolai Budkov Kjaer vs Mika Brunold"}, {"ts": 1795335091, "side": "BUY", "price": 0.4304, "size": 56.79, "fee": 0.696, "notional": 24.44, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-2.41 move=-0.130 edge=+0.017 (fair 0.487 ", "question": "Will Anthropic close below its IPO price by November 27"}, {"ts": 1795335030, "side": "SELL", "price": 0.0599, "size": 138.47, "fee": 0.0, "notional": 8.29, "realized": -0.03, "reason": "יציאה: השוק יצא מהיקום", "question": "Howard Lutnick out as Secretary of Commerce by November"}, {"ts": 1795335022, "side": "BUY", "price": 0.7775, "size": 109.43, "fee": 0.189, "notional": 85.08, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-2.84 move=-0.154 edge=+0.069 (fair 0.851 ", "question": "Will xQc finish GTA VI by November 22?"}, {"ts": 1795335020, "side": "SELL", "price": 0.1317, "size": 138.86, "fee": 0.159, "notional": 18.29, "realized": -4.12, "reason": "יציאה: סטופ (0.140 ≤ 0.141)", "question": "Will Elon Musk post 40-64 tweets from November 21 to No"}, {"ts": 1795335010, "side": "BUY", "price": 0.4304, "size": 39.09, "fee": 0.479, "notional": 16.82, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-2.17 move=-0.080 edge=+0.010 (fair 0.469 ", "question": "Thunder vs. Heat"}, {"ts": 1795334079, "side": "BUY", "price": 0.3003, "size": 79.16, "fee": 0.832, "notional": 23.77, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-3.33 move=-0.130 edge=+0.041 (fair 0.366 ", "question": "Will PP win the most seats in Santa Cruz de Tenerife in"}, {"ts": 1795334049, "side": "BUY", "price": 0.3003, "size": 79.16, "fee": 0.832, "notional": 23.77, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-3.33 move=-0.130 edge=+0.041 (fair 0.366 ", "question": "Will PP win the most seats in Santa Cruz de Tenerife in"}, {"ts": 1795333827, "side": "BUY", "price": 0.1602, "size": 138.86, "fee": 0.187, "notional": 22.25, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-3.33 move=-0.145 edge=+0.067 (fair 0.235 ", "question": "Will Elon Musk post 40-64 tweets from November 21 to No"}, {"ts": 1795333824, "side": "BUY", "price": 0.3003, "size": 79.16, "fee": 0.832, "notional": 23.77, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-3.33 move=-0.130 edge=+0.041 (fair 0.366 ", "question": "Will PP win the most seats in Santa Cruz de Tenerife in"}, {"ts": 1795333520, "side": "BUY", "price": 0.3003, "size": 79.16, "fee": 0.832, "notional": 23.77, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-3.33 move=-0.130 edge=+0.041 (fair 0.366 ", "question": "Will PP win the most seats in Santa Cruz de Tenerife in"}, {"ts": 1794847552, "side": "BUY", "price": 0.0601, "size": 138.47, "fee": 0.0, "notional": 8.32, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-3.55 move=-0.075 edge=+0.021 (fair 0.091 ", "question": "Howard Lutnick out as Secretary of Commerce by November"}, {"ts": 1794847551, "side": "BUY", "price": 0.4605, "size": 59.63, "fee": 0.0, "notional": 27.46, "realized": 0.0, "reason": "כניסה LONG | LONG meanrev z=-1.88 move=-0.135 edge=+0.054 (fair 0.519 ", "question": "Helsinki: Nicolai Budkov Kjaer vs Mika Brunold"}], "signals": [{"ts": 1795352706, "token_id": "810297323637", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.545, "market_price": 0.545, "edge": 0.0, "z": -0.87, "reason": "אין עודף חריג (z=-0.87)"}, {"ts": 1795352706, "token_id": "304461150409", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.895, "market_price": 0.895, "edge": 0.0, "z": 2.17, "reason": "עלייה חדה (z=+2.17) — הצד העולה כבוי"}, {"ts": 1795352705, "token_id": "170306613735", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.335, "market_price": 0.335, "edge": 0.0, "z": 0.0, "reason": "אין עודף חריג (z=+0.00)"}, {"ts": 1795352704, "token_id": "500292190481", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.065, "market_price": 0.065, "edge": 0.0, "z": -0.57, "reason": "אין עודף חריג (z=-0.57)"}, {"ts": 1795352704, "token_id": "611330520151", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.405, "market_price": 0.405, "edge": 0.0, "z": 1.35, "reason": "אין עודף חריג (z=+1.35)"}, {"ts": 1795352703, "token_id": "995454343305", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.165, "market_price": 0.165, "edge": 0.0, "z": 1.56, "reason": "אין עודף חריג (z=+1.56)"}, {"ts": 1795352703, "token_id": "930845426539", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.735, "market_price": 0.735, "edge": 0.0, "z": 0.49, "reason": "אין עודף חריג (z=+0.49)"}, {"ts": 1795352702, "token_id": "101470221613", "question": "Will PP win the most seats in Santa Cruz de ", "direction": "FLAT", "score": 0.0, "fair_price": 0.3, "market_price": 0.3, "edge": 0.0, "z": -7.04, "reason": "תנועה קיצונית z=-7.04 > 5 — מידע, לא עודף"}, {"ts": 1795352701, "token_id": "346271025387", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.335, "market_price": 0.335, "edge": 0.0, "z": -0.09, "reason": "אין עודף חריג (z=-0.09)"}, {"ts": 1795352701, "token_id": "112526050476", "question": "", "direction": "LONG", "score": 0.63, "fair_price": 0.206, "market_price": 0.145, "edge": 0.0381, "z": -1.89, "reason": "LONG meanrev z=-1.89 move=-0.110 edge=+0.038 (fair 0.206 vs 0.145, bounc"}, {"ts": 1795352700, "token_id": "424604625584", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.385, "market_price": 0.385, "edge": 0.0, "z": 0.0, "reason": "אין עודף חריג (z=+0.00)"}, {"ts": 1795352699, "token_id": "366223293960", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.665, "market_price": 0.665, "edge": 0.0, "z": 2.86, "reason": "עלייה חדה (z=+2.86) — הצד העולה כבוי"}, {"ts": 1795352699, "token_id": "856329145187", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.78, "market_price": 0.78, "edge": 0.0, "z": 0.99, "reason": "אין עודף חריג (z=+0.99)"}, {"ts": 1795352698, "token_id": "334964985199", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.935, "market_price": 0.935, "edge": 0.0, "z": 5.22, "reason": "תנועה קיצונית z=+5.22 > 5 — מידע, לא עודף"}, {"ts": 1795352698, "token_id": "528305790098", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.255, "market_price": 0.255, "edge": 0.0, "z": 0.26, "reason": "אין עודף חריג (z=+0.26)"}, {"ts": 1795352698, "token_id": "111928501917", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.555, "market_price": 0.555, "edge": 0.0, "z": -2.5, "reason": "LONG meanrev z=-2.50 move=-0.030 edge=-0.018 (fair 0.572 vs 0.555, bounc"}, {"ts": 1795352697, "token_id": "582325541326", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.57, "market_price": 0.57, "edge": 0.0, "z": -1.51, "reason": "אין עודף חריג (z=-1.51)"}, {"ts": 1795352697, "token_id": "635997886228", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.565, "market_price": 0.565, "edge": 0.0, "z": -1.56, "reason": "אין עודף חריג (z=-1.56)"}, {"ts": 1795352696, "token_id": "989074923615", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.705, "market_price": 0.705, "edge": 0.0, "z": 5.29, "reason": "תנועה קיצונית z=+5.29 > 5 — מידע, לא עודף"}, {"ts": 1795352695, "token_id": "214499749980", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.115, "market_price": 0.115, "edge": 0.0, "z": -1.77, "reason": "אין עודף חריג (z=-1.77)"}, {"ts": 1795352695, "token_id": "229347916991", "question": "Will Pedro Sánchez be the next Prime Ministe", "direction": "LONG", "score": 0.89, "fair_price": 0.106, "market_price": 0.091, "edge": 0.0116, "z": -2.68, "reason": "LONG meanrev z=-2.68 move=-0.026 edge=+0.012 (fair 0.106 vs 0.091, bounc"}, {"ts": 1795352695, "token_id": "911007832590", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.765, "market_price": 0.765, "edge": 0.0, "z": 0.5, "reason": "אין עודף חריג (z=+0.50)"}, {"ts": 1795352694, "token_id": "167766821880", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.715, "market_price": 0.715, "edge": 0.0, "z": -1.61, "reason": "אין עודף חריג (z=-1.61)"}, {"ts": 1795352693, "token_id": "100205215067", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.675, "market_price": 0.675, "edge": 0.0, "z": 0.49, "reason": "אין עודף חריג (z=+0.49)"}, {"ts": 1795352692, "token_id": "136281899826", "question": "Will the Democratic Progressive Party (DPP) ", "direction": "FLAT", "score": 0.0, "fair_price": 0.231, "market_price": 0.231, "edge": 0.0, "z": -1.76, "reason": "אין עודף חריג (z=-1.76)"}, {"ts": 1795352691, "token_id": "716211856532", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.322, "market_price": 0.322, "edge": 0.0, "z": -0.95, "reason": "אין עודף חריג (z=-0.95)"}, {"ts": 1795352691, "token_id": "953522295175", "question": "Thunder vs. Heat", "direction": "FLAT", "score": 0.0, "fair_price": 0.415, "market_price": 0.415, "edge": 0.0, "z": -1.14, "reason": "אין עודף חריג (z=-1.14)"}, {"ts": 1795352690, "token_id": "350943900637", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.635, "market_price": 0.635, "edge": 0.0, "z": 5.0, "reason": "תנועה קיצונית z=+5.00 > 5 — מידע, לא עודף"}, {"ts": 1795352690, "token_id": "804806158644", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.885, "market_price": 0.885, "edge": 0.0, "z": 0.57, "reason": "אין עודף חריג (z=+0.57)"}, {"ts": 1795352689, "token_id": "853278758819", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.505, "market_price": 0.505, "edge": 0.0, "z": 0.17, "reason": "אין עודף חריג (z=+0.17)"}, {"ts": 1795352689, "token_id": "111662129652", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.905, "market_price": 0.905, "edge": 0.0, "z": 0.93, "reason": "אין עודף חריג (z=+0.93)"}, {"ts": 1795352688, "token_id": "428657287425", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.064, "market_price": 0.064, "edge": 0.0, "z": -0.48, "reason": "אין עודף חריג (z=-0.48)"}, {"ts": 1795342524, "token_id": "643990760097", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.295, "market_price": 0.295, "edge": 0.0, "z": 1.51, "reason": "אין עודף חריג (z=+1.51)"}, {"ts": 1795342524, "token_id": "817735512876", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.345, "market_price": 0.345, "edge": 0.0, "z": 1.36, "reason": "אין עודף חריג (z=+1.36)"}, {"ts": 1795342523, "token_id": "105649427043", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.505, "market_price": 0.505, "edge": 0.0, "z": 5.0, "reason": "תנועה קיצונית z=+5.00 > 5 — מידע, לא עודף"}, {"ts": 1795342523, "token_id": "424604625584", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.545, "market_price": 0.545, "edge": 0.0, "z": 3.38, "reason": "עלייה חדה (z=+3.38) — הצד העולה כבוי"}, {"ts": 1795342522, "token_id": "515262085626", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.245, "market_price": 0.245, "edge": 0.0, "z": -1.76, "reason": "אין עודף חריג (z=-1.76)"}, {"ts": 1795342522, "token_id": "695567380576", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.635, "market_price": 0.635, "edge": 0.0, "z": -2.56, "reason": "LONG meanrev z=-2.56 move=-0.025 edge=-0.019 (fair 0.649 vs 0.635, bounc"}, {"ts": 1795342521, "token_id": "696379545797", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.15, "market_price": 0.15, "edge": 0.0, "z": 0.44, "reason": "אין עודף חריג (z=+0.44)"}, {"ts": 1795342521, "token_id": "214499749980", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.085, "market_price": 0.085, "edge": 0.0, "z": -1.21, "reason": "אין עודף חריג (z=-1.21)"}, {"ts": 1795342521, "token_id": "961426999428", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.385, "market_price": 0.385, "edge": 0.0, "z": 0.0, "reason": "אין עודף חריג (z=+0.00)"}, {"ts": 1795342520, "token_id": "834988939366", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.93, "market_price": 0.93, "edge": 0.0, "z": 1.16, "reason": "אין עודף חריג (z=+1.16)"}, {"ts": 1795342520, "token_id": "258325526475", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.275, "market_price": 0.275, "edge": 0.0, "z": 0.93, "reason": "אין עודף חריג (z=+0.93)"}, {"ts": 1795342520, "token_id": "371846709822", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.545, "market_price": 0.545, "edge": 0.0, "z": 1.15, "reason": "אין עודף חריג (z=+1.15)"}, {"ts": 1795342519, "token_id": "115181031752", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.565, "market_price": 0.565, "edge": 0.0, "z": 0.0, "reason": "אין עודף חריג (z=+0.00)"}, {"ts": 1795342519, "token_id": "105114732995", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.495, "market_price": 0.495, "edge": 0.0, "z": -2.39, "reason": "LONG meanrev z=-2.39 move=-0.050 edge=-0.007 (fair 0.523 vs 0.495, bounc"}, {"ts": 1795342518, "token_id": "304461150409", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.895, "market_price": 0.895, "edge": 0.0, "z": 2.17, "reason": "עלייה חדה (z=+2.17) — הצד העולה כבוי"}, {"ts": 1795342518, "token_id": "614008913060", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.075, "market_price": 0.075, "edge": 0.0, "z": 0.0, "reason": "אין עודף חריג (z=+0.00)"}, {"ts": 1795342518, "token_id": "107102341432", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.53, "market_price": 0.53, "edge": 0.0, "z": -0.25, "reason": "אין עודף חריג (z=-0.25)"}, {"ts": 1795342517, "token_id": "930845426539", "question": "", "direction": "FLAT", "score": 0.0, "fair_price": 0.735, "market_price": 0.735, "edge": 0.0, "z": 0.48, "reason": "אין עודף חריג (z=+0.48)"}], "backups": [{"name": "pmmb-20261122-130544.db", "size_kb": 2892.0, "ts": 1795352744}, {"name": "pmmb-20261122-101525.db", "size_kb": 2668.0, "ts": 1795342525}, {"name": "pmmb-20261122-095142.db", "size_kb": 2612.0, "ts": 1795341102}, {"name": "pmmb-20261122-083835.db", "size_kb": 2480.0, "ts": 1795336715}, {"name": "pmmb-20261122-083749.db", "size_kb": 2388.0, "ts": 1795336669}, {"name": "pmmb-20261122-080946.db", "size_kb": 2220.0, "ts": 1795334986}], "analytics": {"walkforward": {"generated_at": "2026-11-22T08:32:12.410730+00:00", "engine": "meanrev", "stop_mode": "abs", "oos_pnl": 284.0, "oos_pnl_ex_top": 16.94, "positive_markets": 12, "traded_markets": 20, "oos_trades": 73, "consistency": 1.0, "folds": [{"index": 1, "oos_pnl": 24.15, "oos_pnl_ex_top": 0.23, "oos_trades": 13, "oos_win_rate": 53.8, "best_params": {"z_entry": 1.2, "lookback_candles": 24, "reversion_ratio": 0.55, "min_score": 0.55, "trend_guard": false, "take_profit": 0.05, "stop_loss": 0.08}}, {"index": 2, "oos_pnl": 19.24, "oos_pnl_ex_top": 5.12, "oos_trades": 20, "oos_win_rate": 50.0, "best_params": {"z_entry": 1.8, "lookback_candles": 24, "reversion_ratio": 0.55, "min_score": 0.55, "trend_guard": false, "take_profit": 0.05, "stop_loss": 0.08}}, {"index": 3, "oos_pnl": 240.61, "oos_pnl_ex_top": -13.02, "oos_trades": 40, "oos_win_rate": 57.5, "best_params": {"z_entry": 1.2, "lookback_candles": 12, "reversion_ratio": 0.55, "min_score": 0.55, "trend_guard": false, "take_profit": 0.04, "stop_loss": 0.08}}]}, "sectors": {"horizon_hours": 48.0, "spread": 0.01, "rows": [{"sector": "geopolitics", "n": 155, "hit_rate": 0.755, "mean_realized": 0.0253, "mean_fee": 0.0013, "net_of_cost": 0.014}, {"sector": "politics", "n": 114, "hit_rate": 0.772, "mean_realized": 0.0274, "mean_fee": 0.0124, "net_of_cost": 0.005}, {"sector": "macro", "n": 79, "hit_rate": 0.582, "mean_realized": 0.0058, "mean_fee": 0.0037, "net_of_cost": -0.008}, {"sector": "tech", "n": 47, "hit_rate": 0.553, "mean_realized": 0.0291, "mean_fee": 0.0026, "net_of_cost": 0.0165}, {"sector": "sports", "n": 34, "hit_rate": 0.794, "mean_realized": 0.0479, "mean_fee": 0.0206, "net_of_cost": 0.0174}, {"sector": "other", "n": 10, "hit_rate": 0.1, "mean_realized": 0.022, "mean_fee": 0.0086, "net_of_cost": 0.0034}, {"sector": "culture", "n": 9, "hit_rate": 1.0, "mean_realized": 0.0611, "mean_fee": 0.0012, "net_of_cost": 0.0499}]}, "backtest": {"generated_at": "2026-11-22T09:50:46.897952", "engine": "meanrev", "results": [{"label": "will-there-be-no-change-in-fed-interest-rates-after-the-december-2026-meeting-20260729232808635", "candles": 1440, "duration_days": 62.78, "starting_equity": 1000.0, "ending_equity": 999.79, "total_return_pct": -0.02, "max_drawdown_pct": 0.47, "sharpe": -0.11, "trades": 5, "win_rate": 60.0, "profit_factor": 0.95, "avg_pnl_per_trade": -0.04, "fees_paid": 0.53, "passive_fills": 0, "taker_fills": 5, "fee_drag_pct": 250.8}, {"label": "nfl-bal-car-2026-11-22", "candles": 461, "duration_days": 19.83, "starting_equity": 1000.0, "ending_equity": 1000.0, "total_return_pct": 0.0, "max_drawdown_pct": 0.0, "sharpe": 0.0, "trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": 0.0, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 0, "fee_drag_pct": 0.0}, {"label": "will-mo-bamba-be-on-gta-vi-radio-at-launch", "candles": 1265, "duration_days": 55.49, "starting_equity": 1000.0, "ending_equity": 1182.02, "total_return_pct": 18.2, "max_drawdown_pct": 1.72, "sharpe": 6.2, "trades": 10, "win_rate": 80.0, "profit_factor": 15.13, "avg_pnl_per_trade": 18.2, "fees_paid": 5.19, "passive_fills": 0, "taker_fills": 10, "fee_drag_pct": 2.9}, {"label": "will-the-fed-increase-interest-rates-by-25-bps-after-the-december-2026-meeting-20260729232808636", "candles": 1440, "duration_days": 62.99, "starting_equity": 1000.0, "ending_equity": 1007.79, "total_return_pct": 0.78, "max_drawdown_pct": 0.35, "sharpe": 2.02, "trades": 5, "win_rate": 60.0, "profit_factor": 7.96, "avg_pnl_per_trade": 1.56, "fees_paid": 0.63, "passive_fills": 0, "taker_fills": 5, "fee_drag_pct": 8.1}, {"label": "israel-x-iran-ceasefire-continues-through-november-30", "candles": 1440, "duration_days": 62.78, "starting_equity": 1000.0, "ending_equity": 1021.01, "total_return_pct": 2.1, "max_drawdown_pct": 0.47, "sharpe": 3.57, "trades": 12, "win_rate": 58.3, "profit_factor": 5.2, "avg_pnl_per_trade": 1.75, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 12, "fee_drag_pct": 0.0}, {"label": "lal-get-mad-2026-11-22-mad", "candles": 304, "duration_days": 13.08, "starting_equity": 1000.0, "ending_equity": 1000.0, "total_return_pct": 0.0, "max_drawdown_pct": 0.0, "sharpe": 0.0, "trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": 0.0, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 0, "fee_drag_pct": 0.0}, {"label": "bra-cap-cre-2026-11-22-draw", "candles": 313, "duration_days": 13.53, "starting_equity": 1000.0, "ending_equity": 999.29, "total_return_pct": -0.07, "max_drawdown_pct": 0.07, "sharpe": -4.19, "trades": 1, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": -0.71, "fees_paid": 0.69, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 97.8}, {"label": "sea-mil-fro-2026-11-22-mil", "candles": 309, "duration_days": 13.37, "starting_equity": 1000.0, "ending_equity": 1000.0, "total_return_pct": 0.0, "max_drawdown_pct": 0.0, "sharpe": 0.0, "trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": 0.0, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 0, "fee_drag_pct": 0.0}, {"label": "cricwbbl-mes-mer-2026-11-22", "candles": 50, "duration_days": 2.24, "starting_equity": 1000.0, "ending_equity": 1009.84, "total_return_pct": 0.98, "max_drawdown_pct": 0.15, "sharpe": 0.0, "trades": 1, "win_rate": 100.0, "profit_factor": null, "avg_pnl_per_trade": 9.84, "fees_paid": 2.07, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 21.0}, {"label": "will-puma-shen-win-the-next-taipei-mayor-election-20260813125857102", "candles": 1437, "duration_days": 62.99, "starting_equity": 1000.0, "ending_equity": 999.47, "total_return_pct": -0.05, "max_drawdown_pct": 0.43, "sharpe": 0.03, "trades": 5, "win_rate": 40.0, "profit_factor": 0.86, "avg_pnl_per_trade": -0.11, "fees_paid": 4.35, "passive_fills": 0, "taker_fills": 5, "fee_drag_pct": 819.9}, {"label": "nba-okc-mia-2026-11-22", "candles": 327, "duration_days": 14.08, "starting_equity": 1000.0, "ending_equity": 1003.46, "total_return_pct": 0.35, "max_drawdown_pct": 0.09, "sharpe": 4.05, "trades": 1, "win_rate": 100.0, "profit_factor": null, "avg_pnl_per_trade": 3.46, "fees_paid": 1.28, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 37.0}, {"label": "nfl-jax-nyg-2026-11-22", "candles": 463, "duration_days": 19.83, "starting_equity": 1000.0, "ending_equity": 1001.11, "total_return_pct": 0.11, "max_drawdown_pct": 0.08, "sharpe": 3.0, "trades": 1, "win_rate": 100.0, "profit_factor": null, "avg_pnl_per_trade": 1.11, "fees_paid": 0.79, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 71.2}, {"label": "will-the-democratic-progressive-party-dpp-win-the-most-head-of-local-government-elections-in-the-2026-taiwan-local-elections", "candles": 1440, "duration_days": 62.99, "starting_equity": 1000.0, "ending_equity": 995.08, "total_return_pct": -0.49, "max_drawdown_pct": 0.5, "sharpe": -3.03, "trades": 1, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": -4.92, "fees_paid": 1.38, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 28.0}, {"label": "will-chiang-wan-an-win-the-next-taipei-mayor-election-20260813125857101", "candles": 1440, "duration_days": 62.83, "starting_equity": 1000.0, "ending_equity": 996.95, "total_return_pct": -0.31, "max_drawdown_pct": 0.32, "sharpe": -2.51, "trades": 2, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": -1.53, "fees_paid": 1.74, "passive_fills": 0, "taker_fills": 2, "fee_drag_pct": 56.9}, {"label": "epl-liv-mun-2026-11-22-mun", "candles": 304, "duration_days": 13.16, "starting_equity": 1000.0, "ending_equity": 1000.0, "total_return_pct": 0.0, "max_drawdown_pct": 0.0, "sharpe": 0.0, "trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": 0.0, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 0, "fee_drag_pct": 0.0}, {"label": "nfl-ari-kc-2026-11-22-spread-home-16pt5", "candles": 431, "duration_days": 18.66, "starting_equity": 1000.0, "ending_equity": 1000.0, "total_return_pct": 0.0, "max_drawdown_pct": 0.0, "sharpe": 0.0, "trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": 0.0, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 0, "fee_drag_pct": 0.0}, {"label": "will-pp-win-the-most-seats-in-the-2026-spanish-general-election", "candles": 1071, "duration_days": 47.58, "starting_equity": 1000.0, "ending_equity": 999.08, "total_return_pct": -0.09, "max_drawdown_pct": 0.14, "sharpe": -4.15, "trades": 1, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": -0.92, "fees_paid": 0.62, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 67.4}, {"label": "will-psoe-win-the-most-seats-in-santa-cruz-de-tenerife-in-the-2026-spanish-general-election", "candles": 696, "duration_days": 31.24, "starting_equity": 1000.0, "ending_equity": 1001.51, "total_return_pct": 0.15, "max_drawdown_pct": 0.31, "sharpe": 1.85, "trades": 1, "win_rate": 100.0, "profit_factor": null, "avg_pnl_per_trade": 1.51, "fees_paid": 1.25, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 83.1}, {"label": "will-pedro-sanchez-be-the-next-prime-minister-of-spain-20260625005710096", "candles": 1435, "duration_days": 62.99, "starting_equity": 1000.0, "ending_equity": 1006.92, "total_return_pct": 0.69, "max_drawdown_pct": 0.46, "sharpe": 2.6, "trades": 8, "win_rate": 50.0, "profit_factor": 2.67, "avg_pnl_per_trade": 0.87, "fees_paid": 1.0, "passive_fills": 0, "taker_fills": 8, "fee_drag_pct": 14.4}, {"label": "will-carlos-alcaraz-win-the-2026-nitto-atp-finals", "candles": 129, "duration_days": 5.53, "starting_equity": 1000.0, "ending_equity": 993.19, "total_return_pct": -0.68, "max_drawdown_pct": 0.82, "sharpe": -7.91, "trades": 1, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": -6.81, "fees_paid": 1.27, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 18.6}, {"label": "will-xqc-finish-gta-vi-by-november-22-1159-am-et", "candles": 62, "duration_days": 2.74, "starting_equity": 1000.0, "ending_equity": 940.58, "total_return_pct": -5.94, "max_drawdown_pct": 5.94, "sharpe": 0.0, "trades": 2, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": -29.71, "fees_paid": 1.21, "passive_fills": 0, "taker_fills": 2, "fee_drag_pct": 2.0}, {"label": "nfl-tb-det-2026-11-22", "candles": 461, "duration_days": 19.83, "starting_equity": 1000.0, "ending_equity": 999.08, "total_return_pct": -0.09, "max_drawdown_pct": 0.15, "sharpe": -4.52, "trades": 1, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": -0.92, "fees_paid": 1.18, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 128.2}, {"label": "will-kuomintang-kmt-win-the-most-head-of-local-government-elections-in-the-2026-taiwan-local-elections", "candles": 1435, "duration_days": 62.99, "starting_equity": 1000.0, "ending_equity": 1001.52, "total_return_pct": 0.15, "max_drawdown_pct": 0.14, "sharpe": 1.28, "trades": 1, "win_rate": 100.0, "profit_factor": null, "avg_pnl_per_trade": 1.52, "fees_paid": 1.16, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 76.0}, {"label": "nfl-ari-kc-2026-11-22-total-40pt5", "candles": 434, "duration_days": 18.66, "starting_equity": 1000.0, "ending_equity": 1000.0, "total_return_pct": 0.0, "max_drawdown_pct": 0.0, "sharpe": 0.0, "trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": 0.0, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 0, "fee_drag_pct": 0.0}, {"label": "spain-general-election-pp-vox-majority", "candles": 906, "duration_days": 40.62, "starting_equity": 1000.0, "ending_equity": 1000.0, "total_return_pct": 0.0, "max_drawdown_pct": 0.0, "sharpe": 0.0, "trades": 0, "win_rate": 0.0, "profit_factor": 0.0, "avg_pnl_per_trade": 0.0, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 0, "fee_drag_pct": 0.0}, {"label": "us-x-iran-effective-ceasefire-by-november-22-20261108", "candles": 331, "duration_days": 14.28, "starting_equity": 1000.0, "ending_equity": 994.0, "total_return_pct": -0.6, "max_drawdown_pct": 1.9, "sharpe": -2.97, "trades": 6, "win_rate": 50.0, "profit_factor": 0.69, "avg_pnl_per_trade": -1.0, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 6, "fee_drag_pct": 0.0}, {"label": "will-pp-win-the-most-seats-in-santa-cruz-de-tenerife-in-the-2026-spanish-general-election", "candles": 693, "duration_days": 31.24, "starting_equity": 1000.0, "ending_equity": 993.8, "total_return_pct": -0.62, "max_drawdown_pct": 0.86, "sharpe": -3.76, "trades": 2, "win_rate": 50.0, "profit_factor": 0.16, "avg_pnl_per_trade": -3.1, "fees_paid": 2.5, "passive_fills": 0, "taker_fills": 2, "fee_drag_pct": 40.4}, {"label": "iran-full-airspace-closure-by-november-30-2026", "candles": 597, "duration_days": 26.33, "starting_equity": 1000.0, "ending_equity": 998.3, "total_return_pct": -0.17, "max_drawdown_pct": 0.83, "sharpe": -0.94, "trades": 3, "win_rate": 33.3, "profit_factor": 0.47, "avg_pnl_per_trade": -0.57, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 3, "fee_drag_pct": 0.0}, {"label": "elon-musk-of-tweets-november-21-november-23-2026-40-64", "candles": 60, "duration_days": 2.66, "starting_equity": 1000.0, "ending_equity": 1009.67, "total_return_pct": 0.97, "max_drawdown_pct": 0.16, "sharpe": 0.0, "trades": 1, "win_rate": 100.0, "profit_factor": null, "avg_pnl_per_trade": 9.67, "fees_paid": 0.36, "passive_fills": 0, "taker_fills": 1, "fee_drag_pct": 3.8}, {"label": "us-x-iran-effective-ceasefire-by-november-30-20261108", "candles": 331, "duration_days": 14.24, "starting_equity": 1000.0, "ending_equity": 992.84, "total_return_pct": -0.72, "max_drawdown_pct": 1.65, "sharpe": -4.73, "trades": 5, "win_rate": 60.0, "profit_factor": 0.59, "avg_pnl_per_trade": -1.43, "fees_paid": 0.0, "passive_fills": 0, "taker_fills": 5, "fee_drag_pct": 0.0}], "trades": {"will-there-be-no-change-in-fed-interest-rates-after-the-december-2026-meeting-20260729232808635": [{"entry_ts": 1790960435, "exit_ts": 1791136820, "direction": "LONG", "entry": 0.2102, "exit": 0.2497, "size": 41.84, "pnl": 1.5065, "pnl_pct": 17.13, "reason": "time stop", "score": 1.0}, {"entry_ts": 1791223219, "exit_ts": 1791396030, "direction": "LONG", "entry": 0.2202, "exit": 0.2298, "size": 24.46, "pnl": 0.1483, "pnl_pct": 2.75, "reason": "time stop", "score": 1.0}, {"entry_ts": 1793221228, "exit_ts": 1793307626, "direction": "LONG", "entry": 0.1702, "exit": 0.2248, "size": 49.35, "pnl": 2.5391, "pnl_pct": 30.23, "reason": "יעד", "score": 1.0}, {"entry_ts": 1793649620, "exit_ts": 1793822447, "direction": "LONG", "entry": 0.2402, "exit": 0.2098, "size": 23.05, "pnl": -0.7822, "pnl_pct": -14.12, "reason": "time stop", "score": 0.937}, {"entry_ts": 1794265215, "exit_ts": 1794304815, "direction": "LONG", "entry": 0.1902, "exit": 0.0599, "size": 27.37, "pnl": -3.6225, "pnl_pct": -69.59, "reason": "סטופ", "score": 1.0}], "nfl-bal-car-2026-11-22": [], "will-mo-bamba-be-on-gta-vi-radio-at-launch": [{"entry_ts": 1791021616, "exit_ts": 1791144021, "direction": "LONG", "entry": 0.1501, "exit": 0.2547, "size": 249.53, "pnl": 25.3075, "pnl_pct": 67.55, "reason": "יעד", "score": 0.761}, {"entry_ts": 1791489622, "exit_ts": 1791540016, "direction": "LONG", "entry": 0.1552, "exit": 0.3147, "size": 172.75, "pnl": 26.9598, "pnl_pct": 100.58, "reason": "יעד", "score": 0.641}, {"entry_ts": 1791626423, "exit_ts": 1791630024, "direction": "LONG", "entry": 0.1201, "exit": 0.2398, "size": 262.67, "pnl": 30.6694, "pnl_pct": 97.2, "reason": "יעד", "score": 0.798}, {"entry_ts": 1792144829, "exit_ts": 1792170029, "direction": "LONG", "entry": 0.2002, "exit": 0.1199, "size": 28.4, "pnl": -2.3565, "pnl_pct": -41.45, "reason": "סטופ", "score": 0.819}, {"entry_ts": 1792177223, "exit_ts": 1792306821, "direction": "LONG", "entry": 0.1802, "exit": 0.2947, "size": 50.87, "pnl": 5.645, "pnl_pct": 61.59, "reason": "יעד", "score": 0.754}, {"entry_ts": 1792404015, "exit_ts": 1792569622, "direction": "LONG", "entry": 0.1451, "exit": 0.3047, "size": 181.33, "pnl": 28.3221, "pnl_pct": 107.61, "reason": "יעד", "score": 0.726}, {"entry_ts": 1793376021, "exit_ts": 1793552419, "direction": "LONG", "entry": 0.1702, "exit": 0.1848, "size": 278.04, "pnl": 3.2604, "pnl_pct": 6.89, "reason": "time stop", "score": 0.615}, {"entry_ts": 1793930446, "exit_ts": 1794106846, "direction": "LONG", "entry": 0.1602, "exit": 0.1249, "size": 278.89, "pnl": -10.5205, "pnl_pct": -23.55, "reason": "time stop", "score": 1.0}, {"entry_ts": 1795010425, "exit_ts": 1795021216, "direction": "LONG", "entry": 0.0601, "exit": 0.2497, "size": 163.97, "pnl": 30.7037, "pnl_pct": 311.77, "reason": "יעד", "score": 1.0}, {"entry_ts": 1795057235, "exit_ts": 1795100417, "direction": "LONG", "entry": 0.0751, "exit": 0.5574, "size": 91.87, "pnl": 44.0246, "pnl_pct": 638.3, "reason": "יעד", "score": 1.0}], "will-the-fed-increase-interest-rates-by-25-bps-after-the-december-2026-meeting-20260729232808636": [{"entry_ts": 1790917222, "exit_ts": 1790978419, "direction": "LONG", "entry": 0.6807, "exit": 0.7393, "size": 31.42, "pnl": 1.7117, "pnl_pct": 8.0, "reason": "יעד", "score": 0.649}, {"entry_ts": 1792767649, "exit_ts": 1792951205, "direction": "LONG", "entry": 0.7507, "exit": 0.7592, "size": 21.74, "pnl": 0.1042, "pnl_pct": 0.64, "reason": "time stop", "score": 1.0}, {"entry_ts": 1793307629, "exit_ts": 1793484020, "direction": "LONG", "entry": 0.7407, "exit": 0.6993, "size": 21.2, "pnl": -0.9638, "pnl_pct": -6.14, "reason": "time stop", "score": 0.615}, {"entry_ts": 1793898020, "exit_ts": 1793973621, "direction": "LONG", "entry": 0.6657, "exit": 0.7792, "size": 64.74, "pnl": 7.0961, "pnl_pct": 16.47, "reason": "יעד", "score": 0.945}, {"entry_ts": 1795237214, "exit_ts": 1795340952, "direction": "LONG", "entry": 0.8909, "exit": 0.8891, "size": 41.76, "pnl": -0.1561, "pnl_pct": -0.42, "reason": "סוף התקופה", "score": 1.0}], "israel-x-iran-ceasefire-continues-through-november-30": [{"entry_ts": 1790398814, "exit_ts": 1790571615, "direction": "LONG", "entry": 0.7307, "exit": 0.7143, "size": 27.66, "pnl": -0.4549, "pnl_pct": -2.25, "reason": "time stop", "score": 0.61}, {"entry_ts": 1790766017, "exit_ts": 1790938817, "direction": "LONG", "entry": 0.7007, "exit": 0.6943, "size": 19.42, "pnl": -0.1242, "pnl_pct": -0.91, "reason": "time stop", "score": 0.683}, {"entry_ts": 1791266420, "exit_ts": 1791439227, "direction": "LONG", "entry": 0.6557, "exit": 0.6493, "size": 33.3, "pnl": -0.21, "pnl_pct": -0.96, "reason": "time stop", "score": 0.907}, {"entry_ts": 1791529236, "exit_ts": 1791705619, "direction": "LONG", "entry": 0.6156, "exit": 0.6344, "size": 20.19, "pnl": 0.3786, "pnl_pct": 3.05, "reason": "time stop", "score": 0.779}, {"entry_ts": 1792134019, "exit_ts": 1792256404, "direction": "LONG", "entry": 0.5556, "exit": 0.6493, "size": 36.12, "pnl": 3.3879, "pnl_pct": 16.88, "reason": "יעד", "score": 0.897}, {"entry_ts": 1792612842, "exit_ts": 1792785658, "direction": "LONG", "entry": 0.5105, "exit": 0.4895, "size": 55.17, "pnl": -1.1586, "pnl_pct": -4.11, "reason": "time stop", "score": 0.631}, {"entry_ts": 1792965620, "exit_ts": 1792994434, "direction": "LONG", "entry": 0.3804, "exit": 0.4296, "size": 58.57, "pnl": 2.8811, "pnl_pct": 12.93, "reason": "יעד", "score": 0.758}, {"entry_ts": 1793300419, "exit_ts": 1793304030, "direction": "LONG", "entry": 0.3754, "exit": 0.5145, "size": 85.56, "pnl": 11.9023, "pnl_pct": 37.06, "reason": "יעד", "score": 0.627}, {"entry_ts": 1793671219, "exit_ts": 1793703617, "direction": "LONG", "entry": 0.4404, "exit": 0.4895, "size": 53.94, "pnl": 2.6468, "pnl_pct": 11.14, "reason": "יעד", "score": 1.0}, {"entry_ts": 1793721618, "exit_ts": 1793743219, "direction": "LONG", "entry": 0.5105, "exit": 0.4196, "size": 33.63, "pnl": -3.058, "pnl_pct": -17.81, "reason": "סטופ", "score": 0.712}, {"entry_ts": 1793743219, "exit_ts": 1793779218, "direction": "LONG", "entry": 0.4304, "exit": 0.4895, "size": 45.66, "pnl": 2.6976, "pnl_pct": 13.73, "reason": "יעד", "score": 0.851}, {"entry_ts": 1794506419, "exit_ts": 1794672015, "direction": "LONG", "entry": 0.8058, "exit": 0.8591, "size": 39.79, "pnl": 2.1222, "pnl_pct": 6.62, "reason": "יעד", "score": 0.755}], "lal-get-mad-2026-11-22-mad": [], "bra-cap-cre-2026-11-22-draw": [{"entry_ts": 1795060821, "exit_ts": 1795233625, "direction": "LONG", "entry": 0.2002, "exit": 0.1998, "size": 43.4, "pnl": -0.7118, "pnl_pct": -8.19, "reason": "time stop", "score": 1.0}], "sea-mil-fro-2026-11-22-mil": [], "cricwbbl-mes-mer-2026-11-22": [{"entry_ts": 1795334415, "exit_ts": 1795338023, "direction": "LONG", "entry": 0.3704, "exit": 0.5095, "size": 85.63, "pnl": 9.8444, "pnl_pct": 31.04, "reason": "יעד", "score": 0.633}], "will-puma-shen-win-the-next-taipei-mayor-election-20260813125857102": [{"entry_ts": 1790899222, "exit_ts": 1791032421, "direction": "LONG", "entry": 0.1527, "exit": 0.2073, "size": 49.03, "pnl": 1.9591, "pnl_pct": 26.17, "reason": "יעד", "score": 0.66}, {"entry_ts": 1791460857, "exit_ts": 1791475246, "direction": "LONG", "entry": 0.2172, "exit": 0.2687, "size": 40.92, "pnl": 1.358, "pnl_pct": 15.28, "reason": "יעד", "score": 0.652}, {"entry_ts": 1792580430, "exit_ts": 1792756842, "direction": "LONG", "entry": 0.3669, "exit": 0.3591, "size": 37.56, "pnl": -1.1586, "pnl_pct": -8.41, "reason": "time stop", "score": 1.0}, {"entry_ts": 1793790023, "exit_ts": 1793966439, "direction": "LONG", "entry": 0.2988, "exit": 0.2942, "size": 58.11, "pnl": -1.479, "pnl_pct": -8.52, "reason": "time stop", "score": 0.84}, {"entry_ts": 1795251619, "exit_ts": 1795340953, "direction": "LONG", "entry": 0.3378, "exit": 0.3262, "size": 35.85, "pnl": -1.2131, "pnl_pct": -10.02, "reason": "סוף התקופה", "score": 1.0}], "nba-okc-mia-2026-11-22": [{"entry_ts": 1795302012, "exit_ts": 1795305618, "direction": "LONG", "entry": 0.3704, "exit": 0.4595, "size": 53.2, "pnl": 3.4629, "pnl_pct": 17.57, "reason": "יעד", "score": 1.0}], "nfl-jax-nyg-2026-11-22": [{"entry_ts": 1794459610, "exit_ts": 1794571219, "direction": "LONG", "entry": 0.6356, "exit": 0.6893, "size": 35.47, "pnl": 1.1133, "pnl_pct": 4.94, "reason": "יעד", "score": 0.618}], "will-the-democratic-progressive-party-dpp-win-the-most-head-of-local-government-elections-in-the-2026-taiwan-local-elections": [{"entry_ts": 1795273219, "exit_ts": 1795340952, "direction": "LONG", "entry": 0.2573, "exit": 0.2113, "size": 77.08, "pnl": -4.9219, "pnl_pct": -24.82, "reason": "סוף התקופה", "score": 1.0}], "will-chiang-wan-an-win-the-next-taipei-mayor-election-20260813125857101": [{"entry_ts": 1791111617, "exit_ts": 1791284421, "direction": "LONG", "entry": 0.7507, "exit": 0.7193, "size": 40.08, "pnl": -2.041, "pnl_pct": -6.78, "reason": "time stop", "score": 1.0}, {"entry_ts": 1791586843, "exit_ts": 1791763240, "direction": "LONG", "entry": 0.6607, "exit": 0.6593, "size": 42.66, "pnl": -1.0136, "pnl_pct": -3.6, "reason": "time stop", "score": 0.633}], "epl-liv-mun-2026-11-22-mun": [], "nfl-ari-kc-2026-11-22-spread-home-16pt5": [], "will-pp-win-the-most-seats-in-the-2026-spanish-general-election": [{"entry_ts": 1794222015, "exit_ts": 1794394816, "direction": "LONG", "entry": 0.8408, "exit": 0.8342, "size": 45.59, "pnl": -0.9247, "pnl_pct": -2.41, "reason": "time stop", "score": 1.0}], "will-psoe-win-the-most-seats-in-santa-cruz-de-tenerife-in-the-2026-spanish-general-election": [{"entry_ts": 1793638820, "exit_ts": 1793754052, "direction": "LONG", "entry": 0.3153, "exit": 0.3646, "size": 56.08, "pnl": 1.5109, "pnl_pct": 8.54, "reason": "יעד", "score": 0.936}], "will-pedro-sanchez-be-the-next-prime-minister-of-spain-20260625005710096": [{"entry_ts": 1790985626, "exit_ts": 1791151222, "direction": "LONG", "entry": 0.1381, "exit": 0.1883, "size": 36.2, "pnl": 1.7179, "pnl_pct": 34.35, "reason": "יעד", "score": 0.916}, {"entry_ts": 1791241227, "exit_ts": 1791399627, "direction": "LONG", "entry": 0.1627, "exit": 0.2138, "size": 65.34, "pnl": 3.1416, "pnl_pct": 29.56, "reason": "יעד", "score": 0.668}, {"entry_ts": 1791504051, "exit_ts": 1791680426, "direction": "LONG", "entry": 0.1867, "exit": 0.1618, "size": 41.92, "pnl": -1.1622, "pnl_pct": -14.85, "reason": "time stop", "score": 0.627}, {"entry_ts": 1793080832, "exit_ts": 1793253644, "direction": "LONG", "entry": 0.1171, "exit": 0.1039, "size": 64.99, "pnl": -0.9869, "pnl_pct": -12.97, "reason": "time stop", "score": 1.0}, {"entry_ts": 1793296837, "exit_ts": 1793358023, "direction": "LONG", "entry": 0.0691, "exit": 0.1209, "size": 108.89, "pnl": 5.4559, "pnl_pct": 72.54, "reason": "יעד", "score": 0.614}, {"entry_ts": 1793880040, "exit_ts": 1794052841, "direction": "LONG", "entry": 0.0906, "exit": 0.1059, "size": 55.19, "pnl": 0.7469, "pnl_pct": 14.94, "reason": "time stop", "score": 0.94}, {"entry_ts": 1794196816, "exit_ts": 1794369619, "direction": "LONG", "entry": 0.0776, "exit": 0.0589, "size": 64.45, "pnl": -1.283, "pnl_pct": -25.66, "reason": "time stop", "score": 1.0}, {"entry_ts": 1795273222, "exit_ts": 1795341009, "direction": "LONG", "entry": 0.0901, "exit": 0.0789, "size": 55.5, "pnl": -0.7057, "pnl_pct": -14.11, "reason": "סוף התקופה", "score": 1.0}], "will-carlos-alcaraz-win-the-2026-nitto-atp-finals": [{"entry_ts": 1795100423, "exit_ts": 1795269622, "direction": "LONG", "entry": 0.4855, "exit": 0.3796, "size": 52.3, "pnl": -6.8058, "pnl_pct": -26.8, "reason": "סטופ", "score": 0.753}], "will-xqc-finish-gta-vi-by-november-22-1159-am-et": [{"entry_ts": 1795305627, "exit_ts": 1795309220, "direction": "LONG", "entry": 0.1602, "exit": 0.0699, "size": 249.5, "pnl": -23.0103, "pnl_pct": -57.58, "reason": "סטופ", "score": 1.0}, {"entry_ts": 1795334414, "exit_ts": 1795338020, "direction": "LONG", "entry": 0.2803, "exit": 0.1249, "size": 229.71, "pnl": -36.4125, "pnl_pct": -56.56, "reason": "סטופ", "score": 0.698}], "nfl-tb-det-2026-11-22": [{"entry_ts": 1794762016, "exit_ts": 1794934826, "direction": "LONG", "entry": 0.2853, "exit": 0.2897, "size": 57.58, "pnl": -0.9247, "pnl_pct": -5.63, "reason": "time stop", "score": 1.0}], "will-kuomintang-kmt-win-the-most-head-of-local-government-elections-in-the-2026-taiwan-local-elections": [{"entry_ts": 1792267236, "exit_ts": 1792429223, "direction": "LONG", "entry": 0.6056, "exit": 0.6593, "size": 49.86, "pnl": 1.5238, "pnl_pct": 5.05, "reason": "יעד", "score": 1.0}], "nfl-ari-kc-2026-11-22-total-40pt5": [], "spain-general-election-pp-vox-majority": [], "us-x-iran-effective-ceasefire-by-november-22-20261108": [{"entry_ts": 1794506422, "exit_ts": 1794585624, "direction": "LONG", "entry": 0.5556, "exit": 0.4695, "size": 47.27, "pnl": -4.0664, "pnl_pct": -15.48, "reason": "סטופ", "score": 1.0}, {"entry_ts": 1794585624, "exit_ts": 1794657626, "direction": "LONG", "entry": 0.4805, "exit": 0.5395, "size": 82.3, "pnl": 4.8541, "pnl_pct": 12.28, "reason": "יעד", "score": 1.0}, {"entry_ts": 1794920415, "exit_ts": 1794945617, "direction": "LONG", "entry": 0.4955, "exit": 0.4096, "size": 52.3, "pnl": -4.4928, "pnl_pct": -17.34, "reason": "סטופ", "score": 0.69}, {"entry_ts": 1794952815, "exit_ts": 1795003229, "direction": "LONG", "entry": 0.4354, "exit": 0.3546, "size": 133.8, "pnl": -10.8097, "pnl_pct": -18.55, "reason": "סטופ", "score": 1.0}, {"entry_ts": 1795014021, "exit_ts": 1795035627, "direction": "LONG", "entry": 0.3153, "exit": 0.3646, "size": 103.77, "pnl": 5.1179, "pnl_pct": 15.64, "reason": "יעד", "score": 0.631}, {"entry_ts": 1795298420, "exit_ts": 1795330814, "direction": "LONG", "entry": 0.2402, "exit": 0.3097, "size": 48.85, "pnl": 3.3926, "pnl_pct": 28.91, "reason": "יעד", "score": 0.758}], "will-pp-win-the-most-seats-in-santa-cruz-de-tenerife-in-the-2026-spanish-general-election": [{"entry_ts": 1794524420, "exit_ts": 1794682840, "direction": "LONG", "entry": 0.6206, "exit": 0.5145, "size": 56.41, "pnl": -7.3557, "pnl_pct": -21.01, "reason": "סטופ", "score": 0.793}, {"entry_ts": 1795125617, "exit_ts": 1795168817, "direction": "LONG", "entry": 0.4004, "exit": 0.4496, "size": 46.61, "pnl": 1.1547, "pnl_pct": 6.19, "reason": "יעד", "score": 0.875}], "iran-full-airspace-closure-by-november-30-2026": [{"entry_ts": 1793822450, "exit_ts": 1793998854, "direction": "LONG", "entry": 0.1852, "exit": 0.1598, "size": 82.53, "pnl": -2.0917, "pnl_pct": -13.69, "reason": "time stop", "score": 0.706}, {"entry_ts": 1794279646, "exit_ts": 1794456019, "direction": "LONG", "entry": 0.1101, "exit": 0.0999, "size": 106.01, "pnl": -1.0824, "pnl_pct": -9.27, "reason": "time stop", "score": 0.786}, {"entry_ts": 1794661218, "exit_ts": 1794834018, "direction": "LONG", "entry": 0.0801, "exit": 0.0899, "size": 150.26, "pnl": 1.4771, "pnl_pct": 12.28, "reason": "time stop", "score": 0.766}], "elon-musk-of-tweets-november-21-november-23-2026-40-64": [{"entry_ts": 1795320015, "exit_ts": 1795338017, "direction": "LONG", "entry": 0.1151, "exit": 0.1848, "size": 143.9, "pnl": 9.6665, "pnl_pct": 58.35, "reason": "יעד", "score": 0.628}], "us-x-iran-effective-ceasefire-by-november-30-20261108": [{"entry_ts": 1794506423, "exit_ts": 1794679235, "direction": "LONG", "entry": 0.6306, "exit": 0.6444, "size": 26.96, "pnl": 0.37, "pnl_pct": 2.18, "reason": "time stop", "score": 0.861}, {"entry_ts": 1794934828, "exit_ts": 1794945618, "direction": "LONG", "entry": 0.5556, "exit": 0.4745, "size": 67.3, "pnl": -5.4533, "pnl_pct": -14.59, "reason": "סטופ", "score": 0.755}, {"entry_ts": 1794945618, "exit_ts": 1794970821, "direction": "LONG", "entry": 0.4955, "exit": 0.5445, "size": 99.0, "pnl": 4.847, "pnl_pct": 9.88, "reason": "יעד", "score": 1.0}, {"entry_ts": 1794970821, "exit_ts": 1794988817, "direction": "LONG", "entry": 0.5656, "exit": 0.4545, "size": 106.74, "pnl": -11.8503, "pnl_pct": -19.63, "reason": "סטופ", "score": 1.0}, {"entry_ts": 1795010428, "exit_ts": 1795165224, "direction": "LONG", "entry": 0.4354, "exit": 0.4945, "size": 83.45, "pnl": 4.9294, "pnl_pct": 13.57, "reason": "יעד", "score": 0.703}]}}, "portfolio_md": "# סימולציית תיק משותף — מנוע `meanrev`\n\n- הון התחלתי: **1000.00** → סופי: **1194.35 USDC** (**+19.44%**)\n- עסקאות סגורות: **68** · win rate: **54.4%** · PF: **3.20**\n- Max Drawdown: **4.28%** · Sharpe: **6.35** · עמלות ששולמו: **27.18 USDC**\n\n| כניסה | יציאה | גודל | PnL | סיבה |\n|---|---|---|---|---|\n| 0.731 | 0.714 | 27.7 | -0.45 | israel-x-iran-ceasef: time stop (48.0ש') |\n| 0.701 | 0.694 | 19.4 | -0.12 | israel-x-iran-ceasef: time stop (48.0ש') |\n| 0.681 | 0.739 | 31.4 | +1.71 | will-the-fed-increas: יעד (0.740 ≥ 0.731) |\n| 0.153 | 0.207 | 49.0 | +1.96 | will-puma-shen-win-t: יעד (0.207 ≥ 0.203) |\n| 0.150 | 0.255 | 250.2 | +25.38 | will-mo-bamba-be-on-: יעד (0.255 ≥ 0.200) |\n| 0.138 | 0.188 | 36.2 | +1.72 | will-pedro-sanchez-b: יעד (0.189 ≥ 0.188) |\n| 0.230 | 0.250 | 47.0 | +0.75 | will-there-be-no-cha: time stop (49.0ש') |\n| 0.751 | 0.719 | 40.3 | -2.05 | will-chiang-wan-an-w: time stop (48.0ש') |\n| 0.220 | 0.230 | 25.1 | +0.15 | will-there-be-no-cha: time stop (48.0ש') |\n| 0.163 | 0.214 | 67.2 | +3.23 | will-pedro-sanchez-b: יעד (0.214 ≥ 0.213) |\n| 0.656 | 0.649 | 34.4 | -0.22 | israel-x-iran-ceasef: time stop (48.0ש') |\n| 0.217 | 0.269 | 42.1 | +1.40 | will-puma-shen-win-t: יעד (0.269 ≥ 0.267) |\n| 0.155 | 0.315 | 174.1 | +27.17 | will-mo-bamba-be-on-: יעד (0.315 ≥ 0.205) |\n| 0.120 | 0.240 | 264.7 | +30.91 | will-mo-bamba-be-on-: יעד (0.240 ≥ 0.170) |\n| 0.187 | 0.162 | 43.1 | -1.19 | will-pedro-sanchez-b: time stop (49.0ש') |\n| 0.616 | 0.634 | 20.9 | +0.39 | israel-x-iran-ceasef: time stop (49.0ש') |\n| 0.661 | 0.659 | 45.3 | -1.08 | will-chiang-wan-an-w: time stop (49.0ש') |\n| 0.200 | 0.120 | 28.6 | -2.37 | will-mo-bamba-be-on-: סטופ (0.120 ≤ 0.120) |\n| 0.556 | 0.649 | 39.4 | +3.69 | israel-x-iran-ceasef: יעד (0.650 ≥ 0.606) |\n| 0.180 | 0.295 | 51.2 | +5.68 | will-mo-bamba-be-on-: יעד (0.295 ≥ 0.230) |\n| 0.606 | 0.659 | 54.5 | +1.67 | will-kuomintang-kmt-: יעד (0.660 ≥ 0.656) |\n| 0.145 | 0.305 | 183.5 | +28.66 | will-mo-bamba-be-on-: יעד (0.305 ≥ 0.195) |\n| 0.367 | 0.359 | 42.2 | -1.30 | will-puma-shen-win-t: time stop (49.0ש') |\n| 0.510 | 0.489 | 62.0 | -1.30 | israel-x-iran-ceasef: time stop (48.0ש') |\n| 0.751 | 0.759 | 24.4 | +0.12 | will-the-fed-increas: time stop (51.0ש') |\n| 0.380 | 0.430 | 65.7 | +3.23 | israel-x-iran-ceasef: יעד (0.430 ≥ 0.430) |\n| 0.117 | 0.104 | 73.0 | -1.11 | will-pedro-sanchez-b: time stop (48.0ש') |\n| 0.375 | 0.514 | 96.1 | +13.37 | israel-x-iran-ceasef: יעד (0.515 ≥ 0.425) |\n| 0.170 | 0.225 | 55.6 | +2.86 | will-there-be-no-cha: יעד (0.225 ≥ 0.220) |\n| 0.069 | 0.121 | 122.6 | +6.14 | will-pedro-sanchez-b: יעד (0.121 ≥ 0.119) |\n| 0.741 | 0.699 | 24.3 | -1.10 | will-the-fed-increas: time stop (49.0ש') |\n| 0.170 | 0.185 | 286.5 | +3.36 | will-mo-bamba-be-on-: time stop (49.0ש') |\n| 0.440 | 0.489 | 61.1 | +3.00 | israel-x-iran-ceasef: יעד (0.490 ≥ 0.490) |\n| 0.510 | 0.420 | 38.1 | -3.47 | israel-x-iran-ceasef: סטופ (0.420 ≤ 0.431) |\n| 0.315 | 0.365 | 64.6 | +1.74 | will-psoe-win-the-mo: יעד (0.365 ≥ 0.365) |\n| 0.450 | 0.499 | 41.7 | +2.05 | israel-x-iran-ceasef: יעד (0.500 ≥ 0.500) |\n| 0.240 | 0.210 | 26.4 | -0.89 | will-there-be-no-cha: time stop (48.0ש') |\n| 0.299 | 0.294 | 66.9 | -1.70 | will-puma-shen-win-t: time stop (49.0ש') |\n| 0.666 | 0.779 | 74.3 | +8.15 | will-the-fed-increas: יעד (0.780 ≥ 0.716) |\n| 0.185 | 0.160 | 95.4 | -2.42 | iran-full-airspace-c: time stop (49.0ש') |\n| 0.091 | 0.106 | 55.2 | +0.75 | will-pedro-sanchez-b: time stop (48.0ש') |\n| 0.160 | 0.125 | 287.9 | -10.86 | will-mo-bamba-be-on-: time stop (49.0ש') |\n| 0.190 | 0.060 | 31.3 | -4.14 | will-there-be-no-cha: סטופ (0.060 ≤ 0.110) |\n| 0.078 | 0.059 | 64.5 | -1.28 | will-pedro-sanchez-b: time stop (48.0ש') |\n| 0.841 | 0.834 | 52.3 | -1.06 | will-pp-win-the-most: time stop (48.0ש') |\n| 0.110 | 0.100 | 121.8 | -1.24 | iran-full-airspace-c: time stop (49.0ש') |\n| 0.636 | 0.689 | 40.4 | +1.27 | nfl-jax-nyg-2026-11-: יעד (0.690 ≥ 0.686) |\n| 0.556 | 0.469 | 53.9 | -4.63 | us-x-iran-effective-: סטופ (0.470 ≤ 0.476) |\n| 0.806 | 0.859 | 44.5 | +2.37 | israel-x-iran-ceasef: יעד (0.860 ≥ 0.856) |\n| 0.621 | 0.514 | 64.1 | -8.36 | will-pp-win-the-most: סטופ (0.515 ≤ 0.541) |\n| 0.631 | 0.684 | 23.9 | +1.28 | us-x-iran-effective-: יעד (0.685 ≥ 0.681) |\n| 0.080 | 0.090 | 171.2 | +1.68 | iran-full-airspace-c: time stop (48.0ש') |\n| 0.285 | 0.290 | 65.1 | -1.05 | nfl-tb-det-2026-11-2: time stop (48.0ש') |\n| 0.495 | 0.410 | 59.2 | -5.09 | us-x-iran-effective-: סטופ (0.410 ≤ 0.415) |\n| 0.495 | 0.544 | 112.2 | +5.49 | us-x-iran-effective-: יעד (0.545 ≥ 0.545) |\n| 0.566 | 0.455 | 121.0 | -13.43 | us-x-iran-effective-: סטופ (0.455 ≤ 0.486) |\n| 0.060 | 0.250 | 165.8 | +31.04 | will-mo-bamba-be-on-: יעד (0.250 ≥ 0.110) |\n| 0.075 | 0.557 | 93.0 | +44.54 | will-mo-bamba-be-on-: יעד (0.558 ≥ 0.125) |\n| 0.435 | 0.494 | 94.5 | +5.58 | us-x-iran-effective-: יעד (0.495 ≥ 0.485) |\n| 0.400 | 0.450 | 56.1 | +1.39 | will-pp-win-the-most: יעד (0.450 ≥ 0.450) |\n| 0.200 | 0.200 | 50.0 | -0.82 | bra-cap-cre-2026-11-: time stop (48.0ש') |\n| 0.485 | 0.380 | 62.6 | -8.14 | will-carlos-alcaraz-: סטופ (0.380 ≤ 0.405) |\n| 0.240 | 0.310 | 58.7 | +4.08 | us-x-iran-effective-: יעד (0.310 ≥ 0.290) |\n| 0.891 | 0.889 | 49.8 | -0.19 | סוף התקופה |\n| 0.338 | 0.326 | 43.1 | -1.46 | סוף התקופה |\n| 0.257 | 0.218 | 92.0 | -5.25 | סוף התקופה |\n| 0.090 | 0.078 | 55.5 | -0.73 | סוף התקופה |\n| 0.155 | 0.195 | 133.2 | +4.90 | סוף התקופה |", "imbalance_md": "# Order-book imbalance — מדידה\n\nsnapshots: 432 · זוגות מדידה: 135 · שווקים: 83 · אופק: 30 דק' · רמות: 5\n\n**מתאם (imbalance → תנועת מחיר עתידית): -0.008**\n\n| חוסר איזון | דגימות | תנועה עתידית | זז | hit (מזזים) |\n|---|---|---|---|---|\n| < -0.6 (היצע כבד) | 15 | -0.01110 | 60% | 0% |\n| -0.6 … -0.2 | 33 | -0.00439 | 27% | 11% |\n| -0.2 … +0.2 | 49 | -0.02896 | 41% | 20% |\n| +0.2 … +0.6 | 28 | -0.01148 | 57% | 75% |\n| > +0.6 (ביקוש כבד) | 10 | +0.00165 | 70% | 57% |\n\n> ⚠️ פחות מ-300 זוגות מדידה — זה עדיין לא מדגם. הרץ `pmmb collect` לאורך שעות לפני הסקה."}, "trader": {"running": false, "cycles": 0, "last_error": "", "interval_sec": 300}, "readiness": {"ready": false, "summary": "🔴 לא מוכן — 1 קריטריונים נכשלו: soak", "checks": [{"id": "fees", "label": "עמלות במודל", "status": "ok", "detail": "נגבו 29.2 USDC על 76 עסקאות בבקטסט"}, {"id": "walkforward", "label": "אימות מחוץ למדגם", "status": "ok", "detail": "OOS +284.00 על 73 עסקאות · עקביות 100%"}, {"id": "soak", "label": "שבוע paper נקי", "status": "fail", "detail": "רק 2 ימים מתוך 7 — המשך להריץ paper"}, {"id": "gaps", "label": "רציפות הרצה", "status": "warn", "detail": "פער מרבי 8100 דק' — הבוט נעצר או נתקע"}, {"id": "errors", "label": "שגיאות בלוג", "status": "ok", "detail": "אפס שגיאות ERROR"}, {"id": "risk_limits", "label": "גבולות סיכון", "status": "ok", "detail": "יומי 5% · DD 20% · חשיפה 40% · 5 פוזיציות"}, {"id": "telegram", "label": "התראות לטלפון", "status": "warn", "detail": "לא הוגדר — תפספס עצירות"}, {"id": "heartbeat", "label": "הבוט רץ כעת", "status": "ok", "detail": "תקין"}, {"id": "backup", "label": "גיבוי DB", "status": "ok", "detail": "גיבוי בן 0.0 ימים"}]}, "config": {"execution": {"mode": "paper", "starting_cash": 1000.0, "slippage_bps": 10.0, "fee_mode": "model", "order_type": "FAK"}, "universe": {"max_markets": 120, "min_volume_24h": 5000.0, "min_liquidity": 2000.0, "max_spread": 0.04, "price_band": [0.05, 0.95], "min_hours_to_resolution": 6.0, "min_entry_hours_to_resolution": 24.0, "exclude_sectors": ["crypto"]}, "signal": {"engine": "meanrev", "candle_fidelity_min": 60, "min_score": 0.55, "min_edge": 0.005, "lookback_candles": 24, "z_entry": 1.8, "z_max": 5.0, "reversion_ratio": 0.55, "stop_mode": "abs", "take_profit": 0.05, "stop_loss": 0.08, "time_stop_hours": 48.0}, "risk": {"risk_per_trade_pct": 0.02, "kelly_fraction": 0.25, "max_position_pct": 0.1, "max_total_exposure_pct": 0.4, "max_open_positions": 5, "max_positions_per_event": 1, "max_positions_per_sector": 3, "max_daily_loss_pct": 0.05, "max_drawdown_pct": 0.2, "cooldown_minutes": 30.0}}}</script>
+<script>
+const INTERACTIVE = false;
+let S = JSON.parse(document.getElementById('pmmb-boot').textContent);
+let ACTIVE_TAB = 'overview';
+
+function esc(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getUTCDate())}/${p(d.getUTCMonth()+1)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}`;
+}
+function tokenHeader() {
+  const u = new URLSearchParams(location.search);
+  const t = u.get('token') || '';
+  return t ? {'X-Token': t} : {};
+}
+function toast(msg, ok=true) {
+  const el = document.getElementById('toast');
+  el.style.borderColor = ok ? '#22c55e' : '#ef4444';
+  el.textContent = msg;
+  el.style.display = 'block';
+  setTimeout(() => { el.style.display = 'none'; }, 4500);
+}
+function switchTab(name) {
+  ACTIVE_TAB = name;
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  ['overview','trading','research','ops'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('hide', t !== name);
+  });
+}
+
+function renderChart(pts) {
+  const vals = (pts || []).map(p => Number(p.equity)).filter(v => Number.isFinite(v));
+  const box = document.getElementById('eq-chart');
+  const dEl = document.getElementById('eq-delta');
+  if (vals.length < 2) {
+    dEl.textContent = '';
+    box.innerHTML = '<div class="dim">צריך לפחות 2 נקודות מדידה כדי לצייר גרף הון</div>';
+    return;
+  }
+  const w = 520, h = 140, pad = 16;
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const span = (hi - lo) || 1;
+  const step = (w - 2 * pad) / (vals.length - 1);
+  const coords = vals.map((v, i) => [
+    (pad + i * step).toFixed(1),
+    (h - pad - ((v - lo) / span) * (h - 2 * pad)).toFixed(1)
+  ]);
+  const line = coords.map(c => c.join(',')).join(' ');
+  const area = `${pad},${h-pad} ${line} ${(w-pad).toFixed(1)},${h-pad}`;
+  const delta = vals[vals.length - 1] - vals[0];
+  const col = delta >= 0 ? '#22c55e' : '#ef4444';
+  dEl.innerHTML = `<span class="${delta>=0?'pos':'neg'}">${vals[0].toFixed(2)} → ${vals[vals.length-1].toFixed(2)} (${delta>=0?'+':''}${delta.toFixed(2)})</span>`;
+  box.innerHTML = `<svg viewBox="0 0 ${w} ${h}" width="100%" height="145" style="display:block">
+    <defs><linearGradient id="eqg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${col}" stop-opacity="0.32"/>
+      <stop offset="100%" stop-color="${col}" stop-opacity="0.0"/>
+    </linearGradient></defs>
+    <line x1="${pad}" y1="${pad}" x2="${w-pad}" y2="${pad}" stroke="#1e293b" stroke-dasharray="3,3"/>
+    <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="#1e293b" stroke-dasharray="3,3"/>
+    <polygon points="${area}" fill="url(#eqg)"/>
+    <polyline points="${line}" fill="none" stroke="${col}" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="${w-pad}" y="${pad-4}" fill="#64748b" font-size="10" text-anchor="end">שיא ${hi.toFixed(2)}</text>
+    <text x="${w-pad}" y="${h-3}" fill="#64748b" font-size="10" text-anchor="end">שפל ${lo.toFixed(2)}</text>
+  </svg>`;
+}
+
+function posTable(list, detailed) {
+  if (!list || !list.length) return '<div class="dim" style="padding:8px">אין פוזיציות פתוחות כרגע</div>';
+  return `<table><tr>
+    <th>שוק</th><th>כיוון</th><th>גודל</th><th>כניסה</th><th>נוכחי</th><th>לא ממומש</th>
+    ${detailed ? '<th>SL / TP</th><th>מרחק ליעד</th>' : ''}<th>גיל</th></tr>` +
+    list.map(p => {
+      const unr = p.unrealized_pnl;
+      const cls = unr == null ? '' : (unr >= 0 ? 'pos' : 'neg');
+      const unrTxt = unr == null ? '—' : `${unr>=0?'+':''}${unr.toFixed(2)} (${p.unrealized_pct>=0?'+':''}${p.unrealized_pct.toFixed(1)}%)`;
+      let bar = '—';
+      if (detailed && p.stop_price != null && p.target_price != null && p.mark_price != null && p.target_price > p.stop_price) {
+        const pct = Math.max(0, Math.min(100, (p.mark_price - p.stop_price) / (p.target_price - p.stop_price) * 100));
+        bar = `<div class="range-track"><div class="range-pin" style="left:${pct.toFixed(0)}%"></div></div>`;
+      }
+      return `<tr>
+        <td>${esc(p.question)}</td>
+        <td><span class="badge">${esc(p.direction)}</span></td>
+        <td>${Number(p.size).toFixed(1)}</td>
+        <td>${Number(p.avg_price).toFixed(3)}</td>
+        <td>${p.mark_price != null ? Number(p.mark_price).toFixed(3) : '—'}</td>
+        <td class="${cls}">${unrTxt}</td>
+        ${detailed ? `<td class="muted">${p.stop_price ?? '—'} / ${p.target_price ?? '—'}</td><td>${bar}</td>` : ''}
+        <td class="muted">${Number(p.age_hours).toFixed(1)}ש'</td>
+      </tr>`;
+    }).join('') + '</table>';
+}
+
+function renderFills() {
+  const q = (document.getElementById('fill-q')?.value || '').toLowerCase();
+  const list = (S.fills || []).filter(f => !q ||
+    (f.question + ' ' + f.side + ' ' + f.reason).toLowerCase().includes(q));
+  const box = document.getElementById('tr-fills');
+  if (!list.length) { box.innerHTML = '<div class="dim">אין מילויים תואמים</div>'; return; }
+  box.innerHTML = `<table><tr><th>זמן</th><th>פעולה</th><th>שוק</th><th>כמות</th><th>מחיר</th><th>שווי</th><th>עמלה</th><th>PnL ממומש</th><th>סיבה</th></tr>` +
+    list.map(f => `<tr>
+      <td class="dim">${fmtTime(f.ts)}</td>
+      <td><span class="badge ${f.side==='BUY'?'ok':'warn'}">${f.side}</span></td>
+      <td>${esc(f.question)}</td>
+      <td>${f.size.toFixed(2)}</td>
+      <td>${f.price.toFixed(3)}</td>
+      <td>$${f.notional.toFixed(2)}</td>
+      <td class="muted">$${f.fee.toFixed(3)}</td>
+      <td class="${f.realized > 0 ? 'pos' : (f.realized < 0 ? 'neg' : 'muted')}">${f.side==='SELL' ? (f.realized>=0?'+':'')+f.realized.toFixed(2) : '—'}</td>
+      <td class="muted">${esc(f.reason)}</td>
+    </tr>`).join('') + '</table>';
+}
+
+function renderSignals() {
+  const q = (document.getElementById('sig-q')?.value || '').toLowerCase();
+  const list = (S.signals || []).filter(g => !q ||
+    (g.direction + ' ' + g.reason + ' ' + g.question).toLowerCase().includes(q));
+  const box = document.getElementById('tr-signals');
+  if (!list.length) { box.innerHTML = '<div class="dim">אין סיגנלים תואמים</div>'; return; }
+  box.innerHTML = `<table><tr><th>זמן</th><th>שוק / טוקן</th><th>כיוון</th><th>z</th><th>score</th><th>שוק→הוגן</th><th>edge</th><th>הסבר</th></tr>` +
+    list.map(g => `<tr>
+      <td class="dim">${fmtTime(g.ts)}</td>
+      <td>${esc(g.question || g.token_id)}</td>
+      <td><span class="badge ${(g.direction==='BUY'||g.direction==='LONG')?'ok':''}">${esc(g.direction)}</span></td>
+      <td>${g.z != null ? g.z.toFixed(2) : '—'}</td>
+      <td>${g.score.toFixed(2)}</td>
+      <td>${g.market_price.toFixed(3)} → ${g.fair_price.toFixed(3)}</td>
+      <td class="${g.edge>0?'pos':'muted'}">${(g.edge>=0?'+':'')+g.edge.toFixed(4)}</td>
+      <td class="muted">${esc(g.reason)}</td>
+    </tr>`).join('') + '</table>';
+}
+
+function render() {
+  const h = S.health || {}, hb = S.heartbeat || {}, bank = S.bankroll || {};
+  const today = S.today || {}, ov = S.overall || {}, soak = S.soak || {};
+  const trader = S.trader || {};
+  const ok = Boolean(h.healthy);
+  document.getElementById('h-dot').className = 'dot ' + (ok ? 'ok' : 'bad');
+  const mEl = document.getElementById('b-mode');
+  mEl.textContent = String(S.mode || 'paper').toUpperCase();
+  mEl.className = 'badge ' + (S.mode === 'live' ? 'live' : 'ok');
+  document.getElementById('b-eng').textContent = String(S.engine || '').toUpperCase();
+  const tEl = document.getElementById('b-trader');
+  tEl.textContent = trader.running ? `סוחר אוטומטי רץ (#${trader.cycles || 0})` : 'סוחר ידני';
+  tEl.className = 'badge ' + (trader.running ? 'ok' : '');
+  const ageTxt = hb.age_sec != null ? `${Math.round(hb.age_sec)}שנ'` : '—';
+  document.getElementById('h-sub').textContent = `${h.reason || ''} · מחזור #${hb.cycle || 0} · דופק לפני ${ageTxt}`;
+
+  document.getElementById('ctrl-bar').classList.toggle('hide', !INTERACTIVE);
+  const opsBtns = document.getElementById('ops-btns');
+  if (opsBtns && !INTERACTIVE) {
+    opsBtns.classList.add('hide');
+    const opsOut = document.getElementById('ops-out');
+    if (opsOut) opsOut.textContent = 'תצוגת Snapshot סטטית. להרצת פעולות חיות בזמן אמת הפעילו: pmmb serve --port 8787';
+  }
+  const btTrader = document.getElementById('btn-trader');
+  if (btTrader) {
+    btTrader.textContent = trader.running ? '⏹ עצור סוחר אוטומטי' : '▶️ סוחר אוטומטי';
+    btTrader.disabled = S.mode === 'live';
+  }
+  const btHalt = document.getElementById('btn-halt');
+  if (btHalt) {
+    const halted = Boolean(S.halt || (hb && hb.halted));
+    btHalt.textContent = halted ? '▶️ שחרר עצירה' : '🛑 עצירת חירום';
+    btHalt.className = halted ? 'success' : 'danger';
+  }
+
+  // Banners
+  const banners = [];
+  if (S.halt || (hb && hb.halted)) {
+    const r = (S.halt && S.halt.reason) || (hb && hb.halt_reason) || 'עצירת חירום פעילה';
+    banners.push(`<div class="banner halt"><div>🛑 <strong>הבוט עצור:</strong> ${esc(r)}</div>
+      ${INTERACTIVE ? '<button class="success" onclick="act(\'api/resume\', null, \'מבטל עצירה...\')">▶️ שחרר עצירה</button>' : ''}</div>`);
+  } else if (!ok) {
+    banners.push(`<div class="banner warn"><div>⚠️ <strong>${esc(h.reason || 'אין דופק טרי')}</strong></div>
+      ${INTERACTIVE && S.mode==='paper' ? '<button class="primary" onclick="act(\'api/paper-cycle\', null, \'מריץ מחזור...\')">⚡ הרץ מחזור עכשיו</button>' : ''}</div>`);
+  }
+  document.getElementById('banners').innerHTML = banners.join('');
+
+  // KPIs
+  const eq = Number(bank.equity || 0), cash = Number(bank.cash || 0), exp = Number(bank.exposure || 0);
+  const unr = Number(bank.unrealized_pnl || 0);
+  const ovPnl = Number(ov.realized_pnl || 0), tPnl = Number(today.realized_pnl || 0);
+  const kpis = [
+    ['הון תיק', `$${eq.toFixed(2)}`, `לא ממומש ${unr>=0?'+':''}${unr.toFixed(2)}`],
+    ['מזומן פנוי', `$${cash.toFixed(2)}`, `${eq>0 ? (cash/eq*100).toFixed(0) : 0}% נזיל`],
+    ['חשיפה בשוק', `$${exp.toFixed(2)}`, `${eq>0 ? (exp/eq*100).toFixed(1) : 0}% מהתיק`],
+    ['פוזיציות', `${bank.open_positions ?? 0} / ${(S.config?.risk?.max_open_positions) || 5}`, 'פתוחות כרגע'],
+    ['PnL היום', `${tPnl>=0?'+':''}${tPnl.toFixed(2)}`, `${today.exits || 0} יציאות · $${Number(today.fees||0).toFixed(2)} עמלה`],
+    ['PnL מצטבר', `${ovPnl>=0?'+':''}${ovPnl.toFixed(2)}`, `${ov.exits || 0} סגורות · ${ov.win_rate_pct || 0}% · PF ${ov.profit_factor ?? '—'}`],
+    ['עמלות סה"כ', `$${Number(ov.fees || today.fees || 0).toFixed(2)}`, 'מודל Polymarket'],
+    ['שבוע Paper', `${soak.days || 0} / ${soak.target_days || 7}`, (soak.days||0)>=(soak.target_days||7) ? 'עבר שער ימים' : 'צובר ימי ניסיון'],
+  ];
+  document.getElementById('kpi-grid').innerHTML = kpis.map(([t,v,s]) =>
+    `<div class="card"><div class="kpi-title">${t}</div><div class="kpi-val">${v}</div><div class="kpi-sub">${s}</div></div>`
+  ).join('');
+
+  renderChart(S.equity_curve);
+
+  // Risk Guards
+  const g = S.guards || {};
+  const dLim = Number(g.daily_loss_limit || 50), dUsed = Number(g.daily_loss_used || 0);
+  const dd = Number(g.drawdown_pct || 0), ddLim = Number(g.drawdown_limit_pct || 20);
+  const maxExp = eq * Number(S.config?.risk?.max_total_exposure_pct || 0.4);
+  const maxPos = Number(S.config?.risk?.max_open_positions || 5);
+  const bars = [
+    ['הפסד יומי', `${dUsed.toFixed(2)} / $${dLim.toFixed(2)}`, dLim > 0 ? dUsed/dLim*100 : 0, '#f59e0b'],
+    ['Drawdown', `${dd.toFixed(2)}% / ${ddLim.toFixed(0)}%`, ddLim > 0 ? dd/ddLim*100 : 0, '#ef4444'],
+    ['חשיפה מנוצלת', `$${exp.toFixed(1)} / $${maxExp.toFixed(0)}`, maxExp > 0 ? exp/maxExp*100 : 0, '#3b82f6'],
+    ['תפוסת פוזיציות', `${bank.open_positions || 0} / ${maxPos}`, maxPos > 0 ? (bank.open_positions||0)/maxPos*100 : 0, '#22c55e'],
+  ];
+  document.getElementById('guards-box').innerHTML = bars.map(([lbl,txt,pct,col]) => `
+    <div style="margin-bottom:11px">
+      <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px">
+        <span class="muted">${lbl}</span><span>${txt}</span>
+      </div>
+      <div class="bar-bg"><div class="bar-fg" style="width:${Math.min(100,Math.max(0,pct)).toFixed(0)}%;background:${col}"></div></div>
+    </div>`).join('');
+
+  // Skipped
+  const sk = S.skipped || {};
+  const skTot = Object.values(sk).reduce((a,b) => a+b, 0) || 1;
+  document.getElementById('skip-box').innerHTML = Object.entries(sk).sort((a,b)=>b[1]-a[1]).map(([k,v]) => `
+    <div style="display:flex;align-items:center;gap:8px;margin:6px 0">
+      <div class="muted" style="flex:0 0 185px;font-size:12px">${esc(k)}</div>
+      <div class="bar-bg"><div class="bar-fg" style="width:${(v/skTot*100).toFixed(0)}%"></div></div>
+      <div class="dim" style="flex:0 0 28px;text-align:left;font-size:11px">${v}</div>
+    </div>`).join('') || '<div class="dim">אין דחיות מהמחזור האחרון</div>';
+
+  // Readiness mini + full
+  const rd = S.readiness || {checks:[]};
+  const icon = {ok:'✅', warn:'⚠️', fail:'❌'};
+  document.getElementById('ready-mini').innerHTML = (rd.checks || []).map(c => `
+    <div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid #1b2434;font-size:12px">
+      <span>${icon[c.status] || '•'} ${esc(c.label)}</span>
+      <span class="muted">${esc(c.detail)}</span>
+    </div>`).join('');
+
+  const rBadge = document.getElementById('ready-badge');
+  rBadge.textContent = rd.ready ? 'מוכן למעבר ל-LIVE' : (rd.summary || 'בתהליך אימות');
+  rBadge.className = 'badge ' + (rd.ready ? 'ok' : 'warn');
+  document.getElementById('ready-grid').innerHTML = (rd.checks || []).map(c => `
+    <div class="check-item">
+      <div><strong>${icon[c.status] || ''} ${esc(c.label)}</strong>
+      <div class="muted" style="font-size:12px;margin-top:3px">${esc(c.detail)}</div></div>
+    </div>`).join('');
+
+  // Overview tables + Trading tables
+  document.getElementById('ov-positions').innerHTML = posTable(S.positions, false);
+  document.getElementById('tr-positions').innerHTML = posTable(S.positions, true);
+  document.getElementById('ov-trades').innerHTML = (S.recent_trades && S.recent_trades.length) ?
+    `<table><tr><th>שוק</th><th>יציאה</th><th>PnL</th><th>סיבה</th></tr>` +
+    S.recent_trades.map(t => `<tr>
+      <td>${esc(t.question)}</td><td>${Number(t.price).toFixed(3)}</td>
+      <td class="${t.realized>=0?'pos':'neg'}">${t.realized>=0?'+':''}${Number(t.realized).toFixed(2)}</td>
+      <td class="muted">${esc(t.reason)}</td></tr>`).join('') + '</table>' :
+    '<div class="dim">אין עסקאות סגורות עדיין</div>';
+  renderFills();
+  renderSignals();
+
+  // Analytics
+  const an = S.analytics || {};
+  const wf = an.walkforward;
+  document.getElementById('wf-box').innerHTML = wf ? `
+    <div style="margin-bottom:10px;font-size:13px">
+      OOS סה"כ: <strong class="${wf.oos_pnl>=0?'pos':'neg'}">${wf.oos_pnl>=0?'+':''}${wf.oos_pnl} USDC</strong>
+      · ללא מוביל: <strong>${wf.oos_pnl_ex_top ?? '—'}</strong>
+      · עקביות: <strong>${Math.round((wf.consistency||0)*100)}%</strong>
+      · מצב סטופ: <span class="badge">${esc(wf.stop_mode || 'pct')}</span>
+    </div>
+    <table><tr><th>חלון</th><th>OOS PnL</th><th>עסקאות</th><th>Win%</th><th>פרמטרים</th></tr>` +
+    (wf.folds || []).map(f => `<tr>
+      <td>#${f.index}</td>
+      <td class="${f.oos_pnl>=0?'pos':'neg'}">${f.oos_pnl>=0?'+':''}${f.oos_pnl}</td>
+      <td>${f.oos_trades}</td><td>${f.oos_win_rate}%</td>
+      <td class="dim">${esc(Object.entries(f.best_params||{}).map(([k,v])=>`${k}=${v}`).join(', '))}</td>
+    </tr>`).join('') + '</table>' : '<div class="dim">אין reports/walkforward.json</div>';
+
+  const sec = an.sectors;
+  document.getElementById('sec-box').innerHTML = (sec && sec.rows) ? `<table>
+    <tr><th>סקטור</th><th>סיגנלים</th><th>Hit%</th><th>התממש</th><th>עמלה</th><th>נטו אחרי הכל</th></tr>` +
+    sec.rows.map(r => `<tr>
+      <td>${esc(r.sector)}</td><td>${r.n}</td><td>${Math.round(r.hit_rate*100)}%</td>
+      <td>${r.mean_realized>=0?'+':''}${r.mean_realized}</td>
+      <td class="muted">${r.mean_fee}</td>
+      <td class="${r.net_of_cost>=0?'pos':'neg'}">${r.net_of_cost>=0?'+':''}${r.net_of_cost}</td>
+    </tr>`).join('') + '</table>' : '<div class="dim">הרץ pmmb sectors ליצירת דוח סקטורים</div>';
+
+  document.getElementById('port-md').textContent = an.portfolio_md || 'הרץ pmmb backtest --portfolio';
+  document.getElementById('imb-md').textContent = an.imbalance_md || 'אין נתוני imbalance עדיין';
+
+  // Ops / Backups / Config / Events
+  document.getElementById('backups-box').innerHTML = (S.backups && S.backups.length) ?
+    `<table><tr><th>קובץ גיבוי</th><th>גודל</th><th>תאריך</th></tr>` +
+    S.backups.map(b => `<tr><td>${esc(b.name)}</td><td>${b.size_kb} KB</td><td class="muted">${fmtTime(b.ts)}</td></tr>`).join('') +
+    '</table>' : '<div class="dim">אין גיבויים עדיין</div>';
+
+  const cfg = S.config || {};
+  document.getElementById('cfg-grid').innerHTML = Object.entries(cfg).map(([secName, obj]) => `
+    <div style="background:var(--panel2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div style="font-weight:700;margin-bottom:6px;color:#93c5fd">${esc(secName)}</div>
+      ${Object.entries(obj || {}).map(([k,v]) =>
+        `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;border-bottom:1px solid #1e293b">
+          <span class="muted">${esc(k)}</span><span>${esc(Array.isArray(v)?v.join(', '):v)}</span>
+        </div>`).join('')}
+    </div>`).join('');
+
+  document.getElementById('events-box').innerHTML = (S.events && S.events.length) ?
+    `<ul style="padding-inline-start:18px;margin:0;font-size:12.5px">` +
+    S.events.map(e => `<li style="margin:5px 0"><span class="dim">${fmtTime(e.ts)}</span> <b>[${esc(e.kind)}]</b> ${esc(e.msg)}</li>`).join('') +
+    '</ul>' : '<div class="dim">אין אירועים מתועדים</div>';
+}
+
+async function refreshNow() {
+  if (!INTERACTIVE) return;
+  try {
+    const r = await fetch('api/state', {headers: tokenHeader()});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    S = await r.json();
+    render();
+  } catch (e) {
+    toast('רענון נכשל: ' + e.message, false);
+  }
+}
+
+async function act(endpoint, payload, waitMsg) {
+  if (!INTERACTIVE) return;
+  toast(waitMsg || 'מבצע...');
+  const outEl = document.getElementById('ops-out');
+  if (outEl) outEl.textContent = waitMsg || 'מבצע...';
+  try {
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', ...tokenHeader()},
+      body: JSON.stringify(payload || {}),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    if (outEl) outEl.textContent = data.output || JSON.stringify(data, null, 2);
+    toast(data.message || 'הפעולה הושלמה', true);
+    await refreshNow();
+  } catch (e) {
+    if (outEl) outEl.textContent = 'שגיאה: ' + e.message;
+    toast('שגיאה: ' + e.message, false);
+  }
+}
+
+function toggleHalt() {
+  const halted = Boolean(S.halt || (S.heartbeat && S.heartbeat.halted));
+  if (halted) {
+    act('api/resume', null, 'מבטל עצירת חירום...');
+  } else {
+    act('api/halt', {reason: 'עצירה ידנית מהתוכנה'}, 'מפעיל עצירת חירום...');
+  }
+}
+
+function toggleTrader() {
+  const running = Boolean(S.trader && S.trader.running);
+  if (running) {
+    act('api/trader/stop', null, 'עוצר סוחר אוטומטי...');
+  } else {
+    act('api/trader/start', {interval_sec: 300}, 'מפעיל סוחר Paper אוטומטי...');
+  }
+}
+
+render();
+if (INTERACTIVE && 0 > 0) {
+  setInterval(refreshNow, 0 * 1000);
+}
+</script>
+</body>
+</html>

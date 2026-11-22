@@ -548,10 +548,20 @@ def cmd_daily(args, cfg: Config) -> int:
 
 
 def cmd_status(args, cfg: Config) -> int:
-    """מצב המערכת — JSON למכונה, טבלה לבן אדם."""
+    """מצב המערכת — JSON למכונה, טבלה לבן אדם, או ייצוא אפליקציית HTML."""
     import json
+    from pathlib import Path
 
-    from .status import build_status
+    from .status import build_command_center_data, build_status
+    from .ui import command_center_html
+
+    if getattr(args, "html_out", None):
+        cc = build_command_center_data(cfg, max_age_sec=args.max_age)
+        out = Path(args.html_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(command_center_html(cc, refresh_sec=0, interactive=False), encoding="utf-8")
+        print(f"🖥️  יוצא קובץ תוכנה עצמאי: {out}")
+        return 0 if cc["health"]["healthy"] else 3
 
     st = build_status(cfg, max_age_sec=args.max_age)
     if args.json:
@@ -583,18 +593,21 @@ def cmd_status(args, cfg: Config) -> int:
 
 
 def cmd_serve(args, cfg: Config) -> int:
-    """מרים את שרת המצב (לרוב מהטלפון)."""
+    """מרים את תוכנת הבקרה והמצב (http://host:port)."""
     from .server import serve
 
     httpd = serve(cfg, host=args.host, port=args.port,
                   max_age_sec=args.max_age, refresh_sec=args.refresh,
                   token=args.token)
-    print(f"🌐 http://{args.host}:{args.port}  (Ctrl+C לעצירה)")
+    print(f"🌐 PMMB Command Center: http://{args.host}:{args.port}  (Ctrl+C לעצירה)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nנעצר")
     finally:
+        tm = getattr(httpd, "_trader_manager", None)
+        if tm is not None:
+            tm.stop()
         httpd.server_close()
     return 0
 
@@ -895,9 +908,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     stt = sub.add_parser("status", help="מצב המערכת (בריאות, הון, פוזיציות, היום)")
     stt.add_argument("--json", action="store_true", help="פלט JSON למכונה")
+    stt.add_argument("--html-out", default=None, help="יצוא דוח תוכנת בקרה HTML עצמאי לקובץ")
     stt.add_argument("--max-age", type=float, default=300, help="גיל דופק מקסימלי (שניות)")
 
-    srv = sub.add_parser("serve", help="שרת מצב לקריאה מהטלפון")
+    srv = sub.add_parser("serve", help="תוכנת בקרה ודשבורד חיים בדפדפן")
     srv.add_argument("--host", default="0.0.0.0")
     srv.add_argument("--port", type=int, default=8787)
     srv.add_argument("--max-age", type=float, default=300)

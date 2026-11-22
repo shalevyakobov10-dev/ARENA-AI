@@ -177,6 +177,181 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
     return out
 
 
+def build_command_center_data(
+    cfg,
+    *,
+    max_age_sec: float = 300,
+    reports_dir: str | Path = "reports",
+    backups_dir: str | Path = "backups",
+    trader_state: dict | None = None,
+) -> dict:
+    """אוסף נתונים מלא לתוכנת הבקרה (ללא רשת — DB + reports + state + backups)."""
+    import json
+    from .data.store import Store
+    from .readiness import collect_facts, evaluate, is_ready, summary
+
+    out = build_status(cfg, max_age_sec=max_age_sec)
+    out["fills"] = []
+    out["signals"] = []
+    out["backups"] = []
+    out["analytics"] = {}
+    out["trader"] = trader_state or {"running": False, "cycles": 0, "last_error": "", "interval_sec": 300}
+
+    db = Path(cfg.data.db_path)
+    if db.exists():
+        store = Store(db)
+        try:
+            with store.tx() as c:
+                fill_rows = list(c.execute(
+                    """SELECT f.ts, f.side, f.price, f.size, f.fee, f.notional,
+                              f.realized, f.reason, f.token_id,
+                              COALESCE(p.question, f.token_id) AS question
+                       FROM fills f LEFT JOIN positions p ON p.token_id = f.token_id
+                       WHERE f.mode=? ORDER BY f.ts DESC, f.id DESC LIMIT 60""",
+                    (cfg.execution.mode,),
+                ).fetchall())
+                sig_rows = list(c.execute(
+                    """SELECT s.ts, s.token_id, s.direction, s.score, s.fair_price,
+                              s.market_price, s.edge, s.reason, s.features,
+                              COALESCE(p.question, '') AS question
+                       FROM signals s LEFT JOIN positions p ON p.token_id = s.token_id
+                       ORDER BY s.id DESC LIMIT 50""",
+                ).fetchall())
+
+            out["fills"] = [
+                {
+                    "ts": int(r["ts"]),
+                    "side": r["side"],
+                    "price": round(float(r["price"] or 0.0), 4),
+                    "size": round(float(r["size"] or 0.0), 2),
+                    "fee": round(float(r["fee"] or 0.0), 3),
+                    "notional": round(float(r["notional"] or 0.0), 2),
+                    "realized": round(float(r["realized"] or 0.0), 2),
+                    "reason": str(r["reason"] or "")[:70],
+                    "question": str(r["question"] or r["token_id"])[:55],
+                }
+                for r in fill_rows
+            ]
+            sigs = []
+            for r in sig_rows:
+                z = None
+                try:
+                    feats = json.loads(r["features"] or "{}")
+                    if "z" in feats:
+                        z = round(float(feats["z"]), 2)
+                except Exception:
+                    pass
+                sigs.append({
+                    "ts": int(r["ts"]),
+                    "token_id": str(r["token_id"] or "")[:12],
+                    "question": str(r["question"] or "")[:44],
+                    "direction": r["direction"],
+                    "score": round(float(r["score"] or 0.0), 2),
+                    "fair_price": round(float(r["fair_price"] or 0.0), 3),
+                    "market_price": round(float(r["market_price"] or 0.0), 3),
+                    "edge": round(float(r["edge"] or 0.0), 4),
+                    "z": z,
+                    "reason": str(r["reason"] or "")[:72],
+                })
+            out["signals"] = sigs
+        finally:
+            store.close()
+
+    # --- מוכנות ל-Live ---
+    try:
+        checks = evaluate(collect_facts(cfg, reports_dir=reports_dir, backups_dir=backups_dir))
+        out["readiness"] = {
+            "ready": is_ready(checks),
+            "summary": summary(checks),
+            "checks": [c.as_dict() for c in checks],
+        }
+    except Exception as exc:      # noqa: BLE001
+        out["readiness"] = {"ready": False, "summary": str(exc), "checks": []}
+
+    # --- דוחות מחקר ובקטסט ---
+    rdir = Path(reports_dir)
+    analytics: dict = {}
+    for key, fname in (("walkforward", "walkforward.json"),
+                       ("sectors", "sectors.json"),
+                       ("backtest", "backtest.json")):
+        fpath = rdir / fname
+        if fpath.exists():
+            try:
+                analytics[key] = json.loads(fpath.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+    for md_key, md_name in (("portfolio_md", "portfolio_backtest.md"),
+                            ("imbalance_md", "imbalance.md")):
+        mpath = rdir / md_name
+        if mpath.exists():
+            try:
+                analytics[md_key] = mpath.read_text(encoding="utf-8")[:6000]
+            except Exception:
+                pass
+    out["analytics"] = analytics
+
+    # --- גיבויים ---
+    bdir = Path(backups_dir)
+    if bdir.exists():
+        bfiles = sorted(bdir.glob("*.db"), key=lambda p: p.stat().st_mtime, reverse=True)
+        out["backups"] = [
+            {
+                "name": p.name,
+                "size_kb": round(p.stat().st_size / 1024, 1),
+                "ts": int(p.stat().st_mtime),
+            }
+            for p in bfiles[:10]
+        ]
+
+    # --- קונפיג פעיל ---
+    out["config"] = {
+        "execution": {
+            "mode": cfg.execution.mode,
+            "starting_cash": cfg.execution.starting_cash,
+            "slippage_bps": cfg.execution.slippage_bps,
+            "fee_mode": cfg.execution.fee_mode,
+            "order_type": cfg.execution.order_type,
+        },
+        "universe": {
+            "max_markets": cfg.universe.max_markets,
+            "min_volume_24h": cfg.universe.min_volume_24h,
+            "min_liquidity": cfg.universe.min_liquidity,
+            "max_spread": cfg.universe.max_spread,
+            "price_band": list(cfg.universe.price_band),
+            "min_hours_to_resolution": cfg.universe.min_hours_to_resolution,
+            "min_entry_hours_to_resolution": cfg.universe.min_entry_hours_to_resolution,
+            "exclude_sectors": list(cfg.universe.exclude_sectors),
+        },
+        "signal": {
+            "engine": cfg.signal.engine,
+            "candle_fidelity_min": cfg.signal.candle_fidelity_min,
+            "min_score": cfg.signal.min_score,
+            "min_edge": cfg.signal.min_edge,
+            "lookback_candles": cfg.signal.meanrev.lookback_candles,
+            "z_entry": cfg.signal.meanrev.z_entry,
+            "z_max": cfg.signal.meanrev.z_max,
+            "reversion_ratio": cfg.signal.meanrev.reversion_ratio,
+            "stop_mode": cfg.signal.exit.stop_mode,
+            "take_profit": cfg.signal.exit.take_profit,
+            "stop_loss": cfg.signal.exit.stop_loss,
+            "time_stop_hours": cfg.signal.exit.time_stop_hours,
+        },
+        "risk": {
+            "risk_per_trade_pct": cfg.risk.risk_per_trade_pct,
+            "kelly_fraction": cfg.risk.kelly_fraction,
+            "max_position_pct": cfg.risk.max_position_pct,
+            "max_total_exposure_pct": cfg.risk.max_total_exposure_pct,
+            "max_open_positions": cfg.risk.max_open_positions,
+            "max_positions_per_event": cfg.risk.max_positions_per_event,
+            "max_positions_per_sector": cfg.risk.max_positions_per_sector,
+            "max_daily_loss_pct": cfg.risk.max_daily_loss_pct,
+            "max_drawdown_pct": cfg.risk.max_drawdown_pct,
+            "cooldown_minutes": cfg.risk.cooldown_minutes,
+        },
+    }
+    return out
+
+
 def sparkline(points: list[dict], *, w: int = 260, h: int = 56) -> str:
     """
     גרף הון כ-SVG טהור — בלי JS ובלי ספריות. עובד גם ברשת איטית בטלפון.

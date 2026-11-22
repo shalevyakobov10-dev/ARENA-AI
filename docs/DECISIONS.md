@@ -79,3 +79,14 @@ Engine משחזר אוטומטית פוזיציות פתוחות, מזומן, ר
 תשתית הריצה שודרגה ל-SQLite WAL + busy_timeout=5000 (קריאה מקבילית מהדשבורד
 ומ-telegram בלי נעילות), ProcessLock אטומי למניעת הרצה כפולה, עצירת SIGTERM
 נקייה בסוף מחזור, ותצוגת מדדים מצטברים ועסקאות אחרונות ב-status.py.
+
+## 14. תוכנת הבקרה PMMB Command Center + ייצוא עצמאי
+2026-11 · מתקבל · מלא
+נבנתה תוכנת בקרה מלאה בדפדפן (RTL עברית, אפס CDN / URLs חיצוניים) על בסיס
+stdlib HTTPServer (`ui.py` + `build_command_center_data` ב-`status.py` + `server.py`):
+4 לשוניות (סקירה חיה, פוזיציות/מילויים/סיגנלים, מחקר/Walk-Forward/Readiness,
+קונפיגורציה/גיבויים/תפעול), רענון אוטומטי, תמיכה ב-Token וב-Head,
+הרצת פעולות תפעוליות (`halt`, `resume`, `backup`, `reconcile`) והגבלת פעולות
+מסחר מהדפדפן (`paper-cycle`, `trader/start|stop`) למצב `paper` בלבד (403 ב-`live`)
+כדי למנוע מסחר כספי לא מבוקר מממשק אינטרנט. זמין גם בייצוא קובץ עצמאי (`pmmb status --html-out`).
+
