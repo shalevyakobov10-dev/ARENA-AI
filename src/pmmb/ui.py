@@ -1,10 +1,11 @@
 """
-PMMB Command Center — ממשק מסחר מוסדי נקי ומינימליסטי (RTL).
+PMMB Command Center — טרמינל מסחר מוסדי וניתוח שווקים בזמן אמת (RTL).
 
-תכנון חזותי:
-  - כהה מאופק, גבולות דקים, טיפוגרפיה נקייה (`tabular-nums`), אייקוני SVG דקים בלבד (ללא אימוג'ים).
-  - 4 לשוניות ברורות: סקירה ומסחר | שווקים וגרפים | חדשות ולמידה | תפעול אוטונומי.
-  - 100% self-contained: ללא תלויות CDN/פונטים/קריאות חיצוניות (עובד מושלם גם בקובץ HTML מקומי).
+תכנון מסוף מקצועי:
+  - 4 סביבות עבודה: סקירה ומסחר | שווקים וגרפים (Split Desk) | חדשות מכל העולם | למידה ותפעול.
+  - גרפי TradingView-Style על Canvas (Crosshair + Tooltip חי, תת-גרף RSI, טווחי זמן 12H/24H/72H/ALL).
+  - סולמית עומק ספר פקודות חיה (Order Book Depth Ladder), מדדי מיקום SL-TP וסנטימנט גלובלי.
+  - 100% self-contained: אפס URLs חיצוניים, אפס אימוג'ים קרטוניים, עובד מלא גם כקובץ סטטי.
 """
 from __future__ import annotations
 
@@ -21,56 +22,56 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PMMB Terminal</title>
+<title>PMMB Command Center</title>
 <style>
   :root {{
-    --bg: #0a0e14;
-    --surface: #11161f;
-    --surface-2: #161c27;
-    --border: rgba(255,255,255,0.075);
+    --bg: #080c12;
+    --surface: #0f151f;
+    --surface-2: #151d2b;
+    --surface-3: #1b2434;
+    --border: rgba(255,255,255,0.07);
     --border-strong: rgba(255,255,255,0.14);
-    --text: #eef2f7;
+    --text: #f1f5f9;
     --text-2: #94a3b8;
     --text-3: #64748b;
     --accent: #3b82f6;
-    --accent-soft: rgba(59,130,246,0.12);
+    --accent-soft: rgba(59,130,246,0.13);
     --green: #10b981;
-    --green-soft: rgba(16,185,129,0.12);
+    --green-soft: rgba(16,185,129,0.13);
     --red: #ef4444;
-    --red-soft: rgba(239,68,68,0.12);
+    --red-soft: rgba(239,68,68,0.13);
     --amber: #f59e0b;
-    --amber-soft: rgba(245,158,11,0.12);
+    --amber-soft: rgba(245,158,11,0.13);
     --radius: 10px;
   }}
   * {{ box-sizing: border-box; }}
   html, body {{
     margin: 0; padding: 0; background: var(--bg); color: var(--text);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased;
   }}
   .num {{ font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: embed; display: inline-block; }}
   .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
 
-  /* --- Topbar --- */
+  /* --- Topbar & Pulse Ribbon --- */
   .topbar {{
     position: sticky; top: 0; z-index: 40;
-    background: rgba(10,14,20,0.92); backdrop-filter: blur(12px);
+    background: rgba(8,12,18,0.92); backdrop-filter: blur(14px);
     border-bottom: 1px solid var(--border);
   }}
   .topbar-inner {{
-    max-width: 1380px; margin: 0 auto; padding: 0 22px;
-    height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    max-width: 1500px; margin: 0 auto; padding: 0 22px;
+    height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
   }}
-  .brand {{
-    display: flex; align-items: center; gap: 12px;
-  }}
+  .brand {{ display: flex; align-items: center; gap: 11px; }}
   .brand-mark {{
-    width: 30px; height: 30px; border-radius: 8px;
-    background: var(--surface-2); border: 1px solid var(--border-strong);
-    display: grid; place-items: center; color: var(--accent);
+    width: 32px; height: 32px; border-radius: 8px;
+    background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(16,185,129,0.12));
+    border: 1px solid var(--border-strong);
+    display: grid; place-items: center; color: #60a5fa;
   }}
-  .brand-title {{ font-weight: 600; font-size: 14.5px; letter-spacing: 0.01em; color: var(--text); }}
-  .brand-sub {{ font-size: 11.5px; color: var(--text-3); }}
+  .brand-title {{ font-weight: 600; font-size: 14.5px; letter-spacing: 0.01em; }}
+  .brand-sub {{ font-size: 11px; color: var(--text-3); }}
 
   .nav-tabs {{
     display: flex; align-items: center; gap: 4px;
@@ -80,18 +81,16 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .nav-tab {{
     background: transparent; border: none; color: var(--text-2);
     padding: 6px 14px; border-radius: 6px; cursor: pointer;
-    font-size: 12.5px; font-weight: 500; transition: all 0.15s ease;
-    display: inline-flex; align-items: center; gap: 7px;
+    font-size: 12.5px; font-weight: 500; transition: all 0.14s ease;
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
   }}
   .nav-tab:hover {{ color: var(--text); }}
   .nav-tab.active {{ background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }}
 
-  .top-actions {{
-    display: flex; align-items: center; gap: 10px;
-  }}
+  .top-actions {{ display: flex; align-items: center; gap: 8px; }}
   .status-pill {{
     display: inline-flex; align-items: center; gap: 7px;
-    padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 500;
+    padding: 5px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 500;
     background: var(--surface); border: 1px solid var(--border); color: var(--text-2);
   }}
   .dot {{ width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }}
@@ -99,93 +98,136 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .dot.warn {{ background: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }}
   .dot.err {{ background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }}
 
+  .pulse-ribbon {{
+    background: #0b1018; border-bottom: 1px solid var(--border);
+  }}
+  .pulse-inner {{
+    max-width: 1500px; margin: 0 auto; padding: 6px 22px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    font-size: 11.5px; color: var(--text-3);
+  }}
+  .pulse-group {{ display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }}
+  .pulse-item {{ display: inline-flex; align-items: center; gap: 6px; }}
+  .pulse-item strong {{ color: var(--text-2); font-weight: 500; }}
+
+  /* --- Controls --- */
   .btn {{
     background: var(--surface-2); color: var(--text);
     border: 1px solid var(--border-strong); border-radius: 7px;
     padding: 6px 12px; font-size: 12px; font-weight: 500;
     cursor: pointer; transition: all 0.14s ease;
-    display: inline-flex; align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   }}
-  .btn:hover {{ background: #1e2635; border-color: rgba(255,255,255,0.22); }}
+  .btn:hover {{ background: var(--surface-3); border-color: rgba(255,255,255,0.22); }}
   .btn:disabled {{ opacity: 0.45; cursor: not-allowed; }}
   .btn-primary {{ background: var(--accent); border-color: var(--accent); color: #fff; }}
   .btn-primary:hover {{ background: #2563eb; border-color: #2563eb; }}
   .btn-danger {{ background: var(--red-soft); border-color: rgba(239,68,68,0.35); color: #fca5a5; }}
-  .btn-danger:hover {{ background: rgba(239,68,68,0.22); }}
+  .btn-danger:hover {{ background: rgba(239,68,68,0.24); }}
   .btn-ghost {{ background: transparent; border-color: var(--border); color: var(--text-2); }}
   .btn-ghost:hover {{ color: var(--text); background: var(--surface); }}
+  .btn-xs {{ padding: 4px 9px; font-size: 11px; border-radius: 5px; }}
+  .btn-xs.active {{ background: var(--accent-soft); border-color: rgba(59,130,246,0.4); color: #93c5fd; }}
 
-  /* --- Main Container --- */
-  .wrap {{ max-width: 1380px; margin: 0 auto; padding: 20px 22px 48px; }}
+  .input {{
+    background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong);
+    border-radius: 7px; padding: 6px 11px; font-size: 12px; outline: none; width: 100%;
+  }}
+  .input:focus {{ border-color: var(--accent); }}
+
+  /* --- Layout --- */
+  .wrap {{ max-width: 1500px; margin: 0 auto; padding: 18px 22px 52px; }}
 
   .banner {{
-    padding: 10px 14px; border-radius: var(--radius); margin-bottom: 16px;
+    padding: 10px 14px; border-radius: var(--radius); margin-bottom: 14px;
     font-size: 12.5px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }}
-  .banner.err {{ background: var(--red-soft); border: 1px solid rgba(239,68,68,0.32); color: #fecaca; }}
-  .banner.info {{ background: var(--surface); border: 1px solid var(--border); color: var(--text-2); }}
+  .banner.err {{ background: var(--red-soft); border: 1px solid rgba(239,68,68,0.35); color: #fecaca; }}
 
-  /* --- Grid & Cards --- */
   .kpi-row {{
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px;
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px;
   }}
   .kpi {{
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 14px 16px;
+    border-radius: var(--radius); padding: 13px 15px; position: relative;
   }}
-  .kpi-label {{ font-size: 11.5px; color: var(--text-3); margin-bottom: 6px; font-weight: 500; }}
+  .kpi-label {{ font-size: 11px; color: var(--text-3); margin-bottom: 5px; font-weight: 500; }}
   .kpi-val {{ font-size: 21px; font-weight: 600; color: var(--text); letter-spacing: -0.02em; }}
-  .kpi-sub {{ font-size: 11.5px; color: var(--text-2); margin-top: 4px; }}
+  .kpi-sub {{ font-size: 11px; color: var(--text-2); margin-top: 4px; }}
 
-  .grid-2 {{ display: grid; grid-template-columns: 1.45fr 1fr; gap: 14px; margin-bottom: 16px; }}
-  .grid-even {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }}
-  .grid-3 {{ display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }}
+  .grid-2 {{ display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; margin-bottom: 14px; }}
+  .grid-even {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }}
+  .desk-grid {{ display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 14px; align-items: start; }}
 
   .card {{
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); overflow: hidden; margin-bottom: 16px;
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 14px;
   }}
-  .grid-2 .card, .grid-even .card, .grid-3 .card {{ margin-bottom: 0; }}
+  .grid-2 .card, .grid-even .card, .desk-grid .card {{ margin-bottom: 0; }}
   .card-head {{
-    padding: 12px 16px; border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 11px 15px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
   }}
   .card-title {{ font-size: 13px; font-weight: 600; color: var(--text); }}
   .card-meta {{ font-size: 11.5px; color: var(--text-3); }}
-  .card-body {{ padding: 14px 16px; }}
+  .card-body {{ padding: 14px 15px; }}
   .card-body.flush {{ padding: 0; }}
 
-  /* --- Autopilot Strip --- */
-  .ap-strip {{
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 10px 16px; margin-bottom: 16px;
-    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;
-  }}
-  .ap-items {{ display: flex; align-items: center; flex-wrap: wrap; gap: 18px; }}
-  .ap-item {{ display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); }}
-  .ap-item strong {{ color: var(--text); font-weight: 500; }}
-
-  /* --- Tables --- */
+  /* --- Tables & Meters --- */
   .table-wrap {{ overflow-x: auto; }}
-  table {{ width: 100%; border-collapse: collapse; font-size: 12.5px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
   th {{
-    text-align: right; padding: 9px 14px; font-weight: 500; font-size: 11.5px;
+    text-align: right; padding: 8px 13px; font-weight: 500; font-size: 11px;
     color: var(--text-3); border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.015);
     white-space: nowrap;
   }}
-  td {{
-    padding: 10px 14px; border-bottom: 1px solid var(--border);
-    color: var(--text-2); vertical-align: middle;
-  }}
+  td {{ padding: 9px 13px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: middle; }}
   tr:last-child td {{ border-bottom: none; }}
-  tr.clickable {{ cursor: pointer; transition: background 0.12s; }}
-  tr.clickable:hover td {{ background: rgba(255,255,255,0.025); }}
-  .q-cell {{ color: var(--text); font-weight: 500; max-width: 340px; }}
+  tr.clickable {{ cursor: pointer; transition: background 0.1s; }}
+  tr.clickable:hover td {{ background: rgba(255,255,255,0.03); }}
+  .q-cell {{ color: var(--text); font-weight: 500; }}
+
+  .range-meter {{
+    display: flex; align-items: center; gap: 7px; min-width: 155px;
+  }}
+  .range-track {{
+    flex: 1; height: 5px; border-radius: 99px; background: rgba(255,255,255,0.08);
+    position: relative; overflow: visible;
+  }}
+  .range-fill {{
+    position: absolute; top: 0; height: 100%; border-radius: 99px; background: var(--accent);
+  }}
+  .range-pin {{
+    position: absolute; top: -3px; width: 3px; height: 11px; border-radius: 2px; background: #fff;
+    transform: translateX(-50%); box-shadow: 0 0 6px rgba(255,255,255,0.6);
+  }}
+
+  /* --- Watchlist (Trading Desk Left Pane) --- */
+  .wl-scroll {{ max-height: 670px; overflow-y: auto; }}
+  .wl-item {{
+    padding: 10px 13px; border-bottom: 1px solid var(--border); cursor: pointer;
+    transition: background 0.12s;
+  }}
+  .wl-item:hover {{ background: rgba(255,255,255,0.025); }}
+  .wl-item.active {{ background: rgba(59,130,246,0.1); border-right: 3px solid var(--accent); }}
+  .wl-top {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 5px; }}
+  .wl-q {{ font-size: 12px; font-weight: 500; color: var(--text); line-height: 1.35; }}
+  .wl-sub {{ display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-3); gap: 8px; }}
+
+  /* --- Order Book Depth Ladder --- */
+  .ob-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
+  .ob-row {{
+    position: relative; display: flex; justify-content: space-between;
+    padding: 4px 8px; font-size: 11.5px; border-radius: 4px; margin-bottom: 3px; overflow: hidden;
+  }}
+  .ob-bar {{ position: absolute; top: 0; bottom: 0; opacity: 0.16; pointer-events: none; }}
+  .ob-bid .ob-bar {{ right: 0; background: var(--green); }}
+  .ob-ask .ob-bar {{ left: 0; background: var(--red); }}
 
   /* --- Badges & Progress --- */
   .badge {{
-    display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px;
-    font-size: 11px; font-weight: 500; border: 1px solid transparent; white-space: nowrap;
+    display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 5px;
+    font-size: 10.5px; font-weight: 500; border: 1px solid transparent; white-space: nowrap;
   }}
   .badge-ok {{ background: var(--green-soft); color: #6ee7b7; border-color: rgba(16,185,129,0.25); }}
   .badge-warn {{ background: var(--amber-soft); color: #fcd34d; border-color: rgba(245,158,11,0.25); }}
@@ -193,50 +235,59 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .badge-info {{ background: var(--accent-soft); color: #93c5fd; border-color: rgba(59,130,246,0.25); }}
   .badge-mute {{ background: rgba(255,255,255,0.04); color: var(--text-2); border-color: var(--border); }}
 
-  .bar-row {{ margin-bottom: 11px; }}
+  .bar-row {{ margin-bottom: 10px; }}
   .bar-row:last-child {{ margin-bottom: 0; }}
-  .bar-top {{ display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; color: var(--text-2); }}
+  .bar-top {{ display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 4px; color: var(--text-2); }}
   .bar-track {{ height: 4px; border-radius: 99px; background: rgba(255,255,255,0.07); overflow: hidden; }}
-  .bar-fill {{ height: 100%; border-radius: 99px; background: var(--accent); transition: width 0.3s ease; }}
+  .bar-fill {{ height: 100%; border-radius: 99px; background: var(--accent); }}
 
-  /* --- Charts & Filters --- */
-  .select {{
-    background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong);
-    border-radius: 7px; padding: 6px 10px; font-size: 12.5px; outline: none; min-width: 260px; max-width: 100%;
+  /* --- Chart Canvases & Tooltips --- */
+  .chart-wrap {{ position: relative; width: 100%; height: 295px; }}
+  .rsi-wrap {{ position: relative; width: 100%; height: 82px; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 4px; }}
+  .eq-wrap {{ position: relative; width: 100%; height: 185px; }}
+  canvas.plot {{ width: 100%; height: 100%; display: block; cursor: crosshair; }}
+  .tooltip {{
+    position: absolute; top: 8px; right: 12px; pointer-events: none;
+    background: rgba(15,21,31,0.92); border: 1px solid var(--border-strong);
+    border-radius: 6px; padding: 5px 10px; font-size: 11px; color: var(--text);
+    display: none; backdrop-filter: blur(8px); z-index: 10;
   }}
-  .filter-pills {{ display: flex; gap: 6px; flex-wrap: wrap; }}
+
+  /* --- News & Decision Tape --- */
+  .filter-pills {{ display: flex; gap: 5px; flex-wrap: wrap; }}
   .pill-btn {{
     background: transparent; color: var(--text-2); border: 1px solid var(--border);
-    border-radius: 999px; padding: 4px 11px; font-size: 11.5px; cursor: pointer;
+    border-radius: 999px; padding: 4px 10px; font-size: 11px; cursor: pointer;
   }}
   .pill-btn.active {{ background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }}
 
-  .news-list {{ display: flex; flex-direction: column; }}
   .news-item {{
-    padding: 11px 16px; border-bottom: 1px solid var(--border);
+    padding: 10px 15px; border-bottom: 1px solid var(--border);
     display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
   }}
   .news-item:last-child {{ border-bottom: none; }}
   .news-title {{ color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 1.45; }}
   .news-meta {{ font-size: 11px; color: var(--text-3); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }}
 
-  .kv-list {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }}
+  .tape-item {{
+    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 10px; font-size: 12px;
+  }}
+  .tape-item:last-child {{ border-bottom: none; }}
+
+  .kv-list {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }}
   .kv-item {{
     display: flex; justify-content: space-between; align-items: center;
-    padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px;
   }}
   .kv-k {{ color: var(--text-3); }}
   .kv-v {{ color: var(--text); font-weight: 500; }}
 
-  .chart-box {{ position: relative; width: 100%; height: 270px; }}
-  .eq-box {{ position: relative; width: 100%; height: 170px; }}
-  canvas.plot {{ width: 100%; height: 100%; display: block; }}
-
   .toast {{
     position: fixed; bottom: 20px; left: 20px; z-index: 60;
     background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text);
-    padding: 10px 16px; border-radius: 8px; font-size: 12.5px;
-    box-shadow: 0 12px 30px rgba(0,0,0,0.45); display: none; max-width: 420px;
+    padding: 10px 16px; border-radius: 8px; font-size: 12px;
+    box-shadow: 0 12px 30px rgba(0,0,0,0.45); display: none; max-width: 440px;
   }}
   .tab-pane {{ display: none; }}
   .tab-pane.active {{ display: block; }}
@@ -244,14 +295,18 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .pos {{ color: var(--green); }}
   .neg {{ color: var(--red); }}
 
-  @media (max-width: 1080px) {{
+  @media (max-width: 1180px) {{
+    .desk-grid {{ grid-template-columns: 1fr; }}
+    .wl-scroll {{ max-height: 300px; }}
+  }}
+  @media (max-width: 1020px) {{
     .kpi-row {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-    .grid-2, .grid-even, .grid-3 {{ grid-template-columns: 1fr; }}
+    .grid-2, .grid-even {{ grid-template-columns: 1fr; }}
     .topbar-inner {{ height: auto; padding: 10px 14px; flex-wrap: wrap; }}
   }}
   @media (max-width: 640px) {{
-    .wrap {{ padding: 14px 12px 36px; }}
-    .kv-list {{ grid-template-columns: 1fr; }}
+    .wrap {{ padding: 12px 12px 36px; }}
+    .kv-list, .ob-grid {{ grid-template-columns: 1fr; }}
     .nav-tabs {{ width: 100%; overflow-x: auto; }}
   }}
 </style>
@@ -262,7 +317,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   <div class="topbar-inner">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
         </svg>
       </div>
@@ -285,8 +340,11 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
         <span id="live-label">מצב</span>
       </div>
       <button class="btn btn-primary" id="btn-toggle-ap" onclick="toggleAutopilot()">הפעל אוטופיילוט</button>
-      <button class="btn btn-ghost" onclick="refreshAll()" title="רענון נתונים">רענן</button>
+      <button class="btn btn-ghost" onclick="refreshAll()" title="רענון מיידי">רענן</button>
     </div>
+  </div>
+  <div class="pulse-ribbon">
+    <div class="pulse-inner" id="pulse-ribbon"></div>
   </div>
 </header>
 
@@ -300,8 +358,6 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   <section id="tab-overview" class="tab-pane active">
     <div class="kpi-row" id="kpi-row"></div>
 
-    <div class="ap-strip" id="ap-strip"></div>
-
     <div class="grid-2">
       <div class="card">
         <div class="card-head">
@@ -309,13 +365,16 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
           <span class="card-meta" id="eq-meta">—</span>
         </div>
         <div class="card-body">
-          <div class="eq-box"><canvas id="eq-canvas" class="plot"></canvas></div>
+          <div class="eq-wrap">
+            <canvas id="eq-canvas" class="plot"></canvas>
+            <div id="eq-tip" class="tooltip"></div>
+          </div>
         </div>
       </div>
       <div class="card">
         <div class="card-head">
-          <span class="card-title">בקרת סיכון ומרווחים</span>
-          <span class="card-meta" id="risk-meta">Mean Reversion</span>
+          <span class="card-title">בקרת סיכון ומרווחי הון</span>
+          <span class="card-meta" id="risk-meta">Mean Reversion + RSI + Spread/Edge</span>
         </div>
         <div class="card-body" id="risk-bars"></div>
       </div>
@@ -324,7 +383,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
     <div class="card">
       <div class="card-head">
         <span class="card-title">פוזיציות פתוחות</span>
-        <span class="card-meta">לחיצה על שוק פותחת גרף וחדשות</span>
+        <span class="card-meta">סרגל SL ↔ Entry ↔ TP · לחיצה פותחת את דסק השוק</span>
       </div>
       <div class="card-body flush">
         <div class="table-wrap">
@@ -333,9 +392,9 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
               <tr>
                 <th>שוק</th>
                 <th>כמות</th>
-                <th>מחיר כניסה</th>
-                <th>מחיר שוק</th>
-                <th>סטופ / יעד</th>
+                <th>כניסה</th>
+                <th>נוכחי</th>
+                <th>מיקום בין SL ל-TP</th>
                 <th>רווח/הפסד</th>
                 <th>גיל</th>
               </tr>
@@ -349,77 +408,91 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
     <div class="grid-even">
       <div class="card">
         <div class="card-head">
+          <span class="card-title">זרם החלטות ואירועי מערכת (Live Tape)</span>
+          <span class="card-meta" id="tape-meta">—</span>
+        </div>
+        <div class="card-body flush" id="decision-tape"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
           <span class="card-title">עסקאות סגורות אחרונות</span>
           <span class="card-meta" id="trades-meta">—</span>
         </div>
         <div class="card-body flush">
           <div class="table-wrap">
             <table>
-              <thead><tr><th>זמן</th><th>שוק</th><th>כמות</th><th>מחיר</th><th>PnL</th><th>סיבה</th></tr></thead>
+              <thead><tr><th>מועד</th><th>שוק</th><th>כמות</th><th>מחיר</th><th>PnL</th><th>סיבה</th></tr></thead>
               <tbody id="trades-tbody"></tbody>
             </table>
           </div>
         </div>
       </div>
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">פילוח סינון סיגנלים</span>
-          <span class="card-meta">מחזור אחרון</span>
-        </div>
-        <div class="card-body" id="skip-bars"></div>
-      </div>
     </div>
   </section>
 
-  <!-- ========== TAB 2: שווקים וגרפים ========== -->
+  <!-- ========== TAB 2: שווקים וגרפים (Split Desk) ========== -->
   <section id="tab-markets" class="tab-pane">
-    <div class="card">
-      <div class="card-head">
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <span class="card-title">גרף מחיר וסיגנל</span>
-          <select id="chart-select" class="select" onchange="loadChart(this.value, true)"></select>
+    <div class="desk-grid">
+      <!-- ימין: רדאר ורשימת מעקב אינטראקטיבית -->
+      <div class="card">
+        <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="card-title">רדאר מודיעין שווקים חי</span>
+            <span class="card-meta" id="wl-count">—</span>
+          </div>
+          <input type="text" id="wl-search" class="input" placeholder="חיפוש שוק או סקטור..." oninput="renderMarketsIntel()">
+          <div class="filter-pills" id="intel-filters">
+            <button class="pill-btn active" onclick="setIntelFilter('ALL', this)">הכל</button>
+            <button class="pill-btn" onclick="setIntelFilter('OPEN', this)">פתוחות</button>
+            <button class="pill-btn" onclick="setIntelFilter('APLUS', this)">A+/A</button>
+            <button class="pill-btn" onclick="setIntelFilter('CATALYST_BLOCK', this)">נחסמו</button>
+          </div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="card-meta" id="chart-stats">—</span>
-          <button class="btn btn-ghost" onclick="loadChart(document.getElementById('chart-select').value, true)">משוך חי</button>
-        </div>
+        <div class="wl-scroll" id="wl-list"></div>
       </div>
-      <div class="card-body">
-        <div class="chart-box"><canvas id="price-canvas" class="plot"></canvas></div>
-        <div id="chart-intel-bar" style="display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:12px;color:var(--text-2)"></div>
-        <div id="chart-news-box" style="margin-top:8px;font-size:12px;color:var(--text-3)"></div>
-      </div>
-    </div>
 
-    <div class="card">
-      <div class="card-head">
-        <span class="card-title">רדאר מודיעין שווקים חי</span>
-        <div class="filter-pills" id="intel-filters">
-          <button class="pill-btn active" onclick="setIntelFilter('ALL', this)">הכל</button>
-          <button class="pill-btn" onclick="setIntelFilter('OPEN', this)">פוזיציות</button>
-          <button class="pill-btn" onclick="setIntelFilter('CANDIDATE', this)">מועמדים</button>
-          <button class="pill-btn" onclick="setIntelFilter('CATALYST_BLOCK', this)">נחסמו מחדשות/נפח</button>
+      <!-- שמאל: גרף Trading Desk + ספר פקודות + תיזת בוט -->
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title" id="desk-title">בחר שוק מהרדאר</div>
+              <div class="card-meta" id="desk-sub">—</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-xs" onclick="setRange(12, this)">12H</button>
+              <button class="btn btn-xs" onclick="setRange(24, this)">24H</button>
+              <button class="btn btn-xs" onclick="setRange(72, this)">72H</button>
+              <button class="btn btn-xs active" onclick="setRange(9999, this)">ALL</button>
+              <button class="btn btn-ghost btn-xs" onclick="loadChart(SELECTED_TOKEN, true)">משוך חי</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap">
+              <canvas id="price-canvas" class="plot"></canvas>
+              <div id="price-tip" class="tooltip"></div>
+            </div>
+            <div class="rsi-wrap">
+              <canvas id="rsi-canvas" class="plot"></canvas>
+            </div>
+          </div>
         </div>
-      </div>
-      <div class="card-body flush">
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>שוק</th>
-                <th>סקטור</th>
-                <th>מחיר</th>
-                <th>ספרד</th>
-                <th>עומק ספר</th>
-                <th>שינוי 1ש' / 6ש' / 24ש'</th>
-                <th>Z-Score</th>
-                <th>נפח יחסי</th>
-                <th>חדשות</th>
-                <th>סטטוס</th>
-              </tr>
-            </thead>
-            <tbody id="intel-tbody"></tbody>
-          </table>
+
+        <div class="grid-even">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">תיזת הסוחר המקצועי לשוק</span>
+              <span class="card-meta" id="thesis-badge">—</span>
+            </div>
+            <div class="card-body" id="desk-thesis"></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">עומק ספר פקודות (Order Book)</span>
+              <span class="card-meta" id="ob-meta">—</span>
+            </div>
+            <div class="card-body" id="desk-ob"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -427,29 +500,37 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
   <!-- ========== TAB 3: חדשות ולמידה ========== -->
   <section id="tab-intel" class="tab-pane">
+    <div class="kpi-row" id="news-pulse-kpis"></div>
+
     <div class="grid-even">
       <div class="card">
-        <div class="card-head">
-          <span class="card-title">פיד חדשות מוסדי חי</span>
-          <div style="display:flex;align-items:center;gap:8px">
+        <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+            <span class="card-title">פיד חדשות מוסדי גלובלי (14 רשתות עולמיות)</span>
+            <button class="btn btn-ghost btn-xs" onclick="postAction('/api/news-refresh', {{}})">רענן פיד גלובלי</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="news-search" class="input" style="max-width:220px" placeholder="חיפוש בכותרת או רשת..." oninput="renderNews()">
             <div class="filter-pills">
               <button class="pill-btn active" onclick="setNewsFilter('ALL', this)">הכל</button>
               <button class="pill-btn" onclick="setNewsFilter('CATALYST', this)">חריגות</button>
               <button class="pill-btn" onclick="setNewsFilter('MATCHED', this)">מותאם לשוק</button>
+              <button class="pill-btn" onclick="setNewsFilter('geopolitics', this)">גיאופוליטיקה</button>
+              <button class="pill-btn" onclick="setNewsFilter('macro', this)">מאקרו ושווקים</button>
+              <button class="pill-btn" onclick="setNewsFilter('crypto', this)">קריפטו וטק</button>
             </div>
-            <button class="btn btn-ghost" onclick="postAction('/api/news-refresh', {{}})">רענן פיד</button>
           </div>
         </div>
-        <div class="card-body flush">
-          <div class="news-list" id="news-list"></div>
+        <div class="card-body flush" style="max-height:580px;overflow-y:auto">
+          <div id="news-list"></div>
         </div>
       </div>
 
       <div style="display:flex;flex-direction:column;gap:14px">
         <div class="card">
           <div class="card-head">
-            <span class="card-title">מנוע למידה עצמית (OOS)</span>
-            <button class="btn btn-ghost" onclick="postAction('/api/learn', {{apply:true}})">הרץ הערכה</button>
+            <span class="card-title">מנוע למידה עצמית (OOS Walk-Forward)</span>
+            <button class="btn btn-ghost btn-xs" onclick="postAction('/api/learn', {{apply:true}})">הרץ הערכה</button>
           </div>
           <div class="card-body" id="learn-insights"></div>
         </div>
@@ -471,8 +552,8 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
         <div class="card">
           <div class="card-head">
-            <span class="card-title">היסטוריית מחזורי שיפור</span>
-            <span class="card-meta">Walk-Forward OOS</span>
+            <span class="card-title">היסטוריית מחזורי כיול OOS</span>
+            <span class="card-meta">4 שערי בטיחות</span>
           </div>
           <div class="card-body flush">
             <div class="table-wrap">
@@ -491,8 +572,8 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   <section id="tab-system" class="tab-pane">
     <div class="card">
       <div class="card-head">
-        <span class="card-title">שליטה מהירה</span>
-        <span class="card-meta">הבוט מתפעל סנכרון, גיבויים ודוחות לבד — הפעולות כאן הן לשליטה יזומה</span>
+        <span class="card-title">בקרה ושליטה מהירה</span>
+        <span class="card-meta">הבוט מתפעל הכל אוטומטית ברקע — כאן ניתן לבצע פעולה יזומה</span>
       </div>
       <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
         <button class="btn btn-primary" onclick="postAction('/api/autopilot/maintain', {{}})">תחזוקה מלאה עכשיו</button>
@@ -539,14 +620,14 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
       <div class="card">
         <div class="card-head">
           <span class="card-title">ביצועי אסטרטגיה (פורטפוליו Backtest &amp; Walk-Forward)</span>
-          <span class="card-meta">מדדי יחוס היסטוריים</span>
+          <span class="card-meta">מדדי יחוס אמפיריים</span>
         </div>
         <div class="card-body" id="analytics-box"></div>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <span class="card-title">תצורת מערכת פעילה</span>
+          <span class="card-title">תצורת מסחר מוסדית פעילה</span>
           <span class="card-meta" id="cfg-mode">paper</span>
         </div>
         <div class="card-body" id="cfg-box"></div>
@@ -563,7 +644,9 @@ let STATE = INITIAL;
 let ACTIVE_TAB = 'overview';
 let INTEL_FILTER = 'ALL';
 let NEWS_FILTER = 'ALL';
+let CHART_RANGE = 9999;
 let CURRENT_CHART = (INITIAL.charts && INITIAL.charts.default) || null;
+let SELECTED_TOKEN = (CURRENT_CHART && CURRENT_CHART.token_id) || '';
 const LIVE_ORIGIN = {inter_js} && Boolean(window.location && window.location.protocol && window.location.protocol.startsWith('http'));
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, m => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[m]));
@@ -575,8 +658,7 @@ const fmtSign = (v, d = 2) => {{
 }};
 const fmtTime = (ts) => {{
   if (!ts) return '—';
-  const d = new Date(Number(ts) * 1000);
-  return d.toLocaleTimeString('he-IL', {{hour:'2-digit', minute:'2-digit'}});
+  return new Date(Number(ts) * 1000).toLocaleTimeString('he-IL', {{hour:'2-digit', minute:'2-digit'}});
 }};
 const fmtDateTime = (ts) => {{
   if (!ts) return '—';
@@ -587,7 +669,7 @@ const fmtDateTime = (ts) => {{
 function showToast(msg, isErr = false) {{
   const el = document.getElementById('toast');
   el.textContent = msg;
-  el.style.borderColor = isErr ? 'rgba(239,68,68,0.5)' : 'rgba(59,130,246,0.45)';
+  el.style.borderColor = isErr ? 'rgba(239,68,68,0.55)' : 'rgba(59,130,246,0.5)';
   el.style.display = 'block';
   clearTimeout(window.__toastTimer);
   window.__toastTimer = setTimeout(() => {{ el.style.display = 'none'; }}, 4000);
@@ -598,17 +680,18 @@ document.querySelectorAll('.nav-tab').forEach(btn => {{
     ACTIVE_TAB = btn.dataset.tab;
     document.querySelectorAll('.nav-tab').forEach(b => b.classList.toggle('active', b === btn));
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + ACTIVE_TAB));
-    if (ACTIVE_TAB === 'markets') drawPriceChart();
+    if (ACTIVE_TAB === 'markets') {{ drawPriceChart(); drawRsiChart(); }}
     if (ACTIVE_TAB === 'overview') drawEquityChart();
   }});
 }});
 
 function switchToMarket(tokenId) {{
+  if (!tokenId) return;
+  SELECTED_TOKEN = tokenId;
   ACTIVE_TAB = 'markets';
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'markets'));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-markets'));
-  const sel = document.getElementById('chart-select');
-  if (sel) sel.value = tokenId;
+  renderMarketsIntel();
   loadChart(tokenId, true);
 }}
 
@@ -622,6 +705,13 @@ function setNewsFilter(val, btn) {{
   NEWS_FILTER = val;
   btn.parentElement.querySelectorAll('.pill-btn').forEach(b => b.classList.toggle('active', b === btn));
   renderNews();
+}}
+
+function setRange(hours, btn) {{
+  CHART_RANGE = hours;
+  btn.parentElement.querySelectorAll('.btn-xs').forEach(b => {{ if (b.textContent !== 'משוך חי') b.classList.toggle('active', b === btn); }});
+  drawPriceChart();
+  drawRsiChart();
 }}
 
 async function postAction(path, body) {{
@@ -663,15 +753,21 @@ async function refreshAll() {{
 
 async function loadChart(tokenId, live = false) {{
   if (!tokenId) return;
+  SELECTED_TOKEN = tokenId;
+  renderMarketsIntel();
   if (!LIVE_ORIGIN) {{
+    renderDeskPanels();
     drawPriceChart();
+    drawRsiChart();
     return;
   }}
   try {{
     const res = await fetch('/api/chart?token=' + encodeURIComponent(tokenId) + (live ? '&live=1' : ''));
     if (res.ok) {{
       CURRENT_CHART = await res.json();
+      renderDeskPanels();
       drawPriceChart();
+      drawRsiChart();
     }}
   }} catch (e) {{}}
 }}
@@ -680,9 +776,10 @@ function renderAll() {{
   renderHeader();
   renderOverview();
   renderMarketsIntel();
-  renderChartSelector();
+  renderDeskPanels();
   drawEquityChart();
   drawPriceChart();
+  drawRsiChart();
   renderNews();
   renderLearning();
   renderSystem();
@@ -693,6 +790,7 @@ function renderHeader() {{
   const h = STATE.health || {{}};
   const hb = STATE.heartbeat || {{}};
   const cfg = STATE.config || {{}};
+  const wp = STATE.world_pulse || {{}};
   const mode = (cfg.execution && cfg.execution.mode) || 'paper';
   const running = Boolean(tr.running);
   const halted = Boolean(STATE.halt || (hb && hb.halted));
@@ -718,7 +816,24 @@ function renderHeader() {{
   const cyc = tr.cycles || hb.cycle || 0;
   const tel = STATE.telemetry || {{}};
   document.getElementById('sub-status').textContent =
-    `${{mode.toUpperCase()}} · מחזור #${{cyc}} · ${{(tel.intel || 0)}} שווקים במעקב · ${{(tel.news || 0)}} כתבות`;
+    `${{mode.toUpperCase()}} · מחזור #${{cyc}} · ${{(tel.intel || 0)}} שווקים במעקב`;
+
+  const intel = STATE.market_intel || [];
+  const aPlus = intel.filter(x => x.setup_tier === 'A+' || x.setup_tier === 'A').length;
+  const sent = Number(wp.avg_sentiment || 0);
+  const sentCls = sent >= 0.05 ? 'pos' : (sent <= -0.05 ? 'neg' : '');
+  document.getElementById('pulse-ribbon').innerHTML = `
+    <div class="pulse-group">
+      <div class="pulse-item"><span class="dot ${{running ? 'ok' : 'warn'}}"></span><strong>מצב רציף:</strong> <span>${{running ? 'סורק כל ' + Math.round((tr.interval_sec || 180)/60) + ' דק׳' : 'מושהה'}}</span></div>
+      <div class="pulse-item"><strong>פיד עולמי:</strong> <span>${{wp.sources || 0}} רשתות · ${{wp.total || tel.news || 0}} כתבות</span></div>
+      <div class="pulse-item"><strong>מצב מאקרו:</strong> <span class="${{sentCls}}">${{esc(wp.regime || 'מאוזן')}} (${{fmtSign(sent, 2)}})</span></div>
+      <div class="pulse-item"><strong>הזדמנויות A/A+:</strong> <span class="num">${{aPlus}}</span></div>
+    </div>
+    <div class="pulse-group">
+      <div class="pulse-item"><strong>עדכון גרפים:</strong> <span>${{fmtTime(tr.last_stream_ts)}}</span></div>
+      <div class="pulse-item"><strong>אימות DB:</strong> <span>${{tr.last_reconcile_ts ? fmtTime(tr.last_reconcile_ts) : 'במחזור הבא'}}</span></div>
+      <div class="pulse-item"><strong>גיבוי אחרון:</strong> <span>${{tr.last_backup_ts ? fmtTime(tr.last_backup_ts) : 'אוטומטי'}}</span></div>
+    </div>`;
 
   const hbBanner = document.getElementById('halt-banner');
   if (halted) {{
@@ -735,8 +850,6 @@ function renderOverview() {{
   const today = STATE.today || {{}};
   const overall = STATE.overall || {{}};
   const soak = STATE.soak || {{days: 0, target_days: 7}};
-  const tr = STATE.trader || {{}};
-  const tel = STATE.telemetry || {{}};
 
   const eq = Number(bank.equity || 0);
   const cash = Number(bank.cash || 0);
@@ -752,7 +865,7 @@ function renderOverview() {{
     {{ label: 'מזומן זמין', val: fmtNum(cash), sub: `חשיפה בשוק: ${{fmtNum(exp)}} (${{expPct.toFixed(0)}}%)`, cls: '' }},
     {{ label: 'PnL מצטבר', val: fmtSign(totPnl), sub: `היום: ${{fmtSign(today.realized_pnl || 0)}} · עמלות ${{fmtNum(overall.fees || 0)}}`, cls: totPnl >= 0 ? 'pos' : 'neg' }},
     {{ label: 'שיעור הצלחה', val: `${{wr.toFixed(0)}}%`, sub: `${{overall.exits || 0}} סגורות · Profit Factor ${{pf}}`, cls: '' }},
-    {{ label: 'מוכנות צבירה (Soak)', val: `${{soak.days || 0}}/${{soak.target_days || 7}}`, sub: `פוזיציות פתוחות: ${{bank.open_positions || 0}}`, cls: '' }},
+    {{ label: 'צבירת הוכחה (Soak)', val: `${{soak.days || 0}}/${{soak.target_days || 7}}`, sub: `פוזיציות פתוחות: ${{bank.open_positions || 0}}`, cls: '' }},
   ];
   document.getElementById('kpi-row').innerHTML = kpis.map(k => `
     <div class="kpi">
@@ -761,36 +874,22 @@ function renderOverview() {{
       <div class="kpi-sub">${{esc(k.sub)}}</div>
     </div>`).join('');
 
-  // רצועת אוטופיילוט נקייה
-  const apItems = [
-    {{ dot: tr.running ? 'ok' : 'warn', title: 'מסחר אוטונומי', val: tr.running ? `פעיל (כל ${{Math.round((tr.interval_sec || 180)/60)}} דק')` : 'מושהה' }},
-    {{ dot: tr.last_stream_ts ? 'ok' : 'warn', title: 'שידור גרפים', val: fmtTime(tr.last_stream_ts) }},
-    {{ dot: tr.last_news_ts ? 'ok' : 'warn', title: 'סורק חדשות', val: `${{tel.news || 0}} כתבות (${{fmtTime(tr.last_news_ts)}})` }},
-    {{ dot: tr.last_reconcile_ts ? 'ok' : 'warn', title: 'אימות DB', val: tr.last_reconcile_ts ? fmtTime(tr.last_reconcile_ts) : 'מחזור הבא' }},
-    {{ dot: tr.last_learn_ts ? 'ok' : 'warn', title: 'למידה OOS', val: tr.last_learn_ts ? fmtTime(tr.last_learn_ts) : 'מתוכנן' }},
-    {{ dot: tr.last_backup_ts ? 'ok' : 'warn', title: 'גיבוי חם', val: tr.last_backup_ts ? fmtTime(tr.last_backup_ts) : 'אוטומטי' }},
-  ];
-  document.getElementById('ap-strip').innerHTML = `
-    <div class="ap-items">
-      ${{apItems.map(x => `<div class="ap-item"><span class="dot ${{x.dot}}"></span><strong>${{esc(x.title)}}:</strong><span>${{esc(x.val)}}</span></div>`).join('')}}
-    </div>
-    <span class="card-meta">${{tr.last_error ? 'התראה אחרונה: ' + esc(tr.last_error.slice(0,50)) : 'כל המערכות פועלות באופן עצמאי'}}</span>`;
-
-  // מדדי סיכון
+  // מדדי סיכון + DD Throttling
   const g = STATE.guards || {{}};
   const dlUsed = Number(g.daily_loss_used || 0);
   const dlLim = Math.max(Number(g.daily_loss_limit || 1), 0.01);
   const ddPct = Number(g.drawdown_pct || 0);
-  const ddLim = Math.max(Number(g.drawdown_limit_pct || 10), 0.01);
+  const ddLim = Math.max(Number(g.drawdown_limit_pct || 20), 0.01);
+  const ddThrPct = ((STATE.config && STATE.config.risk && STATE.config.risk.drawdown_throttle_pct) || 0.05) * 100;
   const posOpen = Number(bank.open_positions || 0);
   const posLim = Math.max(posOpen + Number(g.positions_room || 0), 1);
   const maxExp = exp + Number(g.exposure_room || 0);
 
   const bars = [
     {{ lbl: 'מגבלת הפסד יומי', txt: `${{fmtNum(dlUsed)}} / ${{fmtNum(dlLim)}} USDC`, pct: Math.min(100, Math.max(0, dlUsed / dlLim * 100)), color: 'var(--green)' }},
-    {{ lbl: 'Drawdown מהשיא', txt: `${{ddPct.toFixed(2)}}% / ${{ddLim.toFixed(0)}}%`, pct: Math.min(100, ddPct / ddLim * 100), color: ddPct > ddLim * 0.6 ? 'var(--amber)' : 'var(--accent)' }},
-    {{ lbl: 'ניצול חשיפה מותרת', txt: `${{fmtNum(exp)}} / ${{fmtNum(maxExp)}} USDC`, pct: maxExp > 0 ? Math.min(100, exp / maxExp * 100) : 0, color: 'var(--accent)' }},
-    {{ lbl: 'תפוסת פוזיציות', txt: `${{posOpen}} / ${{posLim}} פתוחות`, pct: Math.min(100, posOpen / posLim * 100), color: 'var(--accent)' }},
+    {{ lbl: `Drawdown (Throttle ב-${{ddThrPct.toFixed(0)}}%)`, txt: `${{ddPct.toFixed(2)}}% / ${{ddLim.toFixed(0)}}%`, pct: Math.min(100, ddPct / ddLim * 100), color: ddPct >= ddThrPct ? 'var(--amber)' : 'var(--accent)' }},
+    {{ lbl: 'ניצול תקציב חשיפה', txt: `${{fmtNum(exp)}} / ${{fmtNum(maxExp)}} USDC`, pct: maxExp > 0 ? Math.min(100, exp / maxExp * 100) : 0, color: 'var(--accent)' }},
+    {{ lbl: 'פוזיציות פתוחות', txt: `${{posOpen}} / ${{posLim}}`, pct: Math.min(100, posOpen / posLim * 100), color: 'var(--accent)' }},
   ];
   document.getElementById('risk-bars').innerHTML = bars.map(b => `
     <div class="bar-row">
@@ -798,118 +897,202 @@ function renderOverview() {{
       <div class="bar-track"><div class="bar-fill" style="width:${{b.pct.toFixed(1)}}%;background:${{b.color}}"></div></div>
     </div>`).join('');
 
-  // פוזיציות פתוחות
+  // פוזיציות פתוחות עם מד SL ↔ Entry ↔ TP
   const pos = STATE.positions || [];
   document.getElementById('pos-tbody').innerHTML = pos.length ? pos.map(p => {{
     const u = p.unrealized_pnl;
     const upct = p.unrealized_pct;
     const uCls = (u || 0) >= 0 ? 'pos' : 'neg';
-    const sl = p.stop_price ? Number(p.stop_price).toFixed(2) : '—';
-    const tp = p.target_price ? Number(p.target_price).toFixed(2) : '—';
+    const sl = Number(p.stop_price || 0);
+    const tp = Number(p.target_price || 0);
+    const mk = Number(p.mark_price ?? p.avg_price ?? 0);
+    const span = Math.max(tp - sl, 0.01);
+    const pctPos = Math.max(0, Math.min(100, ((mk - sl) / span) * 100));
+    const entryPct = Math.max(0, Math.min(100, ((Number(p.avg_price || 0) - sl) / span) * 100));
+    const barCol = mk >= Number(p.avg_price || 0) ? 'var(--green)' : 'var(--amber)';
+
     return `<tr class="clickable" onclick="switchToMarket('${{esc(p.token_id)}}')">
-      <td class="q-cell">${{esc((p.question || p.token_id).slice(0, 62))}}</td>
+      <td class="q-cell">${{esc((p.question || p.token_id).slice(0, 56))}}</td>
       <td class="num">${{fmtNum(p.size, 1)}}</td>
       <td class="num">${{fmtNum(p.avg_price, 3)}}</td>
       <td class="num">${{p.mark_price !== null && p.mark_price !== undefined ? fmtNum(p.mark_price, 3) : '—'}}</td>
-      <td class="num" style="color:var(--text-3)">${{sl}} / ${{tp}}</td>
+      <td>
+        <div class="range-meter">
+          <span class="num" style="font-size:10.5px;color:var(--red)">${{sl ? sl.toFixed(2) : '—'}}</span>
+          <div class="range-track">
+            <div class="range-fill" style="left:${{Math.min(entryPct, pctPos).toFixed(1)}}%;width:${{Math.abs(pctPos - entryPct).toFixed(1)}}%;background:${{barCol}}"></div>
+            <div class="range-pin" style="left:${{pctPos.toFixed(1)}}%" title="מחיר נוכחי"></div>
+          </div>
+          <span class="num" style="font-size:10.5px;color:var(--green)">${{tp ? tp.toFixed(2) : '—'}}</span>
+        </div>
+      </td>
       <td class="num ${{uCls}}">${{u !== null && u !== undefined ? `${{fmtSign(u)}} (${{fmtSign(upct, 1)}}%)` : '—'}}</td>
       <td class="num">${{fmtNum(p.age_hours, 1)}}h</td>
     </tr>`;
   }}).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:20px">אין כרגע פוזיציות פתוחות</td></tr>';
 
+  // Live Execution & Decision Tape
+  const evs = (STATE.events || []).slice(0, 10);
+  document.getElementById('tape-meta').textContent = `${{evs.length}} אירועים אחרונים`;
+  document.getElementById('decision-tape').innerHTML = evs.length ? evs.map(e => {{
+    const lvlCls = e.level === 'ERROR' ? 'badge-err' : (e.level === 'WARNING' ? 'badge-warn' : 'badge-info');
+    return `<div class="tape-item">
+      <span class="num" style="color:var(--text-3);flex-shrink:0">${{fmtTime(e.ts)}}</span>
+      <span class="badge ${{lvlCls}}">${{esc(e.kind || 'event')}}</span>
+      <span style="color:var(--text-2)">${{esc(e.msg || '')}}</span>
+    </div>`;
+  }}).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">יופיעו אירועים בזמן אמת</div>';
+
   // עסקאות סגורות
-  const trs = (STATE.recent_trades || []).slice(0, 12);
+  const trs = (STATE.recent_trades || []).slice(0, 10);
   document.getElementById('trades-meta').textContent = `${{trs.length}} אחרונות`;
   document.getElementById('trades-tbody').innerHTML = trs.length ? trs.map(t => {{
     const rz = Number(t.realized || 0);
     return `<tr>
       <td class="num" style="color:var(--text-3)">${{fmtDateTime(t.ts)}}</td>
-      <td style="color:var(--text)">${{esc((t.question || '').slice(0, 34))}}</td>
+      <td style="color:var(--text)">${{esc((t.question || '').slice(0, 32))}}</td>
       <td class="num">${{fmtNum(t.size, 1)}}</td>
       <td class="num">${{fmtNum(t.price, 3)}}</td>
       <td class="num ${{rz >= 0 ? 'pos' : 'neg'}}">${{fmtSign(rz)}}</td>
-      <td style="color:var(--text-3)">${{esc((t.reason || '').slice(0, 26))}}</td>
+      <td style="color:var(--text-3)">${{esc((t.reason || '').slice(0, 24))}}</td>
     </tr>`;
   }}).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:18px">אין עסקאות סגורות עדיין</td></tr>';
-
-  // סינון סיגנלים
-  const skipped = STATE.skipped || {{}};
-  const entries = Object.entries(skipped).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const totSkip = entries.reduce((acc, kv) => acc + kv[1], 0) || 1;
-  document.getElementById('skip-bars').innerHTML = entries.length ? entries.map(([k, v]) => `
-    <div class="bar-row">
-      <div class="bar-top"><span>${{esc(k)}}</span><span class="num">${{v}}</span></div>
-      <div class="bar-track"><div class="bar-fill" style="width:${{(v/totSkip*100).toFixed(1)}}%;background:rgba(148,163,184,0.45)"></div></div>
-    </div>`).join('') : '<div style="color:var(--text-3);font-size:12px">יופיע לאחר מחזור הסריקה הבא</div>';
-}}
-
-function renderChartSelector() {{
-  const cands = (STATE.charts && STATE.charts.candidates) || [];
-  const sel = document.getElementById('chart-select');
-  if (!sel) return;
-  const prev = sel.value;
-  sel.innerHTML = cands.length ? cands.map(c =>
-    `<option value="${{esc(c.token_id)}}">${{c.open ? '[פתוחה] ' : ''}}${{esc((c.question || c.token_id).slice(0, 58))}}</option>`
-  ).join('') : '<option value="">אין נתוני גרף עדיין</option>';
-  if (prev && cands.some(c => c.token_id === prev)) {{
-    sel.value = prev;
-  }} else if (CURRENT_CHART && CURRENT_CHART.token_id) {{
-    sel.value = CURRENT_CHART.token_id;
-  }}
 }}
 
 function renderMarketsIntel() {{
   const rows = STATE.market_intel || [];
+  const qSearch = (document.getElementById('wl-search')?.value || '').trim().toLowerCase();
   const filtered = rows.filter(r => {{
-    if (INTEL_FILTER === 'ALL') return true;
-    return r.status === INTEL_FILTER;
-  }});
-
-  const statusBadge = (st) => {{
-    if (st === 'OPEN') return '<span class="badge badge-info">בפוזיציה</span>';
-    if (st === 'BUY') return '<span class="badge badge-ok">כניסה בוצעה</span>';
-    if (st === 'CATALYST_BLOCK') return '<span class="badge badge-warn">נחסם קטליזטור</span>';
-    if (st === 'CANDIDATE') return '<span class="badge badge-ok">מועמד קנייה</span>';
-    return '<span class="badge badge-mute">במעקב</span>';
-  }};
-
-  document.getElementById('intel-tbody').innerHTML = filtered.length ? filtered.map(r => {{
-    const z = r.z_score;
-    const zCls = (z !== null && z !== undefined && z <= -1.8) ? 'pos' : '';
-    const vr = Number(r.volume_ratio || 1);
-    const vrCls = vr >= 4.0 ? 'badge badge-warn' : '';
-    const depth = (Number(r.bid_depth || 0) + Number(r.ask_depth || 0));
-    const chg1 = r.chg_1h !== null && r.chg_1h !== undefined ? fmtSign(r.chg_1h * 100, 1) + '%' : '—';
-    const chg6 = r.chg_6h !== null && r.chg_6h !== undefined ? fmtSign(r.chg_6h * 100, 1) + '%' : '—';
-    const chg24 = r.chg_24h !== null && r.chg_24h !== undefined ? fmtSign(r.chg_24h * 100, 1) + '%' : '—';
-    const nBadge = r.news_count > 0
-      ? `<span class="badge ${{r.news_impact >= 0.45 ? 'badge-warn' : 'badge-mute'}}">${{r.news_count}} (${{Number(r.news_impact).toFixed(2)}})</span>`
-      : '<span style="color:var(--text-3)">—</span>';
-
-    return `<tr class="clickable" onclick="switchToMarket('${{esc(r.token_id)}}')">
-      <td class="q-cell">${{esc((r.question || '').slice(0, 56))}}</td>
-      <td>${{esc(r.sector || 'other')}}</td>
-      <td class="num">${{fmtNum(r.price, 3)}}</td>
-      <td class="num">${{fmtNum(r.spread, 3)}}</td>
-      <td class="num">$${{Math.round(depth)}}</td>
-      <td class="num" style="font-size:11.5px">${{chg1}} / ${{chg6}} / ${{chg24}}</td>
-      <td class="num ${{zCls}}">${{z !== null && z !== undefined ? fmtSign(z, 2) : '—'}}</td>
-      <td class="num">${{vrCls ? `<span class="${{vrCls}}">${{vr.toFixed(1)}}x</span>` : vr.toFixed(1) + 'x'}}</td>
-      <td>${{nBadge}}</td>
-      <td>${{statusBadge(r.status)}}</td>
-    </tr>`;
-  }}).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--text-3);padding:22px">נתוני המודיעין יאכלסו אוטומטית בסיום סריקת השוק הקרובה</td></tr>';
-}}
-
-function renderNews() {{
-  const news = STATE.news || [];
-  const filtered = news.filter(n => {{
-    if (NEWS_FILTER === 'CATALYST') return Number(n.impact || 0) >= 0.45;
-    if (NEWS_FILTER === 'MATCHED') return Boolean(n.matched_tokens);
+    if (INTEL_FILTER === 'OPEN' && r.status !== 'OPEN') return false;
+    if (INTEL_FILTER === 'APLUS' && r.setup_tier !== 'A+' && r.setup_tier !== 'A') return false;
+    if (INTEL_FILTER === 'CATALYST_BLOCK' && r.status !== 'CATALYST_BLOCK') return false;
+    if (qSearch && !((r.question || '').toLowerCase().includes(qSearch) || (r.sector || '').toLowerCase().includes(qSearch))) return false;
     return true;
   }});
 
-  document.getElementById('news-list').innerHTML = filtered.length ? filtered.slice(0, 30).map(n => {{
+  document.getElementById('wl-count').textContent = `${{filtered.length}} מתוך ${{rows.length}}`;
+  if (!SELECTED_TOKEN && filtered.length) SELECTED_TOKEN = filtered[0].token_id;
+
+  const statusTag = (r) => {{
+    if (r.status === 'OPEN') return '<span class="badge badge-info">פתוחה</span>';
+    if (r.status === 'BUY') return '<span class="badge badge-ok">כניסה</span>';
+    if (r.status === 'CATALYST_BLOCK') return '<span class="badge badge-warn">חסימת קטליזטור</span>';
+    if (r.status === 'CANDIDATE') return '<span class="badge badge-ok">מועמד</span>';
+    if (r.setup_tier === 'A+') return '<span class="badge badge-ok">A+</span>';
+    if (r.setup_tier === 'A') return '<span class="badge badge-info">A</span>';
+    return '<span class="badge badge-mute">מעקב</span>';
+  }};
+
+  document.getElementById('wl-list').innerHTML = filtered.length ? filtered.map(r => {{
+    const isAct = r.token_id === SELECTED_TOKEN;
+    const z = r.z_score;
+    const vr = Number(r.volume_ratio || 1);
+    const chg24 = r.chg_24h !== null && r.chg_24h !== undefined ? fmtSign(r.chg_24h * 100, 1) + '%' : '—';
+    return `<div class="wl-item ${{isAct ? 'active' : ''}}" onclick="loadChart('${{esc(r.token_id)}}', true)">
+      <div class="wl-top">
+        <div class="wl-q">${{esc((r.question || '').slice(0, 62))}}</div>
+        ${{statusTag(r)}}
+      </div>
+      <div class="wl-sub">
+        <span class="num" style="color:var(--text)">${{fmtNum(r.price, 3)}}</span>
+        <span class="num">Z ${{z !== null && z !== undefined ? fmtSign(z, 2) : '—'}}</span>
+        <span class="num">RSI ${{r.rsi !== null && r.rsi !== undefined ? Number(r.rsi).toFixed(0) : '—'}}</span>
+        <span class="num" style="color:${{vr >= 4 ? 'var(--amber)' : 'var(--text-3)'}}">${{vr.toFixed(1)}}x</span>
+        <span class="num">${{chg24}}</span>
+      </div>
+    </div>`;
+  }}).join('') : '<div style="padding:20px;text-align:center;color:var(--text-3)">לא נמצאו שווקים מתאימים</div>';
+}}
+
+function renderDeskPanels() {{
+  const ch = CURRENT_CHART || {{}};
+  const intel = ch.intel || (STATE.market_intel || []).find(x => x.token_id === (ch.token_id || SELECTED_TOKEN)) || null;
+  const pos = ch.position || null;
+  const title = (pos && pos.question) || ch.question || (intel && intel.question) || 'בחר שוק מהרדאר';
+  document.getElementById('desk-title').textContent = title;
+  document.getElementById('desk-sub').textContent = intel
+    ? `סקטור: ${{intel.sector}} · נפח 24ש׳: $${{Math.round(intel.volume_24h || 0).toLocaleString()}} · תאוצת נפח: ${{Number(intel.volume_ratio || 1).toFixed(1)}}x`
+    : 'גרף מחיר וסיגנל בזמן אמת';
+
+  // תיזת סוחר מקצועי
+  const tier = (intel && intel.setup_tier) || 'B';
+  document.getElementById('thesis-badge').innerHTML = intel
+    ? `<span class="badge ${{tier === 'A+' ? 'badge-ok' : (tier === 'A' ? 'badge-info' : 'badge-mute')}}">Setup ${{esc(tier)}}</span>`
+    : '—';
+
+  const mNews = ch.matched_news || [];
+  if (intel) {{
+    const spEdge = (intel.edge_net && intel.edge_net > 0 && intel.spread) ? (intel.spread / intel.edge_net).toFixed(2) + 'x' : '—';
+    const items = [
+      ['Z-Score (24h)', intel.z_score !== null && intel.z_score !== undefined ? fmtSign(intel.z_score, 2) : '—'],
+      ['RSI (14)', intel.rsi !== null && intel.rsi !== undefined ? Number(intel.rsi).toFixed(1) : '—'],
+      ['Microprice / Mid', `${{intel.microprice ? Number(intel.microprice).toFixed(3) : '—'}} / ${{fmtNum(intel.price, 3)}}`],
+      ['Spread / Net Edge', `${{fmtNum(intel.spread, 3)}} / ${{spEdge}}`],
+      ['שינוי 1ש׳ / 6ש׳ / 24ש׳', `${{intel.chg_1h !== null ? fmtSign(intel.chg_1h*100,1)+'%' : '—'}} · ${{intel.chg_6h !== null ? fmtSign(intel.chg_6h*100,1)+'%' : '—'}} · ${{intel.chg_24h !== null ? fmtSign(intel.chg_24h*100,1)+'%' : '—'}}`],
+      ['החלטת הבוט', intel.reason || intel.status || '—'],
+    ];
+    document.getElementById('desk-thesis').innerHTML = `
+      <div class="kv-list" style="grid-template-columns:1fr">${{items.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}</div>
+      <div style="margin-top:10px;font-size:11.5px;color:var(--text-3)">
+        ${{mNews.length ? 'כותרות חדשות קשורות: ' + mNews.slice(0, 2).map(t => `<div style="color:var(--text-2);margin-top:3px">• ${{esc(t)}}</div>`).join('') : 'אין ידיעות מתפרצות ישירות על שוק זה.'}}
+      </div>`;
+  }} else {{
+    document.getElementById('desk-thesis').innerHTML = '<div style="color:var(--text-3);font-size:12px">בחר שוק מהרשימה לצפייה בניתוח הטכני והחדשותי המלא.</div>';
+  }}
+
+  // סולמית ספר פקודות
+  const lv = ch.book_levels || null;
+  const bk = (ch.books && ch.books.length) ? ch.books[ch.books.length - 1] : null;
+  document.getElementById('ob-meta').textContent = bk ? `Bid ${{fmtNum(bk.best_bid, 3)}} / Ask ${{fmtNum(bk.best_ask, 3)}} · Imb ${{fmtSign(bk.imbalance, 2)}}` : 'Snapshot';
+  if (lv && ((lv.bids && lv.bids.length) || (lv.asks && lv.asks.length))) {{
+    const allSz = [...(lv.bids || []), ...(lv.asks || [])].map(x => Number(x[1] || 0));
+    const maxSz = Math.max(...allSz, 1);
+    const bidRows = (lv.bids || []).map(([p, s]) => `<div class="ob-row ob-bid"><div class="ob-bar" style="width:${{(s/maxSz*100).toFixed(0)}}%"></div><span class="num pos">${{Number(p).toFixed(3)}}</span><span class="num">${{Number(s).toFixed(0)}}</span></div>`).join('');
+    const askRows = (lv.asks || []).map(([p, s]) => `<div class="ob-row ob-ask"><div class="ob-bar" style="width:${{(s/maxSz*100).toFixed(0)}}%"></div><span class="num neg">${{Number(p).toFixed(3)}}</span><span class="num">${{Number(s).toFixed(0)}}</span></div>`).join('');
+    document.getElementById('desk-ob').innerHTML = `<div class="ob-grid"><div><div style="font-size:11px;color:var(--text-3);margin-bottom:5px">קונים (Bids)</div>${{bidRows}}</div><div><div style="font-size:11px;color:var(--text-3);margin-bottom:5px">מוכרים (Asks)</div>${{askRows}}</div></div>`;
+  }} else if (bk) {{
+    const tot = Math.max(Number(bk.bid_depth || 0) + Number(bk.ask_depth || 0), 1);
+    const bPct = (Number(bk.bid_depth || 0) / tot * 100);
+    document.getElementById('desk-ob').innerHTML = `
+      <div class="bar-row">
+        <div class="bar-top"><span>עומק קונים (Bids)</span><span class="num pos">$${{Math.round(bk.bid_depth || 0)}} (${{bPct.toFixed(0)}}%)</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${{bPct.toFixed(0)}}%;background:var(--green)"></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-top"><span>עומק מוכרים (Asks)</span><span class="num neg">$${{Math.round(bk.ask_depth || 0)}} (${{(100-bPct).toFixed(0)}}%)</span></div>
+        <div class="bar-track"><div class="bar-fill" style="width:${{(100-bPct).toFixed(0)}}%;background:var(--red)"></div></div>
+      </div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:8px">לחץ על "משוך חי" לטעינת 6 שכבות העומק המלאות בזמן אמת.</div>`;
+  }} else {{
+    document.getElementById('desk-ob').innerHTML = '<div style="color:var(--text-3);font-size:12px">אין עדיין צילום ספר פקודות לשוק זה.</div>';
+  }}
+}}
+
+function renderNews() {{
+  const wp = STATE.world_pulse || {{}};
+  const byCat = wp.by_category || {{}};
+  const sent = Number(wp.avg_sentiment || 0);
+  document.getElementById('news-pulse-kpis').innerHTML = [
+    {{ l: 'פיד גלובלי', v: `${{wp.sources || 0}} רשתות`, s: `${{wp.total || 0}} כתבות אחרונות`, c: '' }},
+    {{ l: 'משטר חדשות עולמי', v: wp.regime || 'מאוזן', s: `סנטימנט ממוצע: ${{fmtSign(sent, 2)}}`, c: sent >= 0.05 ? 'pos' : (sent <= -0.05 ? 'neg' : '') }},
+    {{ l: 'התראות קטליזטור', v: String(wp.catalysts || 0), s: 'כתבות בעלות השפעה >= 0.45', c: '' }},
+    {{ l: 'גיאופוליטיקה ועולם', v: String(byCat.geopolitics || 0), s: `מאקרו ושווקים: ${{(byCat.macro || 0) + (byCat.markets || 0)}}`, c: '' }},
+    {{ l: 'קריפטו וטכנולוגיה', v: String((byCat.crypto || 0) + (byCat.tech || 0)), s: `פוליטיקה: ${{byCat.politics || 0}}`, c: '' }},
+  ].map(x => `<div class="kpi"><div class="kpi-label">${{esc(x.l)}}</div><div class="kpi-val ${{x.c}}" style="font-size:18px">${{esc(x.v)}}</div><div class="kpi-sub">${{esc(x.s)}}</div></div>`).join('');
+
+  const news = STATE.news || [];
+  const q = (document.getElementById('news-search')?.value || '').trim().toLowerCase();
+  const filtered = news.filter(n => {{
+    if (NEWS_FILTER === 'CATALYST' && Number(n.impact || 0) < 0.45) return false;
+    else if (NEWS_FILTER === 'MATCHED' && !n.matched_tokens) return false;
+    else if (NEWS_FILTER === 'geopolitics' && n.category !== 'geopolitics') return false;
+    else if (NEWS_FILTER === 'macro' && n.category !== 'macro' && n.category !== 'markets') return false;
+    else if (NEWS_FILTER === 'crypto' && n.category !== 'crypto' && n.category !== 'tech') return false;
+    if (q && !((n.title || '').toLowerCase().includes(q) || (n.source || '').toLowerCase().includes(q))) return false;
+    return true;
+  }});
+
+  document.getElementById('news-list').innerHTML = filtered.length ? filtered.slice(0, 60).map(n => {{
     const s = Number(n.sentiment || 0);
     const imp = Number(n.impact || 0);
     const sBadge = s >= 0.15 ? '<span class="badge badge-ok">חיובי</span>'
@@ -920,14 +1103,15 @@ function renderNews() {{
       <div>
         <div class="news-title">${{esc(n.title)}}</div>
         <div class="news-meta">
-          <span>${{esc(n.source || n.category || 'RSS')}}</span>
-          <span>${{fmtDateTime(n.ts)}}</span>
-          ${{n.matched_tokens ? '<span style="color:var(--accent)">קשור לשוק פעיל</span>' : ''}}
+          <strong style="color:var(--text-2)">${{esc(n.source || n.category || 'RSS')}}</strong>
+          <span>${{esc(n.category || 'world')}}</span>
+          <span class="num">${{fmtDateTime(n.ts)}}</span>
+          ${{n.matched_tokens ? '<span style="color:var(--accent)">קשור לשוק פתוח/במעקב</span>' : ''}}
         </div>
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">${{impBadge}}${{sBadge}}</div>
+      <div style="display:flex;gap:5px;flex-shrink:0">${{impBadge}}${{sBadge}}</div>
     </div>`;
-  }}).join('') : '<div style="padding:20px;text-align:center;color:var(--text-3)">אין כתבות להצגה במסנן זה</div>';
+  }}).join('') : '<div style="padding:20px;text-align:center;color:var(--text-3)">אין כתבות תואמות לסינון הנוכחי</div>';
 }}
 
 function renderLearning() {{
@@ -937,11 +1121,10 @@ function renderLearning() {{
   const runs = lr.runs || [];
 
   document.getElementById('learn-total').textContent = `${{st.total_evaluated || 0}} אותות הוערכו`;
-
   document.getElementById('learn-insights').innerHTML = insights.length
-    ? '<ul style="margin:0;padding-right:18px;color:var(--text-2);font-size:12.5px">' +
-      insights.map(x => `<li style="margin-bottom:6px">${{esc(x)}}</li>`).join('') + '</ul>'
-    : '<div style="color:var(--text-3);font-size:12.5px">הבוט אוגר תוצאות אותות על פני 6ש׳ / 24ש׳ / 48ש׳ לכיול Walk-Forward.</div>';
+    ? '<ul style="margin:0;padding-right:18px;color:var(--text-2);font-size:12px">' +
+      insights.map(x => `<li style="margin-bottom:5px">${{esc(x)}}</li>`).join('') + '</ul>'
+    : '<div style="color:var(--text-3);font-size:12px">הבוט אוגר תוצאות אותות על פני 6ש׳ / 24ש׳ / 48ש׳ לכיול Walk-Forward.</div>';
 
   const zMap = st.by_z_bucket || {{}};
   const zKeys = Object.keys(zMap);
@@ -970,7 +1153,7 @@ function renderLearning() {{
 
 function renderSystem() {{
   const ap = STATE.autopilot || [];
-  document.getElementById('ap-meta').textContent = `${{ap.length}} פעולות אחרונות`;
+  document.getElementById('ap-meta').textContent = `${{ap.length}} משימות אחרונות`;
   document.getElementById('ap-tbody').innerHTML = ap.length ? ap.slice(0, 12).map(a => {{
     const cls = a.status === 'ok' ? 'badge-ok' : (a.status === 'fixed' ? 'badge-info' : 'badge-warn');
     return `<tr>
@@ -994,7 +1177,6 @@ function renderSystem() {{
     </tr>`;
   }}).join('') : '<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:18px">אין בדיקות מוכנות</td></tr>';
 
-  // תצוגה מובנית של ביצועי Backtest ו-Walk-Forward ללא Markdown גולמי
   const an = STATE.analytics || {{}};
   const ps = an.portfolio_summary || {{}};
   const wf = an.walkforward || {{}};
@@ -1005,14 +1187,13 @@ function renderSystem() {{
     ['Sharpe Ratio', ps.sharpe || '—'],
     ['Max Drawdown', ps.max_dd || '—'],
     ['שיעור הצלחה', ps.win_rate || '—'],
-    ['OOS Walk-Forward', wf.total_oos_pnl !== undefined ? fmtSign(wf.total_oos_pnl) + ' USDC' : '—'],
+    ['OOS Walk-Forward', wf.total_oos_pnl !== undefined ? fmtSign(wf.total_oos_pnl) + ' USDC' : (wf.oos_pnl !== undefined ? fmtSign(wf.oos_pnl) + ' USDC' : '—')],
     ['התמדת חלונות OOS', wf.consistency !== undefined ? (Number(wf.consistency) * 100).toFixed(0) + '%' : '—'],
   ];
   document.getElementById('analytics-box').innerHTML = `<div class="kv-list">
     ${{metrics.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}
   </div>`;
 
-  // תצורת מערכת נקייה
   const cfg = STATE.config || {{}};
   const ex = cfg.execution || {{}};
   const sig = cfg.signal || {{}};
@@ -1021,13 +1202,13 @@ function renderSystem() {{
   const apc = cfg.autopilot || {{}};
   document.getElementById('cfg-mode').textContent = (ex.mode || 'paper').toUpperCase();
   const cfgItems = [
-    ['מנוע אסטרטגיה', sig.engine || 'mean_reversion'],
-    ['חלון / Z כניסה', `${{sig.lookback_candles || 24}}h / Z>=${{sig.z_entry || 1.8}}`],
-    ['יעד רווח / סטופ', `+${{sig.take_profit || 0.05}} / -${{sig.stop_loss || 0.08}}`],
-    ['Time Stop', `${{sig.time_stop_hours || 48}} שעות`],
-    ['קלי / סיכון מקסימלי', `${{((rk.kelly_fraction || 0.5)*100).toFixed(0)}}% / ${{rk.risk_per_trade_pct || 2}}%`],
-    ['תקרת חשיפה / פוזיציות', `${{rk.max_total_exposure_pct || 50}}% / ${{rk.max_open_positions || 8}}`],
-    ['מגן חדשות / נפח', `impact>=${{nw.spike_impact_threshold || 0.45}} / ${{nw.volume_spike_ratio || 6}}x`],
+    ['מנוע + RSI Confluence', `${{sig.engine || 'meanrev'}} (RSI <= ${{sig.rsi_max || 'off'}})`],
+    ['סף כניסה / ספרד-ל-Edge', `Z>=${{sig.z_entry || 1.8}} / <=${{sig.max_spread_to_edge || 'off'}}x`],
+    ['יעד / סטופ / Time Stop', `+${{sig.take_profit || 0.05}} / -${{sig.stop_loss || 0.08}} / ${{sig.time_stop_hours || 48}}h`],
+    ['Kelly / סיכון / DD Throttle', `${{((rk.kelly_fraction || 0.25)*100).toFixed(0)}}% / ${{((rk.risk_per_trade_pct || 0.02)*100).toFixed(1)}}% / ${{(Number(rk.drawdown_throttle_pct||0.05)*100).toFixed(0)}}%`],
+    ['תקרת חשיפה / פוזיציות', `${{((rk.max_total_exposure_pct || 0.4)*100).toFixed(0)}}% / ${{rk.max_open_positions || 5}}`],
+    ['מגן חדשות / יציאת חירום', `impact>=${{nw.spike_impact_threshold || 0.65}} / exit>=${{nw.emergency_exit_impact || 0.85}}`],
+    ['זינוק נפח שבועי', `${{nw.volume_spike_ratio || 6}}x`],
     ['תדירות אוטופיילוט', `מסחר ${{apc.trade_interval_sec || 180}}s · גיבוי ${{Math.round((apc.backup_interval_sec || 14400)/3600)}}h`],
   ];
   document.getElementById('cfg-box').innerHTML = `<div class="kv-list">
@@ -1035,11 +1216,11 @@ function renderSystem() {{
   </div>`;
 }}
 
-/* --- Canvas Renderers (Sharp DPI, Zero External Deps) --- */
+/* --- Interactive Canvas Charts with Crosshair --- */
 function prepCanvas(canvas) {{
   const rect = canvas.parentElement.getBoundingClientRect();
-  const w = Math.max(300, Math.floor(rect.width));
-  const h = Math.max(150, Math.floor(rect.height));
+  const w = Math.max(280, Math.floor(rect.width));
+  const h = Math.max(70, Math.floor(rect.height));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
@@ -1048,32 +1229,32 @@ function prepCanvas(canvas) {{
   return {{ ctx, w, h }};
 }}
 
+let EQ_HOVER = null;
 function drawEquityChart() {{
   const canvas = document.getElementById('eq-canvas');
   if (!canvas) return;
   const {{ ctx, w, h }} = prepCanvas(canvas);
-  const pts = (STATE.equity_curve || []).map(p => Number(p.equity)).filter(v => !Number.isNaN(v));
+  const raw = (STATE.equity_curve || []).filter(p => typeof p.equity === 'number');
   ctx.clearRect(0, 0, w, h);
 
-  if (pts.length < 2) {{
+  if (raw.length < 2) {{
     ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('אוסף נקודות הון לעקומה חיה...', w / 2, h / 2);
     return;
   }}
 
+  const pts = raw.map(p => p.equity);
   const minV = Math.min(...pts), maxV = Math.max(...pts);
   const pad = Math.max((maxV - minV) * 0.14, 1);
   const lo = minV - pad, hi = maxV + pad;
-  const pxL = 12, pxR = 54, pyT = 12, pyB = 22;
+  const pxL = 12, pxR = 54, pyT = 12, pyB = 20;
   const gw = w - pxL - pxR, gh = h - pyT - pyB;
   const up = pts[pts.length - 1] >= pts[0];
   const stroke = up ? '#10b981' : '#ef4444';
 
   document.getElementById('eq-meta').textContent = `${{pts[0].toFixed(2)}} -> ${{pts[pts.length - 1].toFixed(2)}} (${{fmtSign(pts[pts.length - 1] - pts[0])}})`;
 
-  // קווי רוחב עדינים
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
   ctx.fillStyle = '#64748b'; ctx.font = '11px monospace'; ctx.textAlign = 'left';
   for (let i = 0; i <= 3; i++) {{
     const y = pyT + gh * (i / 3);
@@ -1096,6 +1277,34 @@ function drawEquityChart() {{
   ctx.lineTo(X(pts.length - 1), pyT + gh);
   ctx.lineTo(X(0), pyT + gh);
   ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+
+  const tip = document.getElementById('eq-tip');
+  if (EQ_HOVER !== null && EQ_HOVER >= 0 && EQ_HOVER < raw.length) {{
+    const hx = X(EQ_HOVER), hy = Y(pts[EQ_HOVER]);
+    ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI * 2); ctx.fillStyle = stroke; ctx.fill();
+    tip.style.display = 'block';
+    tip.innerHTML = `<span class="num">${{pts[EQ_HOVER].toFixed(2)}} USDC</span> · ${{fmtDateTime(raw[EQ_HOVER].ts)}}`;
+  }} else if (tip) {{
+    tip.style.display = 'none';
+  }}
+}}
+
+let PRICE_HOVER = null;
+function _slicedChart() {{
+  const ch = CURRENT_CHART || {{}};
+  const ticks = ch.ticks || [];
+  if (!ticks.length) return {{ ticks: [], sma: [], lb: [], rsi: [] }};
+  const n = Math.min(ticks.length, CHART_RANGE);
+  const start = ticks.length - n;
+  return {{
+    ticks: ticks.slice(start),
+    sma: (ch.sma || []).slice(start),
+    lb: (ch.lower_band || []).slice(start),
+    rsi: (ch.rsi || []).slice(start),
+  }};
 }}
 
 function drawPriceChart() {{
@@ -1104,30 +1313,26 @@ function drawPriceChart() {{
   const {{ ctx, w, h }} = prepCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
 
-  const ch = CURRENT_CHART;
-  const ticks = (ch && ch.ticks) || [];
+  const ch = CURRENT_CHART || {{}};
+  const {{ ticks, sma, lb, rsi }} = _slicedChart();
   if (ticks.length < 2) {{
     ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('אין מספיק טיקים לשוק זה — לחץ "משוך חי"', w / 2, h / 2);
+    ctx.fillText('אין מספיק נרות מחיר — לחץ "משוך חי"', w / 2, h / 2);
     return;
   }}
 
   const prices = ticks.map(t => Number(t.price));
-  const sma = (ch.sma || []).map(v => v === null ? null : Number(v));
-  const lb = (ch.lower_band || []).map(v => v === null ? null : Number(v));
   const pos = ch.position || null;
-  const intel = ch.intel || null;
-
   const allVals = [...prices];
-  sma.forEach(v => {{ if (v !== null) allVals.push(v); }});
-  lb.forEach(v => {{ if (v !== null) allVals.push(v); }});
+  sma.forEach(v => {{ if (v !== null && v !== undefined) allVals.push(Number(v)); }});
+  lb.forEach(v => {{ if (v !== null && v !== undefined) allVals.push(Number(v)); }});
   if (pos && pos.stop_price) allVals.push(Number(pos.stop_price));
   if (pos && pos.target_price) allVals.push(Number(pos.target_price));
 
   const minV = Math.min(...allVals), maxV = Math.max(...allVals);
-  const pad = Math.max((maxV - minV) * 0.14, 0.015);
+  const pad = Math.max((maxV - minV) * 0.14, 0.012);
   const lo = Math.max(0, minV - pad), hi = Math.min(1, maxV + pad);
-  const pxL = 14, pxR = 54, pyT = 16, pyB = 26;
+  const pxL = 14, pxR = 54, pyT = 14, pyB = 22;
   const gw = w - pxL - pxR, gh = h - pyT - pyB;
   const X = (i) => pxL + (i / (prices.length - 1)) * gw;
   const Y = (v) => pyT + gh - ((v - lo) / (hi - lo)) * gh;
@@ -1141,69 +1346,125 @@ function drawPriceChart() {{
     ctx.fillText(val.toFixed(3), w - pxR + 6, y + 4);
   }}
 
-  // קווי סטופ/יעד אם קיימת פוזיציה
   const hLine = (val, color, label) => {{
     if (val === null || val === undefined) return;
     const y = Y(Number(val));
+    if (y < pyT || y > pyT + gh) return;
     ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = color; ctx.lineWidth = 1.2;
     ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
     ctx.fillStyle = color; ctx.fillText(label, pxL + 6, y - 4);
     ctx.restore();
   }};
   if (pos) {{
-    hLine(pos.target_price, 'rgba(16,185,129,0.75)', 'יעד ' + Number(pos.target_price || 0).toFixed(3));
-    hLine(pos.avg_price, 'rgba(148,163,184,0.6)', 'כניסה ' + Number(pos.avg_price || 0).toFixed(3));
-    hLine(pos.stop_price, 'rgba(239,68,68,0.75)', 'סטופ ' + Number(pos.stop_price || 0).toFixed(3));
+    hLine(pos.target_price, 'rgba(16,185,129,0.8)', 'TP ' + Number(pos.target_price || 0).toFixed(3));
+    hLine(pos.avg_price, 'rgba(148,163,184,0.65)', 'ENTRY ' + Number(pos.avg_price || 0).toFixed(3));
+    hLine(pos.stop_price, 'rgba(239,68,68,0.8)', 'SL ' + Number(pos.stop_price || 0).toFixed(3));
   }}
 
-  // רצועה תחתונה (Z=1.8)
-  ctx.beginPath(); let started = false;
+  // רצועת כניסה Z
+  ctx.beginPath(); let st = false;
   lb.forEach((v, i) => {{
-    if (v === null) return;
-    if (!started) {{ ctx.moveTo(X(i), Y(v)); started = true; }} else ctx.lineTo(X(i), Y(v));
+    if (v === null || v === undefined) return;
+    if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v)));
   }});
-  ctx.strokeStyle = 'rgba(245,158,11,0.55)'; ctx.lineWidth = 1.3; ctx.stroke();
+  ctx.strokeStyle = 'rgba(245,158,11,0.55)'; ctx.lineWidth = 1.2; ctx.stroke();
 
   // ממוצע נע SMA
-  ctx.beginPath(); started = false;
+  ctx.beginPath(); st = false;
   sma.forEach((v, i) => {{
-    if (v === null) return;
-    if (!started) {{ ctx.moveTo(X(i), Y(v)); started = true; }} else ctx.lineTo(X(i), Y(v));
+    if (v === null || v === undefined) return;
+    if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v)));
   }});
-  ctx.strokeStyle = 'rgba(148,163,184,0.7)'; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.strokeStyle = 'rgba(148,163,184,0.72)'; ctx.lineWidth = 1.3; ctx.stroke();
 
   // מחיר ראשי
   ctx.beginPath();
   prices.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
   ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2.1; ctx.stroke();
 
-  const lastPx = prices[prices.length - 1];
-  document.getElementById('chart-stats').textContent =
-    `${{prices.length}} נרות · מחיר אחרון ${{lastPx.toFixed(3)}}`;
-
-  // שורת מידע רב-ממדית מתחת לגרף
-  const bk = (ch.books && ch.books.length) ? ch.books[ch.books.length - 1] : null;
-  const parts = [];
-  if (bk) {{
-    parts.push(`Bid/Ask: <span class="num">${{fmtNum(bk.best_bid,3)}} / ${{fmtNum(bk.best_ask,3)}}</span>`);
-    parts.push(`עומק: <span class="num">$${{Math.round((bk.bid_depth||0)+(bk.ask_depth||0))}}</span>`);
-    parts.push(`חוסר-איזון ספר: <span class="num">${{fmtSign(bk.imbalance,2)}}</span>`);
+  const tip = document.getElementById('price-tip');
+  if (PRICE_HOVER !== null && PRICE_HOVER >= 0 && PRICE_HOVER < prices.length) {{
+    const hx = X(PRICE_HOVER), hy = Y(prices[PRICE_HOVER]);
+    ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pxL, hy); ctx.lineTo(w - pxR, hy); ctx.stroke();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI * 2); ctx.fillStyle = '#3b82f6'; ctx.fill();
+    const sVal = sma[PRICE_HOVER] !== null && sma[PRICE_HOVER] !== undefined ? Number(sma[PRICE_HOVER]).toFixed(3) : '—';
+    const rVal = rsi[PRICE_HOVER] !== null && rsi[PRICE_HOVER] !== undefined ? Number(rsi[PRICE_HOVER]).toFixed(1) : '—';
+    tip.style.display = 'block';
+    tip.innerHTML = `<span class="num">${{fmtDateTime(ticks[PRICE_HOVER].ts)}}</span> | מחיר <strong class="num">${{prices[PRICE_HOVER].toFixed(3)}}</strong> | SMA <span class="num">${{sVal}}</span> | RSI <span class="num">${{rVal}}</span>`;
+  }} else if (tip) {{
+    tip.style.display = 'none';
   }}
-  if (intel) {{
-    parts.push(`Z-Score: <span class="num">${{intel.z_score !== null ? fmtSign(intel.z_score,2) : '—'}}</span>`);
-    parts.push(`נפח יחסי: <span class="num">${{fmtNum(intel.volume_ratio,1)}}x</span>`);
-  }}
-  document.getElementById('chart-intel-bar').innerHTML = parts.join(' &nbsp;|&nbsp; ');
-
-  const mNews = ch.matched_news || [];
-  document.getElementById('chart-news-box').innerHTML = mNews.length
-    ? 'כתבות קשורות: ' + mNews.slice(0, 3).map(t => `<span style="color:var(--text-2)">${{esc(t)}}</span>`).join(' · ')
-    : 'אין התראות חדשות ישירות על שוק זה';
 }}
+
+function drawRsiChart() {{
+  const canvas = document.getElementById('rsi-canvas');
+  if (!canvas) return;
+  const {{ ctx, w, h }} = prepCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const {{ rsi }} = _slicedChart();
+  const valid = rsi.filter(v => v !== null && v !== undefined);
+  if (valid.length < 2) return;
+
+  const pxL = 14, pxR = 54, pyT = 8, pyB = 8;
+  const gw = w - pxL - pxR, gh = h - pyT - pyB;
+  const X = (i) => pxL + (i / Math.max(rsi.length - 1, 1)) * gw;
+  const Y = (v) => pyT + gh - (Math.max(0, Math.min(100, v)) / 100) * gh;
+
+  // אזור Oversold מתחת ל-45
+  ctx.fillStyle = 'rgba(16,185,129,0.08)';
+  ctx.fillRect(pxL, Y(45), gw, Y(0) - Y(45));
+
+  ctx.font = '10px monospace'; ctx.fillStyle = '#64748b'; ctx.textAlign = 'left';
+  for (const lvl of [30, 45, 70]) {{
+    const y = Y(lvl);
+    ctx.strokeStyle = lvl === 45 ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.06)';
+    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
+    ctx.fillText(String(lvl), w - pxR + 6, y + 3);
+  }}
+
+  ctx.beginPath(); let st = false;
+  rsi.forEach((v, i) => {{
+    if (v === null || v === undefined) return;
+    if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v)));
+  }});
+  ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#94a3b8'; ctx.fillText('RSI(14)', pxL + 4, pyT + 9);
+}}
+
+// Crosshair Listeners
+(function bindCrosshairs() {{
+  const eqC = document.getElementById('eq-canvas');
+  if (eqC) {{
+    eqC.addEventListener('mousemove', (ev) => {{
+      const pts = (STATE.equity_curve || []).filter(p => typeof p.equity === 'number');
+      if (pts.length < 2) return;
+      const rect = eqC.getBoundingClientRect();
+      const rel = (ev.clientX - rect.left - 12) / Math.max(rect.width - 66, 1);
+      EQ_HOVER = Math.max(0, Math.min(pts.length - 1, Math.round(rel * (pts.length - 1))));
+      drawEquityChart();
+    }});
+    eqC.addEventListener('mouseleave', () => {{ EQ_HOVER = null; drawEquityChart(); }});
+  }}
+  const prC = document.getElementById('price-canvas');
+  if (prC) {{
+    prC.addEventListener('mousemove', (ev) => {{
+      const {{ ticks }} = _slicedChart();
+      if (ticks.length < 2) return;
+      const rect = prC.getBoundingClientRect();
+      const rel = (ev.clientX - rect.left - 14) / Math.max(rect.width - 68, 1);
+      PRICE_HOVER = Math.max(0, Math.min(ticks.length - 1, Math.round(rel * (ticks.length - 1))));
+      drawPriceChart();
+    }});
+    prC.addEventListener('mouseleave', () => {{ PRICE_HOVER = null; drawPriceChart(); }});
+  }}
+}})();
 
 window.addEventListener('resize', () => {{
   if (ACTIVE_TAB === 'overview') drawEquityChart();
-  if (ACTIVE_TAB === 'markets') drawPriceChart();
+  if (ACTIVE_TAB === 'markets') {{ drawPriceChart(); drawRsiChart(); }}
 }});
 
 renderAll();

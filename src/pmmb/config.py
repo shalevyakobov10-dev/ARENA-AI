@@ -84,6 +84,9 @@ class MeanRevConfig:
     trend_guard: bool = False        # מסנן הקשר-מגמה (מחקר: לא נמצא אמין עדיין)
     trend_window: int = 72           # חלון מדידת המגמה הארוכה
     trend_max_norm: float = 3.0      # צניחה בתוך מגמת עלייה חזקה מזה — מדלגים
+    rsi_max: float = 0.0             # >0 מפעיל קונפלואנס RSI(14) Oversold (בפרודקשן: 45.0)
+    max_spread_to_edge: float = 0.0  # >0 מונע כניסה כשהספרד יקר מדי יחסית ל-edge (בפרודקשן: 1.1)
+    confluence_boost: bool = True    # ניקוד מרובד A+ / A / B לפי עומק Z + RSI + ספרד
 
 
 @dataclass
@@ -135,6 +138,7 @@ class RiskConfig:
     cooldown_minutes: float = 30
     min_order_size: float = 5.0
     max_price_impact_pct: float = 0.02
+    drawdown_throttle_pct: float = 0.05  # הפחתת גודל אוטומטית (0.65x) כש-drawdown עובר סף זה
 
     def validate(self) -> None:
         if self.max_position_pct > self.max_total_exposure_pct:
@@ -172,6 +176,8 @@ class NewsConfig:
     spike_impact_threshold: float = 0.65
     volume_spike_ratio: float = 6.0
     max_market_queries: int = 12
+    emergency_exit_impact: float = 0.85
+    emergency_exit_sentiment: float = -0.55
 
 
 @dataclass

@@ -178,8 +178,9 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
 
 
 def build_chart_series(store, cfg, token_id: str, limit: int = 160) -> dict:
-    """מחזיר סדרת גרף מלאה + SMA + רצועת Z + חדשות תואמות עבור טוקן."""
+    """מחזיר סדרת גרף מלאה + SMA + רצועת Z + RSI + חדשות תואמות עבור טוקן."""
     from .data.news import match_market_news
+    from .signals import indicators as ind
 
     series = store.token_chart_series(token_id, limit=limit)
     ticks = series["ticks"]
@@ -187,8 +188,10 @@ def build_chart_series(store, cfg, token_id: str, limit: int = 160) -> dict:
     z_ent = float(cfg.signal.meanrev.z_entry)
     sma: list[float | None] = []
     lower_band: list[float | None] = []
+    rsi_series: list[float | None] = []
     prices = [t["price"] for t in ticks]
     for i in range(len(prices)):
+        rsi_series.append(round(ind.rsi(prices[: i + 1], 14), 1) if i >= 14 else None)
         if i + 1 < lb:
             sma.append(None)
             lower_band.append(None)
@@ -203,12 +206,13 @@ def build_chart_series(store, cfg, token_id: str, limit: int = 160) -> dict:
     q_txt = (series.get("position") or {}).get("question") or series.get("question") or ""
     matched_news: list[str] = []
     if q_txt:
-        arts = [dict(r) for r in store.recent_news(hours=72, limit=80)]
+        arts = [dict(r) for r in store.recent_news(hours=72, limit=120)]
         nm = match_market_news(q_txt, arts, window_hours=72, min_articles=1, impact_threshold=0.0)
         matched_news = nm.matched_titles or []
 
     series["sma"] = sma
     series["lower_band"] = lower_band
+    series["rsi"] = rsi_series
     series["matched_news"] = matched_news
     return series
 
@@ -237,6 +241,7 @@ def build_command_center_data(
     out["learning"] = {"stats": {}, "runs": [], "insights": []}
     out["market_intel"] = []
     out["autopilot"] = []
+    out["world_pulse"] = {"total": 0, "avg_sentiment": 0.0, "catalysts": 0, "regime": "שקט", "sources": 0, "by_category": {}}
     out["telemetry"] = {"ticks": 0, "books": 0, "signals": 0, "news": 0, "intel": 0}
     out["trader"] = trader_state or {
         "running": False, "cycles": 0, "last_error": "", "interval_sec": 180,
@@ -310,7 +315,9 @@ def build_command_center_data(
                 })
             out["signals"] = sigs
 
-            # חדשות שווקים חיות (מציג כותרת, מקור, סנטימנט והתאמה לשווקים — ללא לינקים חיצוניים)
+            # חדשות שווקים מכל העולם + מדד מצב גלובלי
+            from .data.news import compute_global_pulse
+
             out["news"] = [
                 {
                     "id": str(r["id"]),
@@ -322,8 +329,9 @@ def build_command_center_data(
                     "impact": round(float(r["impact"] or 0.0), 2),
                     "matched_tokens": str(r["matched_tokens"] or ""),
                 }
-                for r in store.recent_news(hours=72, limit=60)
+                for r in store.recent_news(hours=72, limit=140)
             ]
+            out["world_pulse"] = compute_global_pulse(out["news"])
 
             # גרפים חיים — מועמדים + גרף ברירת מחדל מוכן כולל SMA ורצועת Z
             cands = store.chart_candidates(cfg.execution.mode, limit=18)
@@ -435,6 +443,8 @@ def build_command_center_data(
             "z_entry": cfg.signal.meanrev.z_entry,
             "z_max": cfg.signal.meanrev.z_max,
             "reversion_ratio": cfg.signal.meanrev.reversion_ratio,
+            "rsi_max": cfg.signal.meanrev.rsi_max,
+            "max_spread_to_edge": cfg.signal.meanrev.max_spread_to_edge,
             "stop_mode": cfg.signal.exit.stop_mode,
             "take_profit": cfg.signal.exit.take_profit,
             "stop_loss": cfg.signal.exit.stop_loss,
@@ -450,6 +460,7 @@ def build_command_center_data(
             "max_positions_per_sector": cfg.risk.max_positions_per_sector,
             "max_daily_loss_pct": cfg.risk.max_daily_loss_pct,
             "max_drawdown_pct": cfg.risk.max_drawdown_pct,
+            "drawdown_throttle_pct": cfg.risk.drawdown_throttle_pct,
             "cooldown_minutes": cfg.risk.cooldown_minutes,
         },
         "news": {

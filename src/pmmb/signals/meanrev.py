@@ -135,6 +135,26 @@ class MeanReversionEngine:
         friction = spread + fees
         edge = fair - mkt - friction
 
+        rsi_val = ind.rsi(prices, 14)
+        sp_to_edge = round(spread / max(edge, 1e-6), 2) if edge > 0 else 99.0
+        # סיווג איכות הסטאפ (A+ / A / B) ובוסט קונפלואנס מקצועי
+        tier = "B"
+        conf_adj = 0.0
+        if mr.confluence_boost:
+            if abs(z) >= 2.3:
+                conf_adj += 0.10
+            if rsi_val <= 32.0:
+                conf_adj += 0.10
+            if spread <= 0.015:
+                conf_adj += 0.05
+            if abs(z) < 2.0 and rsi_val > 42.0:
+                conf_adj -= 0.08
+        adj_score = ind.clamp(strength + conf_adj, 0.0, 1.0)
+        if abs(z) >= 2.3 and rsi_val <= 35.0 and sp_to_edge <= 0.9:
+            tier = "A+"
+        elif abs(z) >= 1.9 and rsi_val <= 42.0:
+            tier = "A"
+
         feats = {
             "z": z,
             "trend_norm": trend_norm,
@@ -142,14 +162,16 @@ class MeanReversionEngine:
             "typical": typical,
             "vol": vol,
             "expected_bounce": expected,
-            "rsi": ind.rsi(prices, 14),
+            "rsi": round(rsi_val, 1),
+            "setup_tier": tier,
+            "spread_to_edge": sp_to_edge,
             "fair_yes": fair_yes,
             "friction": friction,
             "fees": fees,
             "fee_rate": fee_rate,
         }
         reason = (
-            f"{direction} meanrev z={z:+.2f} move={move:+.3f} "
+            f"{direction} [{tier}] meanrev z={z:+.2f} RSI={rsi_val:.0f} move={move:+.3f} "
             f"edge={edge:+.3f} (fair {fair:.3f} vs {mkt:.3f}, "
             f"bounce={expected:.3f})"
         )
@@ -158,12 +180,26 @@ class MeanReversionEngine:
             return self._flat(market, f"עוצמה {strength:.2f} < {self.cfg.min_score:.2f}", z=z, extra=feats)
         if edge < self.cfg.min_edge:
             return self._flat(market, reason + " — edge נמוך מהעלויות", z=z, extra=feats)
+        if mr.rsi_max > 0 and rsi_val > mr.rsi_max:
+            return self._flat(
+                market,
+                f"ללא קונפלואנס RSI ({rsi_val:.0f} > {mr.rsi_max:.0f})",
+                z=z,
+                extra=feats,
+            )
+        if mr.max_spread_to_edge > 0 and spread > edge * mr.max_spread_to_edge:
+            return self._flat(
+                market,
+                f"ספרד יקר יחסית ל-edge ({spread:.3f} > {edge * mr.max_spread_to_edge:.3f})",
+                z=z,
+                extra=feats,
+            )
 
         return Signal(
             condition_id=market.condition_id,
             token_id=token_id,
             direction=direction,
-            score=strength,
+            score=adj_score,
             fair_price=fair,
             market_price=mkt,
             edge=edge,

@@ -92,5 +92,12 @@ OOS קפץ ל-+284.00 (73 עסקאות, 100% עקביות, 12/20 שווקים ח
   `tabular-nums`, גרפי Canvas אינטראקטיביים, רדאר מודיעין חי, אפס אימוג'ים קרטוניים).
 - **193 בדיקות ירוקות (אפס רשת).**
 
+## 2026-11-22 (שלב ח') — טכניקות סוחר מקצועי, רשת 14 סוכנויות חדשות וטרמינל Split-Pane Trading Desk
+
+- **שדרוג מנוע `MeanReversionEngine` (`signals/meanrev.py`, `config.py`, `config.yaml`)**: שער קונפלואנס `RSI(14) <= 45.0`, מסנן יעילות ספרד `spread <= 1.1 * edge` ודירוג סטאפים (`A+`/`A`/`B`). סימולציית תיק משותף על 720 נרות שיפרה את יחס הזכייה מ-44.4% ל-69.2% ואת ה-Profit Factor ל-4.92 (DD 0.51%).
+- **ניהול סיכונים אקטיבי וביצוע (`risk/manager.py`, `engine.py`, `store.py`)**: Drawdown Throttling אוטומטי (`0.65x` מ-5% ירידה, `0.50x` מ-10%), חישוב `Microprice` ושמירה של `rsi`/`setup_tier`/`microprice` ב-`market_intel`, ויציאת חירום יזומה מפוזיציות פתוחות כשמתפרסם קטליזטור חדשותי שלילי קיצוני לאחר הפתיחה.
+- **מודיעין חדשות גלובלי (`data/news.py`)**: משיכה מקבילית (`ThreadPoolExecutor`) מ-14 רשתות בינלאומיות (`BBC`, `Al Jazeera`, `DW`, `France 24`, `CNBC`, `NPR`, `MarketWatch`, `CoinDesk`, `NYT`, `Guardian`), מנגנון `compute_global_pulse`, בלימת `429` מול Google News וסינון מילות גנריות/False-Positives ב-`match_market_news`.
+- **שדרוג טרמינל המסחר (`ui.py`, `status.py`, `server.py`)**: ממשק Split-Pane Trading Desk הכולל סרגל דופק עולמי, Watchlist בר-חיפוש/סינון, Bot Thesis Card, Order Book Depth Ladder של 6 רמות, מד `SL <-> Entry <-> TP`, גרפי Canvas עם Crosshair ו-`RSI(14)` וטבלת חדשות גלובלית עם פילטר אזורי.
+- **198 בדיקות ירוקות (`python -m pytest -q`), נבדק מול שרת חי ו-`node --check`.**
 
 

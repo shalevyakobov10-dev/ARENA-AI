@@ -118,5 +118,11 @@ CNBC ו-NPR נוספו לצד Google News (`data/news.py`), ויחס האצת ה
 `שווקים וגרפים`, `חדשות ולמידה`, `תפעול אוטונומי`), גרפי Canvas חדים, אפס אימוג'ים קרטוניים
 ואפס Markdown גולמי.
 
+## 17. אסטרטגיית Pro-Trader (קונפלואנס RSI + Spread/Edge + Microprice + הגנת חדשות אקטיבית) וטרמינל Trading Desk
+2026-11 · מתקבל · מלא (אומת באבלציות Walk-Forward & Portfolio על 720 נרות)
+(א) **קונפלואנס מקצועי ב-`signals/meanrev.py`**: אחרי אבלציה היסטורית (דחיית פילטר "התייצבות נר" שקיצץ +58% מהרווחיות כי הקפיץ נרכש בשפל), אומת שילוב של `RSI(14) <= 45.0` + `spread <= 1.1 * edge` + דירוג איכות סטאפ (`A+`/`A`/`B` המשקלל עומק Z, אי-איזון ספר וביצוע מיקרו-מחיר). בסימולציית פורטפוליו חיה שופר Win Rate מ-44.4% ל-69.2% ו-PF ל-4.92 (DD 0.51%).
+(ב) **ניהול סיכונים ויציאת חירום (`risk/manager.py`, `engine.py`)**: נוסף Drawdown Throttle (`drawdown_throttle_pct=0.05` המפחית גודל פוזיציה ל-`0.65x`/`0.50x` בירידות תיק), חישוב `Microprice` מדויק מ-L1, ויציאת חירום יזומה מפוזיציות פתוחות (`emergency_exit_impact=0.85`, `emergency_exit_sentiment=-0.55`) כשמתפרסמת חדשה שוברת שלילית לאחר הפתיחה.
+(ג) **רשת חדשות גלובלית של 14 סוכנויות (`data/news.py`)**: משיכה מקבילית מ-14 מקורות בינלאומיים (BBC World/Business/Tech, Al Jazeera, DW, France 24, CNBC Top/World, NPR, MarketWatch, CoinDesk, NYT World/Business, Guardian World), מנגנון מניעת False-Positives ב-`match_market_news`, ושבירת מעגל `429` ל-Google News + `compute_global_pulse`.
+(ד) **טרמינל Trading Desk Split-Pane (`ui.py`, `server.py`)**: שולחן מסחר דו-טורי עם סרגל דופק עולמי עליון, Watchlist הניתן לחיפוש וסינון (`A+`, `פתוח`, `חסימת חדשות`), כרטיס Bot Thesis, סולם Depth חי של 6 רמות Bid/Ask, מד טווח `SL <-> Entry <-> TP`, וגרפי Canvas אינטראקטיביים עם Crosshair ותת-גרף `RSI(14)`.
 
 

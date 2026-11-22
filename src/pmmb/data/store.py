@@ -165,6 +165,9 @@ CREATE TABLE IF NOT EXISTS market_intel (
     chg_24h       REAL,
     z_score       REAL,
     edge_net      REAL,
+    rsi           REAL,
+    setup_tier    TEXT DEFAULT 'B',
+    microprice    REAL,
     news_count    INTEGER DEFAULT 0,
     news_impact   REAL DEFAULT 0,
     hours_left    REAL,
@@ -224,6 +227,12 @@ class Store:
             self._conn.execute("ALTER TABLE signal_outcomes ADD COLUMN realized_6h REAL")
             self._conn.commit()
             log.info("migrated: signal_outcomes.realized_6h נוסף")
+        mi_cols = {r["name"] for r in self._conn.execute("PRAGMA table_info(market_intel)")}
+        for col, cdef in (("rsi", "REAL"), ("setup_tier", "TEXT DEFAULT 'B'"), ("microprice", "REAL")):
+            if col not in mi_cols:
+                self._conn.execute(f"ALTER TABLE market_intel ADD COLUMN {col} {cdef}")
+                self._conn.commit()
+                log.info("migrated: market_intel.%s נוסף", col)
 
     # ------------------------------------------------------------------
     @contextmanager
@@ -875,8 +884,9 @@ class Store:
                        condition_id, token_id, question, sector, price, spread,
                        bid_depth, ask_depth, imbalance, volume_24h, volume_ratio,
                        chg_1h, chg_6h, chg_24h, z_score, edge_net,
+                       rsi, setup_tier, microprice,
                        news_count, news_impact, hours_left, status, reason, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(condition_id) DO UPDATE SET
                      token_id=excluded.token_id,
                      question=excluded.question,
@@ -893,6 +903,9 @@ class Store:
                      chg_24h=excluded.chg_24h,
                      z_score=excluded.z_score,
                      edge_net=excluded.edge_net,
+                     rsi=excluded.rsi,
+                     setup_tier=excluded.setup_tier,
+                     microprice=excluded.microprice,
                      news_count=excluded.news_count,
                      news_impact=excluded.news_impact,
                      hours_left=excluded.hours_left,
@@ -917,6 +930,9 @@ class Store:
                         r.get("chg_24h"),
                         r.get("z_score"),
                         r.get("edge_net"),
+                        r.get("rsi"),
+                        str(r.get("setup_tier") or "B"),
+                        r.get("microprice"),
                         int(r.get("news_count") or 0),
                         float(r.get("news_impact") or 0.0),
                         r.get("hours_left"),

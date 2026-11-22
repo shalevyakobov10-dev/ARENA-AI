@@ -327,6 +327,7 @@ class _TraderManager:
 
 def _build_chart_payload(cfg, token_id: str, *, live: bool = False) -> dict:
     store = Store(cfg.data.db_path)
+    live_levels = None
     try:
         if live and os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1":
             try:
@@ -340,10 +341,17 @@ def _build_chart_payload(cfg, token_id: str, *, live: bool = False) -> dict:
                 bk = clob.get_book(token_id)
                 if bk is not None:
                     store.record_book(token_id, int(time.time()), bk)
+                    live_levels = {
+                        "bids": [[round(float(p), 4), round(float(s), 1)] for p, s in (bk.bids or [])[:6]],
+                        "asks": [[round(float(p), 4), round(float(s), 1)] for p, s in (bk.asks or [])[:6]],
+                    }
             except Exception as exc:
                 log.debug("רענון גרף חי נכשל (%s): %s", token_id[:12], exc)
 
-        return build_chart_series(store, cfg, token_id, limit=160)
+        series = build_chart_series(store, cfg, token_id, limit=160)
+        if live_levels is not None:
+            series["book_levels"] = live_levels
+        return series
     finally:
         store.close()
 

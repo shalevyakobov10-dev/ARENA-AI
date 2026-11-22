@@ -283,7 +283,7 @@ polymarket-momentum-bot/
 │   ├── signals/                # indicators, momentum, meanrev, base, factory
 │   ├── risk/                   # sizing, manager
 │   └── execution/              # base (Portfolio), paper, live
-├── tests/                      # 193 טסטים, אפס רשת
+├── tests/                      # 198 טסטים, אפס רשת
 ├── scripts/                    # run_paper.sh, paper_forever.sh,
 │                               # create_api_keys.py, research_signal.py,
 │                               # cron_example.crontab

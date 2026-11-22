@@ -12,6 +12,7 @@ import logging
 import re
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
 from typing import Iterable
@@ -29,11 +30,22 @@ _DEFAULT_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("sports", "Sports Injuries & Breaking", "NBA OR NFL OR UFC injured OR suspended OR trade"),
 )
 
+# 14 רשתות חדשות מוסדיות מכל העולם — נמשכות במקביל (~0.5 שנ'), ללא מגבלות 429
 _WIRE_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("geopolitics", "BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
     ("macro", "BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
-    ("markets", "CNBC", "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
-    ("politics", "NPR", "https://feeds.npr.org/1001/rss.xml"),
+    ("tech", "BBC Tech", "https://feeds.bbci.co.uk/news/technology/rss.xml"),
+    ("geopolitics", "Al Jazeera", "https://www.aljazeera.com/xml/rss/all.xml"),
+    ("geopolitics", "DW World", "https://rss.dw.com/xml/rss-en-all"),
+    ("geopolitics", "France 24", "https://www.france24.com/en/rss"),
+    ("markets", "CNBC Top", "https://www.cnbc.com/id/100003114/device/rss/rss.html"),
+    ("geopolitics", "CNBC World", "https://www.cnbc.com/id/100727362/device/rss/rss.html"),
+    ("politics", "NPR News", "https://feeds.npr.org/1001/rss.xml"),
+    ("markets", "MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
+    ("crypto", "CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    ("geopolitics", "NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
+    ("macro", "NYT Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
+    ("geopolitics", "Guardian World", "https://www.theguardian.com/world/rss"),
 )
 
 _STOP_WORDS = frozenset({
@@ -47,6 +59,11 @@ _STOP_WORDS = frozenset({
     "any", "all", "new", "first", "second", "third", "high", "low", "how", "many", "much",
     "what", "which", "who", "when", "where", "yes", "no", "not", "into", "out", "up", "down",
     "prime", "minister", "president", "next", "governor", "mayor",
+    "elections", "government", "local", "head", "political", "parties", "country", "countries",
+    "national", "global", "world", "company", "companies", "shares", "price", "prices", "close",
+    "level", "target", "series", "match", "game", "season", "round", "total", "spread",
+    "points", "quarter", "month", "week", "today", "tomorrow", "general", "state", "city",
+    "rate", "rates", "increase", "decrease", "change", "continue", "continues", "through",
 })
 
 _HIGH_IMPACT = frozenset({
@@ -200,6 +217,7 @@ def match_market_news(
     now_ts = int(now_ts or time.time())
     cutoff = int(now_ts - window_hours * 3600)
     min_hits = 1 if len(kws) == 1 else 2
+    kw_pats = [(k, re.compile(rf"\b{re.escape(k)}\b", re.IGNORECASE)) for k in kws]
 
     matched: list[tuple[int, float, float, str]] = []
     for art in articles:
@@ -215,9 +233,9 @@ def match_market_news(
             sent = float(art.sentiment)
         if ts < cutoff:
             continue
-        low = title.lower()
-        hits = sum(1 for k in kws if k in low)
-        if hits >= min_hits or (hits == 1 and any(len(k) >= 7 and k in low for k in kws)):
+        matched_kws = [k for k, pat in kw_pats if pat.search(title)]
+        hits = len(matched_kws)
+        if hits >= min_hits or (hits == 1 and any(len(k) >= 7 for k in matched_kws)):
             matched.append((ts, impact, sent, title))
 
     if not matched:
@@ -245,7 +263,7 @@ class NewsClient:
         self.timeout = timeout
         self._client = http_client
 
-    def _get(self, url: str) -> str | None:
+    def _get(self, url: str) -> tuple[int, str | None]:
         try:
             if self._client is not None:
                 r = self._client.get(url, timeout=self.timeout)
@@ -254,37 +272,64 @@ class NewsClient:
                                   headers={"User-Agent": "pmmb/1.0"}) as c:
                     r = c.get(url)
             if r.status_code == 200:
-                return r.text
+                return 200, r.text
+            return int(r.status_code), None
         except Exception as exc:
             log.debug("קריאת חדשות נכשלה (%s): %s", url[:70], exc)
-        return None
+        return 0, None
 
     def fetch_query(self, query: str, *, category: str = "macro", limit: int = 8) -> list[NewsArticle]:
         url = f"{self.RSS_BASE}?q={quote_plus(query)}&hl=en-US&gl=US&ceid=US:en"
-        xml = self._get(url)
+        code, xml = self._get(url)
+        if code == 429:
+            raise RuntimeError("rate_limited_429")
         if not xml:
             return []
         return parse_rss(xml, query=query, category=category, limit=limit)
 
     def fetch_live(self, markets: Iterable = (), *, max_market_queries: int = 8) -> list[NewsArticle]:
         seen: dict[str, NewsArticle] = {}
-        # פידים מוסדיים ישירים (BBC World/Business, CNBC, NPR) — מהירים במיוחד (~80ms)
-        for cat, src_name, rss_url in _WIRE_FEEDS:
-            xml = self._get(rss_url)
-            if xml:
-                for art in parse_rss(xml, query=src_name, category=cat, limit=8):
-                    if not art.source:
-                        art.source = src_name
+
+        # 1. משיכה מקבילית של 14 רשתות החדשות המוסדיות מכל העולם (~0.5 שנ')
+        def _fetch_wire(item: tuple[str, str, str]) -> list[NewsArticle]:
+            cat, src_name, rss_url = item
+            _code, xml = self._get(rss_url)
+            if not xml:
+                return []
+            arts = parse_rss(xml, query=src_name, category=cat, limit=10)
+            for art in arts:
+                if not art.source:
+                    art.source = src_name
+            return arts
+
+        if self._client is None:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                for arts in pool.map(_fetch_wire, _WIRE_FEEDS):
+                    for art in arts:
+                        seen[art.id] = art
+        else:
+            for item in _WIRE_FEEDS:
+                for art in _fetch_wire(item):
                     seen[art.id] = art
 
+        # 2. שאילתות Google News עם בקרת קצב מנומסת (עוצר מיד ב-429 כדי לא להיחסם)
+        gnews_blocked = False
         for cat, _label, q in _DEFAULT_FEEDS:
-            for art in self.fetch_query(q, category=cat, limit=8):
-                seen[art.id] = art
+            if gnews_blocked:
+                break
+            try:
+                for art in self.fetch_query(q, category=cat, limit=8):
+                    seen[art.id] = art
+                if self._client is None:
+                    time.sleep(0.25)
+            except RuntimeError:
+                gnews_blocked = True
+                log.debug("Google News החזיר 429 — ממשיך עם רשת הפידים הגלובלית")
 
-        # שאילתות ממוקדות לשווקים פתוחים/פעילים (הגבוהים ביותר בנזילות/עניין)
+        # 3. שאילתות ממוקדות לשווקים פתוחים/פעילים
         asked: set[str] = set()
         for mk in markets:
-            if len(asked) >= max_market_queries:
+            if gnews_blocked or len(asked) >= max_market_queries:
                 break
             q_text = getattr(mk, "question", "") or ""
             kws = extract_keywords(q_text, max_words=3)
@@ -296,12 +341,65 @@ class NewsClient:
             asked.add(q.lower())
             cat = getattr(mk, "sector", "") or "market"
             tid = (getattr(mk, "yes_token_id", "") or "")[:12]
-            for art in self.fetch_query(q, category=cat, limit=5):
-                if tid and tid not in art.matched_tokens:
-                    art.matched_tokens = f"{art.matched_tokens},{tid}".strip(",")
-                seen[art.id] = art
+            try:
+                for art in self.fetch_query(q, category=cat, limit=5):
+                    if tid and tid not in art.matched_tokens:
+                        art.matched_tokens = f"{art.matched_tokens},{tid}".strip(",")
+                    seen[art.id] = art
+                if self._client is None:
+                    time.sleep(0.25)
+            except RuntimeError:
+                gnews_blocked = True
+                break
 
         return sorted(seen.values(), key=lambda a: -a.ts)
+
+
+def compute_global_pulse(articles: Iterable[NewsArticle | dict]) -> dict:
+    """מחשב מדד מצב חדשות גלובלי בזמן אמת (סנטימנט, צפיפות קטליזטורים, סקטורים ומקורות)."""
+    items = list(articles)
+    if not items:
+        return {
+            "total": 0, "avg_sentiment": 0.0, "catalysts": 0,
+            "regime": "שקט", "sources": 0, "by_category": {},
+        }
+    sents: list[float] = []
+    catalysts = 0
+    sources: set[str] = set()
+    by_cat: dict[str, int] = {}
+    for a in items:
+        s = float(a.get("sentiment") or 0.0) if isinstance(a, dict) else float(a.sentiment)
+        imp = float(a.get("impact") or 0.0) if isinstance(a, dict) else float(a.impact)
+        src = str(a.get("source") or "") if isinstance(a, dict) else str(a.source)
+        cat = str(a.get("category") or "world") if isinstance(a, dict) else str(a.category)
+        sents.append(s)
+        if imp >= 0.45:
+            catalysts += 1
+        if src:
+            sources.add(src)
+        by_cat[cat] = by_cat.get(cat, 0) + 1
+
+    avg_s = sum(sents) / len(sents)
+    cat_ratio = catalysts / len(items)
+    if cat_ratio >= 0.30 and avg_s <= -0.15:
+        regime = "סערה שלילית"
+    elif cat_ratio >= 0.25:
+        regime = "תנודתי (חדשות חריגות)"
+    elif avg_s >= 0.12:
+        regime = "חיובי (Risk-On)"
+    elif avg_s <= -0.12:
+        regime = "זהיר (Risk-Off)"
+    else:
+        regime = "מאוזן"
+
+    return {
+        "total": len(items),
+        "avg_sentiment": round(avg_s, 3),
+        "catalysts": catalysts,
+        "regime": regime,
+        "sources": len(sources),
+        "by_category": dict(sorted(by_cat.items(), key=lambda kv: -kv[1])),
+    }
 
 
 def refresh_news_to_store(

@@ -341,10 +341,18 @@ class Engine:
         # ---------- איסוף מודיעין רב-ממדי מלא של השוק ----------
         bid_depth, ask_depth = yes_book.depth(5)
         imb = yes_book.imbalance(5)
+        microprice = None
+        if yes_book.best_bid and yes_book.best_ask:
+            b_sz = float(getattr(yes_book, "bid_size", 0.0) or 0.0) or bid_depth
+            a_sz = float(getattr(yes_book, "ask_size", 0.0) or 0.0) or ask_depth
+            if b_sz + a_sz > 0:
+                microprice = round((yes_book.best_bid * a_sz + yes_book.best_ask * b_sz) / (b_sz + a_sz), 4)
         chg_1h = round(prices[-1] - prices[-2], 4) if len(prices) >= 2 else None
         chg_6h = round(prices[-1] - prices[-7], 4) if len(prices) >= 7 else None
         chg_24h = round(prices[-1] - prices[-25], 4) if len(prices) >= 25 else None
         z_val = signal.features.get("z") if signal.features else None
+        rsi_val = signal.features.get("rsi") if signal.features else None
+        tier_val = (signal.features.get("setup_tier") if signal.features else None) or "B"
 
         n_cnt, n_imp = 0, 0.0
         if self._news_articles:
@@ -374,6 +382,9 @@ class Engine:
             "chg_24h": chg_24h,
             "z_score": round(float(z_val), 2) if z_val is not None else None,
             "edge_net": round(float(signal.edge), 4),
+            "rsi": round(float(rsi_val), 1) if rsi_val is not None else None,
+            "setup_tier": str(tier_val),
+            "microprice": microprice,
             "news_count": n_cnt,
             "news_impact": n_imp,
             "hours_left": round(mk.hours_to_resolution, 1) if mk.hours_to_resolution != float("inf") else None,
@@ -531,6 +542,25 @@ class Engine:
                 and signal.token_id != token_id
             )
             reason = self.risk.evaluate_exit(pos, mark, signal_flipped=flipped, hours_to_resolution=mk.hours_to_resolution)
+            if reason is None and self.cfg.news.enabled and self._news_articles:
+                from .data.news import match_market_news
+
+                opened_ts = int(pos.opened_at.timestamp()) if pos.opened_at else 0
+                fresh_news = [a for a in self._news_articles if int(a.get("ts") or 0) >= max(0, opened_ts - 1800)]
+                if fresh_news:
+                    nm_ex = match_market_news(
+                        mk.question,
+                        fresh_news,
+                        window_hours=max(4.0, self.cfg.news.spike_window_hours),
+                        min_articles=1,
+                        impact_threshold=self.cfg.news.emergency_exit_impact,
+                    )
+                    if (
+                        nm_ex.catalyst_detected
+                        and nm_ex.max_impact >= self.cfg.news.emergency_exit_impact
+                        and nm_ex.avg_sentiment <= self.cfg.news.emergency_exit_sentiment
+                    ):
+                        reason = f"הגנת חדשות (impact={nm_ex.max_impact:.2f}): {nm_ex.latest_title[:42]}"
             if reason is None:
                 continue
 

@@ -43,6 +43,9 @@ signal:
     max_room_pct: 0.6
     allow_short: false          # כרגע רק ירידות חדות (buy the dip)
     horizon_hours: 24
+    rsi_max: 45.0               # קונפלואנס מקצועי: שוק חייב להיות גם במכירת יתר (OOS +22.34 USDC)
+    max_spread_to_edge: 1.1     # מסנן עלויות: לא קונים כשהספרד אוכל >110% מה-edge הצפוי
+    confluence_boost: true      # דירוג A+ / A / B לפי עומק Z + RSI + נזילות ספרד
   # ---- פרמטרים של מנוע המומנטום (engine: momentum) ----
   candle_fidelity_min: 60      # רזולוציה: 60 דק' — תואם לאופק שנמדד באבחון
   lookback_candles: 144        # חלון לחישוב (144 נרות שעתיים = 6 ימים)
@@ -76,6 +79,7 @@ risk:
   cooldown_minutes: 30         # אחרי יציאה — לא חוזרים לאותו שוק מיד
   min_order_size: 5.0          # מינימום של פולימרקט (USDC)
   max_price_impact_pct: 0.02   # לא מזיזים את הספר ביותר מ-2%
+  drawdown_throttle_pct: 0.05  # מעל 5% ירידה מהשיא מקטינים גודל כניסות אוטומטית (0.65x)
 
 data:
   gamma_base_url: "https://gamma-api.polymarket.com"
@@ -100,6 +104,8 @@ news:
   spike_impact_threshold: 0.65   # כתבה בודדת בעלת חומרה גבוהה (breaking/announced/...)
   volume_spike_ratio: 6.0        # זינוק נפח 24ש' פי N מהשבוע מוגדר כאות זהירות
   max_market_queries: 12         # מקס' שאילתות פרטניות לשווקים פתוחים/מועמדים
+  emergency_exit_impact: 0.85    # יציאה יזומה מפוזיציה פתוחה בקטליזטור שלילי שובר-שוק
+  emergency_exit_sentiment: -0.55
 
 learning:
   enabled: true                  # מנוע למידה עצמית מתמיד (מעקב אותות + Walk-Forward)

@@ -106,6 +106,16 @@ class RiskManager:
         if shares <= 0:
             return RiskDecision(False, reason=f"גודל אפס ({why})")
 
+        # ניהול הון מוסדי (Drawdown Throttling): כשנמצאים ב-drawdown משמעותי,
+        # מקטינים גודל כניסות חדשות כדי להגן על העקומה, בלי לעצור מסחר טוב לחלוטין.
+        dd_thr = getattr(r, "drawdown_throttle_pct", 0.0)
+        if dd_thr > 0 and portfolio.drawdown_pct >= dd_thr:
+            scale = 0.50 if portfolio.drawdown_pct >= dd_thr * 2.0 else 0.65
+            throttled = round(int(shares * scale * 100) / 100, 2)
+            if throttled * price >= min_order_size:
+                shares = throttled
+                why += f" ×{scale:.2f} (DD throttle {portfolio.drawdown_pct:.1%})"
+
         notional = shares * price
         if notional > exposure_room:
             scaled = max(0.0, exposure_room / price)
