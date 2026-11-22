@@ -127,7 +127,7 @@ corr(תנועה של 12 נרות → תנועה של 24 נרות קדימה) = -
 cd polymarket-momentum-bot
 pip install -e ".[dev]"
 cp .env.example .env        # ריק בכוונה — paper לא צריך מפתחות
-make test                   # 124 טסטים, אפס קריאות רשת
+make test                   # 155 טסטים, אפס קריאות רשת
 make doctor                 # חיבור ל-Gamma ול-CLOB + פילטרים
 make scan                   # סיגנלים עכשיו
 make paper                  # סימולציה מול ספר הפקודות האמיתי
@@ -142,7 +142,11 @@ make paper                  # סימולציה מול ספר הפקודות הא
 | `pmmb analyze` | hit rate / IC של הסיגנל לפי אופק |
 | `pmmb calibrate` | צפי מול מציאות → יחס מומלץ |
 | `pmmb sectors` | פילוח האות לפי סקטור → יקום מצומצם (כותב `sectors.json`) |
-| `pmmb fees` | **חדש.** כלכלת העמלות לכל סקטור: עלות סבב, תנועה נדרשת, פסק דין |
+| `pmmb fees` | כלכלת העמלות לכל סקטור: עלות סבב, תנועה נדרשת, פסק דין |
+| `pmmb readiness` | **שער המעבר ל-live** — צ'קליסט שנבדק ע"י מכונה, exit 0/2 |
+| `pmmb status` | בריאות · הון · פוזיציות · היום (exit 0 בריא / 3 לא) |
+| `pmmb serve` | דשבורד לטלפון על :8787 (קריאה בלבד, `/status.json`, `/healthz`) |
+| `pmmb notify-test` | בדיקת התראות Telegram |
 | `pmmb walkforward --folds 3` | כיול על חלון, מבחן על הבא |
 | `pmmb collect --minutes 30` | איסוף snapshots של ספר הפקודות |
 | `pmmb imbalance` | האם imbalance מנבא תנועת מחיר |
@@ -269,7 +273,7 @@ polymarket-momentum-bot/
 │   ├── config.py  models.py  engine.py
 │   ├── backtest.py  diagnostics.py  walkforward.py  daily.py
 │   ├── sectors.py  imbalance.py
-│   ├── cli.py                  # 15 פקודות
+│   ├── cli.py                  # 19 פקודות
 │   ├── data/                   # http, gamma, clob, store (כולל books)
 │   ├── signals/                # indicators, momentum, meanrev, base, factory
 │   ├── risk/                   # sizing, manager

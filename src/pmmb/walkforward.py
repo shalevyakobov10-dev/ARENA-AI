@@ -221,8 +221,24 @@ def _evaluate(
 
 
 def write_walkforward(result: WalkForwardResult, out_dir: str | Path = "reports") -> Path:
+    """כותב גם Markdown לבן אדם וגם JSON למכונה (שער ה-readiness קורא אותו)."""
+    import json
+    from datetime import datetime, timezone
+
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     path = out / "walkforward.md"
     path.write_text(result.to_markdown(), encoding="utf-8")
+    (out / "walkforward.json").write_text(json.dumps({
+        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "engine": result.engine,
+        "oos_pnl": round(result.oos_pnl, 2),
+        "oos_trades": result.oos_trades,
+        "consistency": round(result.consistency, 3),
+        "folds": [{
+            "index": f.index, "oos_pnl": round(f.oos_pnl, 2),
+            "oos_trades": f.oos_trades, "oos_win_rate": round(f.oos_win_rate, 1),
+            "best_params": f.best_params,
+        } for f in result.folds],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
     return path

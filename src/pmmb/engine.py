@@ -29,6 +29,29 @@ from .signals import build_signal_engine
 log = logging.getLogger(__name__)
 
 
+# סיבת דחייה → קטגוריה קריאה. בלי זה כל z שונה יוצר מפתח חדש והסטטיסטיקה חסרת תועלת.
+_SKIP_BUCKETS: tuple[tuple[str, str], ...] = (
+    ("אין עודף", "אין עודף חריג"),
+    ("תנועה קיצונית", "תנועה קיצונית (מעל z_max)"),
+    ("עלייה חדה", "עלייה חדה — לא קונים"),
+    ("עוצמה", "עוצמה מתחת לסף"),
+    ("edge", "edge לא מכסה עלויות"),
+    ("היסטוריה", "אין מספיק היסטוריה"),
+    ("ספר", "ספר פקודות דק או חסר"),
+    ("מילוי", "מילוי לא מומש"),
+    ("cooldown", "קירור אחרי יציאה"),
+    ("פוזיציה", "כבר יש פוזיציה"),
+)
+
+
+def normalize_skip(reason: str) -> str:
+    low = reason.lower()
+    for needle, label in _SKIP_BUCKETS:
+        if needle.lower() in low:
+            return label
+    return reason.split("(")[0].strip()[:32]
+
+
 @dataclass
 class CycleStats:
     scanned: int = 0
@@ -39,8 +62,7 @@ class CycleStats:
     skipped: dict[str, int] = field(default_factory=dict)
 
     def skip(self, reason: str) -> None:
-        key = reason.split("(")[0].strip()
-        self.skipped[key] = self.skipped.get(key, 0) + 1
+        self.skipped[normalize_skip(reason)] = self.skipped.get(normalize_skip(reason), 0) + 1
 
 
 class Engine:
@@ -142,6 +164,8 @@ class Engine:
                 entries=stats.entries, exits=stats.exits, errors=stats.errors,
                 halted=self.risk.halted, halt_reason=self.risk.halt_reason or "",
                 pid=os.getpid(),
+                skipped=dict(stats.skipped),
+                guards=self._guard_state(snap),
             ))
         except Exception as exc:          # noqa: BLE001 — דופק לא מפיל מחזור
             log.warning("כתיבת דופק נכשלה: %s", exc)
@@ -347,6 +371,21 @@ class Engine:
                 log.info("🧹 סגירת יתומה %s | %+.2f", token_id[:10], realized)
 
     # ------------------------------------------------------------------
+    def _guard_state(self, snap) -> dict:
+        """מצב ההגנות כפי שהוא — כדי שהטלפון יראה כמה "מרווח" נשאר."""
+        r = self.cfg.risk
+        daily_limit = snap.equity * r.max_daily_loss_pct
+        dd_limit = snap.equity * r.max_drawdown_pct
+        return {
+            "daily_loss_limit": round(daily_limit, 2),
+            "daily_loss_used": round(max(0.0, -snap.realized_pnl_today), 2),
+            "daily_room": round(daily_limit + snap.realized_pnl_today, 2),
+            "drawdown_pct": round(snap.drawdown_pct * 100, 2),
+            "drawdown_limit_pct": round(r.max_drawdown_pct * 100, 1),
+            "exposure_room": round(snap.equity * r.max_total_exposure_pct - snap.exposure, 2),
+            "positions_room": max(0, r.max_open_positions - snap.open_positions),
+        }
+
     def _check_global_risk(self) -> None:
         snap = self.portfolio.snapshot(self._last_marks)
         self.risk.update_peak(snap.equity)

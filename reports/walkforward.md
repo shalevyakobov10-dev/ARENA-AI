@@ -2,12 +2,12 @@
 
 | חלון | אימון | מבחן | פרמטרים שנבחרו | PnL באימון | PnL מחוץ למדגם | עסקאות | win % |
 |---|---|---|---|---|---|---|---|
-| 1 | 09-20→10-15 | 10-15→10-28 | z_entry=1.2, reversion_ratio=0.7, min_score=0.55, trend_guard=False, take_profit=0.06, stop_loss=0.1 | +4.07 (10) | **+6.39** | 9 | 67% |
-| 2 | 09-20→10-28 | 10-28→11-09 | z_entry=1.2, reversion_ratio=0.7, min_score=0.55, trend_guard=False, take_profit=0.06, stop_loss=0.1 | +10.46 (19) | **+29.11** | 13 | 69% |
-| 3 | 09-20→11-09 | 11-09→11-22 | z_entry=1.2, reversion_ratio=0.7, min_score=0.55, trend_guard=False, take_profit=0.06, stop_loss=0.1 | +43.65 (32) | **-4.75** | 14 | 43% |
+| 1 | 09-20→10-15 | 10-15→10-28 | z_entry=1.2, reversion_ratio=0.7, min_score=0.55, trend_guard=False, take_profit=0.1, stop_loss=0.12 | +82.11 (19) | **+47.69** | 23 | 65% |
+| 2 | 09-20→10-28 | 10-28→11-09 | z_entry=1.2, reversion_ratio=0.7, min_score=0.55, trend_guard=False, take_profit=0.1, stop_loss=0.12 | +133.09 (42) | **+108.17** | 31 | 65% |
+| 3 | 09-20→11-09 | 11-09→11-22 | z_entry=1.2, reversion_ratio=0.7, min_score=0.55, trend_guard=False, take_profit=0.1, stop_loss=0.12 | +254.75 (73) | **+48.36** | 21 | 52% |
 
-**סה"כ מחוץ למדגם: +30.75 USDC על 36 עסקאות.**
-**עקביות: 67% מהחלונות היו חיוביים.**
+**סה"כ מחוץ למדגם: +204.22 USDC על 75 עסקאות.**
+**עקביות: 100% מהחלונות היו חיוביים.**
 
 > פרשנות: אם ה-OOS אפסי/שלילי למרות PnL חיובי באימון — הכיול הוא
 > התאמה לרעש. אם ה-OOS חיובי ברוב החלונות — יש סיבה להמשיך לבדוק.

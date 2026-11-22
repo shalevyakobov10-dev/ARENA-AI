@@ -584,6 +584,30 @@ def cmd_notify_test(args, cfg: Config) -> int:
     return 0 if ok else 1
 
 
+def cmd_readiness(args, cfg: Config) -> int:
+    """שער המעבר ל-live: צ'קליסט שנבדק ע"י מכונה. exit 0 = מוכן."""
+    from .readiness import (ICON, Thresholds, collect_facts, evaluate,
+                            is_ready, readiness_markdown, summary)
+
+    th = Thresholds(soak_days=args.days, max_gap_min=args.max_gap,
+                    min_consistency=args.consistency, max_errors=args.max_errors)
+    checks = evaluate(collect_facts(cfg, reports_dir=args.out), th)
+
+    print()
+    for c in checks:
+        print(f"{ICON[c.status]} {c.label:22s} {c.detail}")
+    print(f"\n{summary(checks)}")
+
+    if args.write:
+        from pathlib import Path
+
+        p = Path(args.out) / "readiness.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(readiness_markdown(checks, th), encoding="utf-8")
+        print(f"📄 {p}")
+    return 0 if is_ready(checks) else 2
+
+
 def cmd_fees(args, cfg: Config) -> int:
     from .feeview import fee_table, write_fee_report
 
@@ -732,6 +756,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("notify-test", help="בדיקת התראות Telegram")
 
+    rd = sub.add_parser("readiness", help="שער המעבר ל-live (exit 0 = מוכן)")
+    rd.add_argument("--days", type=int, default=7, help="כמה ימי paper נדרשים")
+    rd.add_argument("--max-gap", type=float, default=30.0, help="פער הרצה מרבי (דקות)")
+    rd.add_argument("--consistency", type=float, default=0.66, help="עקביות OOS מינימלית")
+    rd.add_argument("--max-errors", type=int, default=3)
+    rd.add_argument("--out", default="reports")
+    rd.add_argument("--no-write", dest="write", action="store_false")
+
     pf = sub.add_parser("fees", help="כלכלת העמלות לפי סקטור (מה בכלל כדאי לסחור)")
     pf.add_argument("--spread", type=float, default=0.01)
     pf.add_argument("--edge", type=float, default=0.025, help="עובי סיגנל טיפוסי (נק' הסתברות)")
@@ -768,6 +800,7 @@ def main(argv: list[str] | None = None) -> int:
         "report": cmd_report,
         "daily": cmd_daily,
         "fees": cmd_fees,
+        "readiness": cmd_readiness,
         "status": cmd_status,
         "serve": cmd_serve,
         "notify-test": cmd_notify_test,

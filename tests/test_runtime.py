@@ -65,3 +65,16 @@ def test_explicit_state_dir_overrides_default(monkeypatch, tmp_path):
     monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "custom"))
     write_heartbeat(_hb())
     assert (tmp_path / "custom" / "heartbeat.json").exists()
+
+
+def test_skip_normalization_buckets():
+    """כל z שונה לא יוצר מפתח חדש — אחרת הסטטיסטיקה חסרת משמעות."""
+    from pmmb.engine import normalize_skip
+
+    assert normalize_skip("סיגנל: תנועה קיצונית z=-5.00 > 5 — מידע, לא עודף") == \
+        "תנועה קיצונית (מעל z_max)"
+    assert normalize_skip("סיגנל: אין עודף חריג (z=+0.31)") == "אין עודף חריג"
+    assert normalize_skip("סיגנל: LONG meanrev z=-1.84 edge=-0.018") == "edge לא מכסה עלויות"
+    assert normalize_skip("סיגנל: עוצמה 0.54 < 0.55") == "עוצמה מתחת לסף"
+    assert normalize_skip("אין מספיק היסטוריה") == "אין מספיק היסטוריה"
+    assert len(normalize_skip("משהו מוזר לגמרי שלא מוכר")) <= 32

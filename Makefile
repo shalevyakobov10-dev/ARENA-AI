@@ -1,4 +1,4 @@
-.PHONY: help install test doctor scan analyze calibrate sectors collect imbalance walkforward paper live backtest tune daily report research status serve sync deploy fees clean
+.PHONY: readiness help install test doctor scan analyze calibrate sectors collect imbalance walkforward paper live backtest tune daily report research status serve sync deploy fees clean
 
 help:
 	@echo "make install   — התקנת תלויות (editable)"
@@ -33,6 +33,9 @@ doctor:
 
 scan:
 	pmmb scan
+
+readiness:  ## שער המעבר ל-live
+	pmmb readiness
 
 status:  ## מצב הבוט (בריאות, הון, פוזיציות)
 	pmmb status

@@ -54,6 +54,8 @@ class Heartbeat:
     halted: bool = False
     halt_reason: str = ""
     pid: int = 0
+    skipped: dict = field(default_factory=dict)   # למה לא נסחר: סיבת דחייה → מונה
+    guards: dict = field(default_factory=dict)    # מצב ההגנות (סטופ יומי, drawdown...)
     extra: dict = field(default_factory=dict)
 
     @property
@@ -74,6 +76,7 @@ class Heartbeat:
                            "entries": self.entries, "exits": self.exits,
                            "errors": self.errors},
             "halted": self.halted, "halt_reason": self.halt_reason, "pid": self.pid,
+            "skipped": dict(self.skipped), "guards": dict(self.guards),
         }
         if self.extra:
             d.update(self.extra)
@@ -94,7 +97,7 @@ def read_heartbeat(state_dir: str | Path | None = None) -> Heartbeat | None:
         return None
     lc = d.get("last_cycle", {})
     known = {"ts", "iso", "cycle", "mode", "engine", "equity", "cash", "exposure",
-             "positions", "last_cycle", "halted", "halt_reason", "pid"}
+             "positions", "last_cycle", "halted", "halt_reason", "pid", "skipped", "guards"}
     return Heartbeat(
         ts=float(d.get("ts", 0)),
         cycle=int(d.get("cycle", 0)),
@@ -112,6 +115,8 @@ def read_heartbeat(state_dir: str | Path | None = None) -> Heartbeat | None:
         halted=bool(d.get("halted", False)),
         halt_reason=d.get("halt_reason", ""),
         pid=int(d.get("pid", 0)),
+        skipped=dict(d.get("skipped") or {}),
+        guards=dict(d.get("guards") or {}),
         extra={k: v for k, v in d.items() if k not in known},
     )
 

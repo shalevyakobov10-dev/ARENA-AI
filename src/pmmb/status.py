@@ -33,6 +33,9 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
         "positions": [],
         "today": {},
         "bankroll": {},
+        "guards": (hb.guards if hb else {}),
+        "skipped": (hb.skipped if hb else {}),
+        "equity_curve": [],
     }
 
     db = Path(cfg.data.db_path)
@@ -67,12 +70,16 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
         with store.tx() as c:
             row = c.execute("SELECT equity, cash, exposure, positions FROM equity "
                             "ORDER BY ts DESC LIMIT 1").fetchone()
+            curve = list(c.execute(
+                "SELECT ts, equity FROM equity ORDER BY ts DESC LIMIT 240").fetchall())
         out["bankroll"] = {
             "equity": round(row["equity"], 2) if row else None,
             "cash": round(row["cash"], 2) if row else None,
             "exposure": round(row["exposure"], 2) if row else None,
             "open_positions": row["positions"] if row else None,
         }
+        out["equity_curve"] = [{"ts": r["ts"], "equity": round(r["equity"], 2)}
+                               for r in reversed(curve)]
         try:
             out["events"] = [
                 {"ts": r["ts"], "level": r["level"], "kind": r["kind"], "msg": r["msg"]}
@@ -83,6 +90,32 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
     finally:
         store.close()
     return out
+
+
+def sparkline(points: list[dict], *, w: int = 260, h: int = 56) -> str:
+    """
+    גרף הון כ-SVG טהור — בלי JS ובלי ספריות. עובד גם ברשת איטית בטלפון.
+    """
+    vals = [p["equity"] for p in points if isinstance(p.get("equity"), (int, float))]
+    if len(vals) < 2:
+        return ("<div style='color:#4d5a6d;font-size:12px'>אין עדיין עקומת הון "
+                "(צריך לפחות שני snapshots)</div>")
+    lo, hi = min(vals), max(vals)
+    span = (hi - lo) or 1.0
+    step = w / (len(vals) - 1)
+    pts = " ".join(f"{i * step:.1f},{h - (v - lo) / span * (h - 6) - 3:.1f}"
+                   for i, v in enumerate(vals))
+    up = vals[-1] >= vals[0]
+    color = "#22c55e" if up else "#ef4444"
+    delta = vals[-1] - vals[0]
+    return (
+        f"<svg viewBox='0 0 {w} {h}' width='100%' height='{h}' "
+        f"style='display:block;overflow:visible'>"
+        f"<polyline points='{pts}' fill='none' stroke='{color}' stroke-width='2' "
+        f"stroke-linejoin='round' stroke-linecap='round'/></svg>"
+        f"<div style='color:#6b7a90;font-size:11px'>מ-{vals[0]:.2f} ל-{vals[-1]:.2f} "
+        f"({delta:+.2f})</div>"
+    )
 
 
 def status_html(st: dict, *, refresh_sec: int = 30) -> str:
@@ -120,6 +153,34 @@ def status_html(st: dict, *, refresh_sec: int = 30) -> str:
         for p in (st.get("positions") or [])
     ) or "<tr><td colspan=5 style='padding:12px;color:#6b7a90'>אין פוזיציות פתוחות</td></tr>"
 
+    g = st.get("guards") or {}
+    guard_rows = "".join([
+        f"<tr><td style='padding:7px;border-bottom:1px solid #232b36'>הפסד יומי</td>"
+        f"<td style='padding:7px;border-bottom:1px solid #232b36;color:#e8eef7'>"
+        f"{g.get('daily_loss_used', 0):.2f} / {g.get('daily_loss_limit', 0):.2f}</td></tr>",
+        f"<tr><td style='padding:7px;border-bottom:1px solid #232b36'>drawdown</td>"
+        f"<td style='padding:7px;border-bottom:1px solid #232b36;color:#e8eef7'>"
+        f"{g.get('drawdown_pct', 0):.2f}% / {g.get('drawdown_limit_pct', 0):.0f}%</td></tr>",
+        f"<tr><td style='padding:7px;border-bottom:1px solid #232b36'>מרווח חשיפה</td>"
+        f"<td style='padding:7px;border-bottom:1px solid #232b36;color:#e8eef7'>"
+        f"{g.get('exposure_room', 0):.2f} USDC</td></tr>",
+        f"<tr><td style='padding:7px;border-bottom:1px solid #232b36'>פוזיציות פנויות</td>"
+        f"<td style='padding:7px;border-bottom:1px solid #232b36;color:#e8eef7'>"
+        f"{g.get('positions_room', 0)}</td></tr>",
+    ]) or "<tr><td colspan=2 style='padding:10px;color:#6b7a90'>אין נתוני הגנות עדיין</td></tr>"
+
+    skipped = st.get("skipped") or {}
+    total_skipped = sum(skipped.values()) or 1
+    skip_rows = "".join(
+        f"<div style='display:flex;align-items:center;gap:8px;margin:5px 0'>"
+        f"<div style='flex:0 0 190px;color:#a9b6c8;font-size:12px'>{k}</div>"
+        f"<div style='flex:1;background:#1b2330;border-radius:5px;height:8px'>"
+        f"<div style='width:{v / total_skipped * 100:.0f}%;background:#3b82f6;height:8px;"
+        f"border-radius:5px'></div></div>"
+        f"<div style='flex:0 0 34px;text-align:left;color:#6b7a90;font-size:11px'>{v}</div></div>"
+        for k, v in sorted(skipped.items(), key=lambda kv: -kv[1])
+    ) or "<div style='color:#6b7a90;font-size:12px'>אין דחיות recorded</div>"
+
     ev = "".join(
         f"<li style='margin:6px 0;color:#a9b6c8'><span style='color:#6b7a90'>"
         f"{datetime.fromtimestamp(e['ts'], tz=timezone.utc).strftime('%d/%m %H:%M')}</span> "
@@ -143,7 +204,24 @@ font-family:system-ui,-apple-system,'Segoe UI',Rubik,Arial,sans-serif;padding:18
     {hb.get('age_sec', 0) if isinstance(hb.get('age_sec'), (int, float)) else ''}
     {('· ' + str(hb.get('iso', ''))[11:19]) if hb else ''}
   </div>
-  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px">{cards}</div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px">{cards}</div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px">
+    <div style="background:#151a21;border:1px solid #232b36;border-radius:12px;
+                padding:14px 16px;flex:2;min-width:260px">
+      <div style="color:#8b98ab;font-size:12px;margin-bottom:8px">עקומת הון</div>
+      {sparkline(st.get("equity_curve") or [])}
+    </div>
+    <div style="background:#151a21;border:1px solid #232b36;border-radius:12px;
+                padding:14px 16px;flex:2;min-width:260px">
+      <div style="color:#8b98ab;font-size:12px;margin-bottom:8px">למה לא נסחר (מחזור אחרון)</div>
+      {skip_rows}
+    </div>
+    <div style="background:#151a21;border:1px solid #232b36;border-radius:12px;
+                padding:14px 16px;flex:1;min-width:190px">
+      <div style="color:#8b98ab;font-size:12px;margin-bottom:6px">הגנות</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">{guard_rows}</table>
+    </div>
+  </div>
   <h2 style="font-size:15px;color:#8b98ab;margin:0 0 8px">פוזיציות פתוחות</h2>
   <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:22px">
     <tr style="color:#6b7a90;text-align:right">
