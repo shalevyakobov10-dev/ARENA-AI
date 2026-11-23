@@ -1,11 +1,12 @@
 """
-PMMB Command Center — טרמינל מסחר מוסדי וניתוח שווקים בזמן אמת (RTL).
+PMMB Command Center — מסוף מסחר מוסדי ולמידה עצמית בסגנון Apple Liquid Glass (RTL).
 
 תכנון מסוף מקצועי:
-  - 4 סביבות עבודה: סקירה ומסחר | שווקים וגרפים (Split Desk) | חדשות מכל העולם | למידה ותפעול.
-  - גרפי TradingView-Style על Canvas (Crosshair + Tooltip חי, תת-גרף RSI, טווחי זמן 12H/24H/72H/ALL).
-  - סולמית עומק ספר פקודות חיה (Order Book Depth Ladder), מדדי מיקום SL-TP וסנטימנט גלובלי.
-  - 100% self-contained: אפס URLs חיצוניים, אפס אימוג'ים קרטוניים, עובד מלא גם כקובץ סטטי.
+  - עיצוב Apple Silicon / macOS Sequoia Dark Pro: שכבות זכוכית שקופות, Segmented Pills, כרטיסי Bento מעוגלים,
+    וחיבור לצבעי מערכת Apple (#0A84FF, #30D158, #FF453A, #FF9F0A, #BF5AF2).
+  - 5 סביבות עבודה: סקירה ומסחר | ⚡ חוזים (PERPS ×50) | שווקים וגרפים | חדשות ולמידה | תפעול אוטונומי.
+  - למידה מתמשכת דו-זרועית בזמן אמת: הערכת אותות חיים Polymarket + PERPS + למידת אמינות חדשות (News Alpha).
+  - 100% self-contained: אפס URLs חיצוניים, עובד מלא גם כקובץ סטטי.
 """
 from __future__ import annotations
 
@@ -22,76 +23,96 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PMMB Command Center</title>
+<title>PMMB Command Center — Apple Pro Edition</title>
 <style>
   :root {{
-    --bg: #080c12;
-    --surface: #0f151f;
-    --surface-2: #151d2b;
-    --surface-3: #1b2434;
-    --border: rgba(255,255,255,0.07);
-    --border-strong: rgba(255,255,255,0.14);
-    --text: #f1f5f9;
-    --text-2: #94a3b8;
-    --text-3: #64748b;
-    --accent: #3b82f6;
-    --accent-soft: rgba(59,130,246,0.13);
-    --green: #10b981;
-    --green-soft: rgba(16,185,129,0.13);
-    --red: #ef4444;
-    --red-soft: rgba(239,68,68,0.13);
-    --amber: #f59e0b;
-    --amber-soft: rgba(245,158,11,0.13);
-    --radius: 10px;
+    --bg: #000000;
+    --surface: rgba(28, 28, 30, 0.72);
+    --surface-solid: #1c1c1e;
+    --surface-2: rgba(44, 44, 46, 0.78);
+    --surface-3: rgba(58, 58, 60, 0.85);
+    --border: rgba(255, 255, 255, 0.085);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --text: #f5f5f7;
+    --text-2: #aeaeb2;
+    --text-3: #8e8e93;
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, 0.16);
+    --green: #30d158;
+    --green-soft: rgba(48, 209, 88, 0.16);
+    --red: #ff453a;
+    --red-soft: rgba(255, 69, 58, 0.16);
+    --amber: #ff9f0a;
+    --amber-soft: rgba(255, 159, 10, 0.16);
+    --purple: #bf5af2;
+    --radius: 20px;
+    --radius-sm: 13px;
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
   }}
   * {{ box-sizing: border-box; }}
   html, body {{
-    margin: 0; padding: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    font-size: 13px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    margin: 0; padding: 0; color: var(--text); min-height: 100vh;
+    background:
+      radial-gradient(ellipse 75% 50% at 18% -10%, rgba(10, 132, 255, 0.15), transparent 65%),
+      radial-gradient(ellipse 65% 45% at 86% 6%, rgba(94, 92, 230, 0.12), transparent 60%),
+      radial-gradient(ellipse 55% 40% at 50% 105%, rgba(48, 209, 88, 0.06), transparent 60%),
+      #000000;
+    background-attachment: fixed;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+    font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.006em;
   }}
   .num {{ font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: embed; display: inline-block; }}
-  .mono {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
+  .mono {{ font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
 
-  /* --- Topbar & Pulse Ribbon --- */
+  /* --- Apple Frosted Topbar & Dynamic Pulse Ribbon --- */
   .topbar {{
     position: sticky; top: 0; z-index: 40;
-    background: rgba(8,12,18,0.92); backdrop-filter: blur(14px);
-    border-bottom: 1px solid var(--border);
+    background: rgba(18, 18, 20, 0.72);
+    backdrop-filter: saturate(190%) blur(28px);
+    -webkit-backdrop-filter: saturate(190%) blur(28px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }}
   .topbar-inner {{
-    max-width: 1500px; margin: 0 auto; padding: 0 22px;
-    height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    max-width: 1520px; margin: 0 auto; padding: 0 24px;
+    height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
   }}
-  .brand {{ display: flex; align-items: center; gap: 11px; }}
+  .brand {{ display: flex; align-items: center; gap: 12px; }}
   .brand-mark {{
-    width: 32px; height: 32px; border-radius: 8px;
-    background: linear-gradient(135deg, rgba(59,130,246,0.22), rgba(16,185,129,0.12));
-    border: 1px solid var(--border-strong);
-    display: grid; place-items: center; color: #60a5fa;
+    width: 36px; height: 36px; border-radius: 11px;
+    background: linear-gradient(155deg, rgba(255,255,255,0.16) 0%, rgba(10,132,255,0.22) 100%);
+    border: 1px solid rgba(255,255,255,0.18);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 4px 16px rgba(10,132,255,0.22);
+    display: grid; place-items: center; color: #f5f5f7;
   }}
-  .brand-title {{ font-weight: 600; font-size: 14.5px; letter-spacing: 0.01em; }}
+  .brand-title {{ font-weight: 600; font-size: 15px; letter-spacing: -0.02em; }}
   .brand-sub {{ font-size: 11px; color: var(--text-3); }}
 
+  /* --- iOS / macOS Segmented Navigation Control --- */
   .nav-tabs {{
-    display: flex; align-items: center; gap: 4px;
-    background: var(--surface); border: 1px solid var(--border);
-    padding: 3px; border-radius: 9px;
+    display: flex; align-items: center; gap: 3px;
+    background: rgba(118, 118, 128, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    padding: 4px; border-radius: 999px;
+    backdrop-filter: blur(12px);
   }}
   .nav-tab {{
     background: transparent; border: none; color: var(--text-2);
-    padding: 6px 14px; border-radius: 6px; cursor: pointer;
-    font-size: 12.5px; font-weight: 500; transition: all 0.14s ease;
+    padding: 6px 15px; border-radius: 999px; cursor: pointer;
+    font-size: 12.5px; font-weight: 500; transition: all 0.2s var(--ease);
     display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
   }}
   .nav-tab:hover {{ color: var(--text); }}
-  .nav-tab.active {{ background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--border-strong); }}
+  .nav-tab.active {{
+    background: rgba(255, 255, 255, 0.16); color: #ffffff; font-weight: 600;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.22);
+  }}
 
   .top-actions {{ display: flex; align-items: center; gap: 8px; }}
   .status-pill {{
     display: inline-flex; align-items: center; gap: 7px;
-    padding: 5px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 500;
-    background: var(--surface); border: 1px solid var(--border); color: var(--text-2);
+    padding: 6px 13px; border-radius: 999px; font-size: 11.5px; font-weight: 500;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: var(--text-2);
   }}
   .dot {{ width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }}
   .dot.ok {{ background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }}
@@ -99,10 +120,10 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .dot.err {{ background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }}
 
   .pulse-ribbon {{
-    background: #0b1018; border-bottom: 1px solid var(--border);
+    background: rgba(12, 12, 14, 0.55); border-bottom: 1px solid rgba(255,255,255,0.06);
   }}
   .pulse-inner {{
-    max-width: 1500px; margin: 0 auto; padding: 6px 22px;
+    max-width: 1520px; margin: 0 auto; padding: 6px 24px;
     display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
     font-size: 11.5px; color: var(--text-3);
   }}
@@ -110,167 +131,186 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .pulse-item {{ display: inline-flex; align-items: center; gap: 6px; }}
   .pulse-item strong {{ color: var(--text-2); font-weight: 500; }}
 
-  /* --- Controls --- */
+  /* --- Apple Pill Controls --- */
   .btn {{
-    background: var(--surface-2); color: var(--text);
-    border: 1px solid var(--border-strong); border-radius: 7px;
-    padding: 6px 12px; font-size: 12px; font-weight: 500;
-    cursor: pointer; transition: all 0.14s ease;
+    background: rgba(255, 255, 255, 0.09); color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 999px;
+    padding: 7px 15px; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; transition: all 0.18s var(--ease);
     display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   }}
-  .btn:hover {{ background: var(--surface-3); border-color: rgba(255,255,255,0.22); }}
+  .btn:hover {{ background: rgba(255, 255, 255, 0.15); border-color: rgba(255,255,255,0.25); }}
+  .btn:active {{ transform: scale(0.96); }}
   .btn:disabled {{ opacity: 0.45; cursor: not-allowed; }}
-  .btn-primary {{ background: var(--accent); border-color: var(--accent); color: #fff; }}
-  .btn-primary:hover {{ background: #2563eb; border-color: #2563eb; }}
-  .btn-danger {{ background: var(--red-soft); border-color: rgba(239,68,68,0.35); color: #fca5a5; }}
-  .btn-danger:hover {{ background: rgba(239,68,68,0.24); }}
-  .btn-ghost {{ background: transparent; border-color: var(--border); color: var(--text-2); }}
-  .btn-ghost:hover {{ color: var(--text); background: var(--surface); }}
-  .btn-xs {{ padding: 4px 9px; font-size: 11px; border-radius: 5px; }}
-  .btn-xs.active {{ background: var(--accent-soft); border-color: rgba(59,130,246,0.4); color: #93c5fd; }}
+  .btn-primary {{
+    background: var(--accent); border-color: rgba(255,255,255,0.18); color: #fff; font-weight: 600;
+    box-shadow: 0 4px 16px rgba(10, 132, 255, 0.34);
+  }}
+  .btn-primary:hover {{ background: #1e8fff; border-color: rgba(255,255,255,0.28); }}
+  .btn-danger {{ background: var(--red-soft); border-color: rgba(255,69,58,0.38); color: #ff8a82; }}
+  .btn-danger:hover {{ background: rgba(255,69,58,0.26); }}
+  .btn-ghost {{ background: rgba(255,255,255,0.04); border-color: var(--border); color: var(--text-2); }}
+  .btn-ghost:hover {{ color: var(--text); background: rgba(255,255,255,0.1); }}
+  .btn-xs {{ padding: 4px 11px; font-size: 11px; border-radius: 999px; }}
+  .btn-xs.active {{ background: var(--accent-soft); border-color: rgba(10,132,255,0.48); color: #64b5ff; }}
 
   .input {{
-    background: var(--surface-2); color: var(--text); border: 1px solid var(--border-strong);
-    border-radius: 7px; padding: 6px 11px; font-size: 12px; outline: none; width: 100%;
+    background: rgba(118, 118, 128, 0.18); color: var(--text);
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+    padding: 8px 13px; font-size: 12.5px; outline: none; width: 100%;
+    transition: border-color 0.18s ease, background 0.18s ease;
   }}
-  .input:focus {{ border-color: var(--accent); }}
+  .input:focus {{ border-color: var(--accent); background: rgba(118, 118, 128, 0.26); }}
 
-  /* --- Layout --- */
-  .wrap {{ max-width: 1500px; margin: 0 auto; padding: 18px 22px 52px; }}
+  /* --- Bento Layout & Liquid Glass Cards --- */
+  .wrap {{ max-width: 1520px; margin: 0 auto; padding: 20px 24px 56px; }}
 
   .banner {{
-    padding: 10px 14px; border-radius: var(--radius); margin-bottom: 14px;
+    padding: 12px 18px; border-radius: 16px; margin-bottom: 16px;
     font-size: 12.5px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    backdrop-filter: blur(18px);
   }}
-  .banner.err {{ background: var(--red-soft); border: 1px solid rgba(239,68,68,0.35); color: #fecaca; }}
+  .banner.err {{ background: var(--red-soft); border: 1px solid rgba(255,69,58,0.38); color: #ffd2cf; }}
 
   .kpi-row {{
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px;
+    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px;
   }}
   .kpi {{
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 13px 15px; position: relative;
+    background: var(--surface);
+    backdrop-filter: saturate(180%) blur(24px);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    border: 1px solid var(--border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 8px 28px rgba(0,0,0,0.4);
+    border-radius: var(--radius); padding: 16px 18px; position: relative;
+    transition: transform 0.22s var(--ease), border-color 0.22s ease;
   }}
-  .kpi-label {{ font-size: 11px; color: var(--text-3); margin-bottom: 5px; font-weight: 500; }}
-  .kpi-val {{ font-size: 21px; font-weight: 600; color: var(--text); letter-spacing: -0.02em; }}
-  .kpi-sub {{ font-size: 11px; color: var(--text-2); margin-top: 4px; }}
+  .kpi:hover {{ transform: translateY(-2px); border-color: var(--border-strong); }}
+  .kpi-label {{ font-size: 11.5px; color: var(--text-3); margin-bottom: 6px; font-weight: 500; }}
+  .kpi-val {{ font-size: 24px; font-weight: 700; color: #ffffff; letter-spacing: -0.03em; }}
+  .kpi-sub {{ font-size: 11.5px; color: var(--text-2); margin-top: 5px; }}
 
-  .grid-2 {{ display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; margin-bottom: 14px; }}
-  .grid-even {{ display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }}
-  .desk-grid {{ display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 14px; align-items: start; }}
+  .grid-2 {{ display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; margin-bottom: 16px; }}
+  .grid-even {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }}
+  .desk-grid {{ display: grid; grid-template-columns: 365px minmax(0, 1fr); gap: 16px; align-items: start; }}
 
   .card {{
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); overflow: hidden; margin-bottom: 14px;
+    background: var(--surface);
+    backdrop-filter: saturate(180%) blur(24px);
+    -webkit-backdrop-filter: saturate(180%) blur(24px);
+    border: 1px solid var(--border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 10px 32px rgba(0,0,0,0.42);
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 16px;
   }}
   .grid-2 .card, .grid-even .card, .desk-grid .card {{ margin-bottom: 0; }}
   .card-head {{
-    padding: 11px 15px; border-bottom: 1px solid var(--border);
+    padding: 13px 18px; border-bottom: 1px solid rgba(255,255,255,0.07);
     display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    background: rgba(255,255,255,0.015);
   }}
-  .card-title {{ font-size: 13px; font-weight: 600; color: var(--text); }}
+  .card-title {{ font-size: 13.5px; font-weight: 600; color: #ffffff; letter-spacing: -0.01em; }}
   .card-meta {{ font-size: 11.5px; color: var(--text-3); }}
-  .card-body {{ padding: 14px 15px; }}
+  .card-body {{ padding: 16px 18px; }}
   .card-body.flush {{ padding: 0; }}
 
   /* --- Tables & Meters --- */
   .table-wrap {{ overflow-x: auto; }}
-  table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 12.5px; }}
   th {{
-    text-align: right; padding: 8px 13px; font-weight: 500; font-size: 11px;
-    color: var(--text-3); border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.015);
-    white-space: nowrap;
+    text-align: right; padding: 10px 15px; font-weight: 500; font-size: 11px;
+    color: var(--text-3); border-bottom: 1px solid rgba(255,255,255,0.07);
+    background: rgba(255,255,255,0.02); white-space: nowrap;
   }}
-  td {{ padding: 9px 13px; border-bottom: 1px solid var(--border); color: var(--text-2); vertical-align: middle; }}
+  td {{ padding: 10px 15px; border-bottom: 1px solid rgba(255,255,255,0.055); color: var(--text-2); vertical-align: middle; }}
   tr:last-child td {{ border-bottom: none; }}
-  tr.clickable {{ cursor: pointer; transition: background 0.1s; }}
-  tr.clickable:hover td {{ background: rgba(255,255,255,0.03); }}
+  tr.clickable {{ cursor: pointer; transition: background 0.14s ease; }}
+  tr.clickable:hover td {{ background: rgba(255,255,255,0.045); }}
   .q-cell {{ color: var(--text); font-weight: 500; }}
 
-  .range-meter {{
-    display: flex; align-items: center; gap: 7px; min-width: 155px;
-  }}
+  .range-meter {{ display: flex; align-items: center; gap: 8px; min-width: 160px; }}
   .range-track {{
-    flex: 1; height: 5px; border-radius: 99px; background: rgba(255,255,255,0.08);
+    flex: 1; height: 5px; border-radius: 99px; background: rgba(255,255,255,0.1);
     position: relative; overflow: visible;
   }}
-  .range-fill {{
-    position: absolute; top: 0; height: 100%; border-radius: 99px; background: var(--accent);
-  }}
+  .range-fill {{ position: absolute; top: 0; height: 100%; border-radius: 99px; background: var(--accent); }}
   .range-pin {{
-    position: absolute; top: -3px; width: 3px; height: 11px; border-radius: 2px; background: #fff;
-    transform: translateX(-50%); box-shadow: 0 0 6px rgba(255,255,255,0.6);
+    position: absolute; top: -3px; width: 4px; height: 11px; border-radius: 99px; background: #fff;
+    transform: translateX(-50%); box-shadow: 0 0 8px rgba(255,255,255,0.8);
   }}
 
-  /* --- Watchlist (Trading Desk Left Pane) --- */
+  /* --- Watchlist --- */
   .wl-scroll {{ max-height: 670px; overflow-y: auto; }}
   .wl-item {{
-    padding: 10px 13px; border-bottom: 1px solid var(--border); cursor: pointer;
-    transition: background 0.12s;
+    padding: 11px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer;
+    transition: background 0.15s ease;
   }}
-  .wl-item:hover {{ background: rgba(255,255,255,0.025); }}
-  .wl-item.active {{ background: rgba(59,130,246,0.1); border-right: 3px solid var(--accent); }}
+  .wl-item:hover {{ background: rgba(255,255,255,0.04); }}
+  .wl-item.active {{ background: rgba(10,132,255,0.14); border-right: 3px solid var(--accent); }}
   .wl-top {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 5px; }}
-  .wl-q {{ font-size: 12px; font-weight: 500; color: var(--text); line-height: 1.35; }}
+  .wl-q {{ font-size: 12.5px; font-weight: 500; color: var(--text); line-height: 1.35; }}
   .wl-sub {{ display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-3); gap: 8px; }}
 
   /* --- Order Book Depth Ladder --- */
   .ob-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
   .ob-row {{
     position: relative; display: flex; justify-content: space-between;
-    padding: 4px 8px; font-size: 11.5px; border-radius: 4px; margin-bottom: 3px; overflow: hidden;
+    padding: 5px 9px; font-size: 11.5px; border-radius: 8px; margin-bottom: 3px; overflow: hidden;
   }}
-  .ob-bar {{ position: absolute; top: 0; bottom: 0; opacity: 0.16; pointer-events: none; }}
+  .ob-bar {{ position: absolute; top: 0; bottom: 0; opacity: 0.18; pointer-events: none; }}
   .ob-bid .ob-bar {{ right: 0; background: var(--green); }}
   .ob-ask .ob-bar {{ left: 0; background: var(--red); }}
 
-  /* --- Badges & Progress --- */
+  /* --- Apple Badges & Progress --- */
   .badge {{
-    display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 5px;
-    font-size: 10.5px; font-weight: 500; border: 1px solid transparent; white-space: nowrap;
+    display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 600; border: 1px solid transparent; white-space: nowrap;
   }}
-  .badge-ok {{ background: var(--green-soft); color: #6ee7b7; border-color: rgba(16,185,129,0.25); }}
-  .badge-warn {{ background: var(--amber-soft); color: #fcd34d; border-color: rgba(245,158,11,0.25); }}
-  .badge-err {{ background: var(--red-soft); color: #fca5a5; border-color: rgba(239,68,68,0.25); }}
-  .badge-info {{ background: var(--accent-soft); color: #93c5fd; border-color: rgba(59,130,246,0.25); }}
-  .badge-mute {{ background: rgba(255,255,255,0.04); color: var(--text-2); border-color: var(--border); }}
+  .badge-ok {{ background: var(--green-soft); color: #67f589; border-color: rgba(48,209,88,0.28); }}
+  .badge-warn {{ background: var(--amber-soft); color: #ffc15a; border-color: rgba(255,159,10,0.28); }}
+  .badge-err {{ background: var(--red-soft); color: #ff857d; border-color: rgba(255,69,58,0.28); }}
+  .badge-info {{ background: var(--accent-soft); color: #66b4ff; border-color: rgba(10,132,255,0.28); }}
+  .badge-mute {{ background: rgba(255,255,255,0.06); color: var(--text-2); border-color: rgba(255,255,255,0.09); }}
 
-  .bar-row {{ margin-bottom: 10px; }}
+  .bar-row {{ margin-bottom: 12px; }}
   .bar-row:last-child {{ margin-bottom: 0; }}
-  .bar-top {{ display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 4px; color: var(--text-2); }}
-  .bar-track {{ height: 4px; border-radius: 99px; background: rgba(255,255,255,0.07); overflow: hidden; }}
-  .bar-fill {{ height: 100%; border-radius: 99px; background: var(--accent); }}
+  .bar-top {{ display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; color: var(--text-2); }}
+  .bar-track {{ height: 6px; border-radius: 99px; background: rgba(255,255,255,0.09); overflow: hidden; }}
+  .bar-fill {{ height: 100%; border-radius: 99px; background: var(--accent); transition: width 0.4s var(--ease); }}
 
-  /* --- Chart Canvases & Tooltips --- */
+  /* --- Chart Canvases & Frosted Tooltips --- */
   .chart-wrap {{ position: relative; width: 100%; height: 295px; }}
   .rsi-wrap {{ position: relative; width: 100%; height: 82px; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 4px; }}
   .eq-wrap {{ position: relative; width: 100%; height: 185px; }}
   canvas.plot {{ width: 100%; height: 100%; display: block; cursor: crosshair; }}
   .tooltip {{
     position: absolute; top: 8px; right: 12px; pointer-events: none;
-    background: rgba(15,21,31,0.92); border: 1px solid var(--border-strong);
-    border-radius: 6px; padding: 5px 10px; font-size: 11px; color: var(--text);
-    display: none; backdrop-filter: blur(8px); z-index: 10;
+    background: rgba(28, 28, 30, 0.88); border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 11px; padding: 6px 11px; font-size: 11px; color: #ffffff;
+    display: none; backdrop-filter: blur(18px); z-index: 10;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.45);
   }}
 
   /* --- News & Decision Tape --- */
-  .filter-pills {{ display: flex; gap: 5px; flex-wrap: wrap; }}
+  .filter-pills {{ display: flex; gap: 6px; flex-wrap: wrap; }}
   .pill-btn {{
-    background: transparent; color: var(--text-2); border: 1px solid var(--border);
-    border-radius: 999px; padding: 4px 10px; font-size: 11px; cursor: pointer;
+    background: rgba(255,255,255,0.04); color: var(--text-2); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 999px; padding: 4px 12px; font-size: 11px; cursor: pointer;
+    transition: all 0.16s var(--ease);
   }}
-  .pill-btn.active {{ background: var(--surface-2); color: var(--text); border-color: var(--border-strong); }}
+  .pill-btn:hover {{ background: rgba(255,255,255,0.09); color: var(--text); }}
+  .pill-btn.active {{ background: rgba(255,255,255,0.16); color: #ffffff; border-color: rgba(255,255,255,0.22); font-weight: 600; }}
 
   .news-item {{
-    padding: 10px 15px; border-bottom: 1px solid var(--border);
+    padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.06);
     display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    transition: background 0.14s ease;
   }}
+  .news-item:hover {{ background: rgba(255,255,255,0.025); }}
   .news-item:last-child {{ border-bottom: none; }}
   .news-title {{ color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 1.45; }}
-  .news-meta {{ font-size: 11px; color: var(--text-3); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }}
+  .news-meta {{ font-size: 11px; color: var(--text-3); margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }}
 
   .tape-item {{
-    padding: 8px 14px; border-bottom: 1px solid var(--border);
+    padding: 9px 16px; border-bottom: 1px solid rgba(255,255,255,0.055);
     display: flex; align-items: baseline; gap: 10px; font-size: 12px;
   }}
   .tape-item:last-child {{ border-bottom: none; }}
@@ -278,16 +318,17 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .kv-list {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }}
   .kv-item {{
     display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+    padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 12px;
   }}
   .kv-k {{ color: var(--text-3); }}
   .kv-v {{ color: var(--text); font-weight: 500; }}
 
   .toast {{
-    position: fixed; bottom: 20px; left: 20px; z-index: 60;
-    background: var(--surface-2); border: 1px solid var(--border-strong); color: var(--text);
-    padding: 10px 16px; border-radius: 8px; font-size: 12px;
-    box-shadow: 0 12px 30px rgba(0,0,0,0.45); display: none; max-width: 440px;
+    position: fixed; bottom: 22px; left: 22px; z-index: 60;
+    background: rgba(28, 28, 30, 0.88); backdrop-filter: saturate(180%) blur(24px);
+    border: 1px solid rgba(255,255,255,0.18); color: #ffffff;
+    padding: 12px 18px; border-radius: 14px; font-size: 12.5px; font-weight: 500;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.55); display: none; max-width: 440px;
   }}
   .tab-pane {{ display: none; }}
   .tab-pane.active {{ display: block; }}
@@ -508,7 +549,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
       <div class="card">
         <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="card-title">פיד חדשות מוסדי גלובלי (19 רשתות עולמיות)</span>
+            <span class="card-title">פיד חדשות מוסדי ולמידה מתמדת (22+ רשתות עולמיות)</span>
             <button class="btn btn-ghost btn-xs" onclick="postAction('/api/news-refresh', {{}})">רענן פיד גלובלי</button>
           </div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -517,6 +558,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
               <button class="pill-btn active" onclick="setNewsFilter('ALL', this)">הכל</button>
               <button class="pill-btn" onclick="setNewsFilter('CATALYST', this)">חריגות</button>
               <button class="pill-btn" onclick="setNewsFilter('MATCHED', this)">קשור לשוק</button>
+              <button class="pill-btn" onclick="setNewsFilter('crypto', this)">קריפטו ומאקרו</button>
               <button class="pill-btn" onclick="setNewsFilter('REG:אסיה', this)">אסיה</button>
               <button class="pill-btn" onclick="setNewsFilter('REG:מזרח תיכון', this)">מזרח תיכון</button>
               <button class="pill-btn" onclick="setNewsFilter('REG:אמריקה ושווקים', this)">אמריקה</button>
@@ -525,29 +567,44 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
             </div>
           </div>
         </div>
-        <div class="card-body flush" style="max-height:580px;overflow-y:auto">
+        <div class="card-body flush" style="max-height:680px;overflow-y:auto">
           <div id="news-list"></div>
         </div>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;flex-direction:column;gap:16px">
         <div class="card">
           <div class="card-head">
-            <span class="card-title">מנוע למידה עצמית (OOS Walk-Forward)</span>
-            <button class="btn btn-ghost btn-xs" onclick="postAction('/api/learn', {{apply:true}})">הרץ הערכה</button>
+            <span class="card-title">מנוע למידה מתמשכת (מסחר + חדשות 24/7)</span>
+            <button class="btn btn-ghost btn-xs" onclick="postAction('/api/learn', {{apply:true}})">הרץ למידה עכשיו</button>
           </div>
           <div class="card-body" id="learn-insights"></div>
         </div>
 
         <div class="card">
           <div class="card-head">
-            <span class="card-title">דיוק אותות לפי Z-Score ואופק</span>
+            <span class="card-title">למידת השפעת חדשות על מחירים (News Alpha)</span>
+            <span class="card-meta" id="news-alpha-meta">מדידת 1ש׳ / 4ש׳ / 12ש׳</span>
+          </div>
+          <div class="card-body flush">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>מקור חדשות</th><th>כתבות</th><th>אימפקט</th><th>דיוק כיווני</th><th>תזוזה ±%</th></tr></thead>
+                <tbody id="news-alpha-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">דיוק אותות בזמן אמת (Polymarket + PERPS ×50)</span>
             <span class="card-meta" id="learn-total">—</span>
           </div>
           <div class="card-body flush">
             <div class="table-wrap">
               <table>
-                <thead><tr><th>טווח Z</th><th>6ש'</th><th>24ש'</th><th>48ש'</th><th>הצלחה עדכנית</th><th>תשואה ממוצעת</th></tr></thead>
+                <thead><tr><th>טווח Z / משטר</th><th>דגימות</th><th>הצלחה</th><th>תשואה ממוצעת</th></tr></thead>
                 <tbody id="learn-z-tbody"></tbody>
               </table>
             </div>
@@ -1051,14 +1108,28 @@ function drawPerpEqChart() {{
   const lo = minV - pad, hi = maxV + pad;
   const pxL = 12, pxR = 54, pyT = 12, pyB = 20, gw = w - pxL - pxR, gh = h - pyT - pyB;
   const up = pts[pts.length - 1] >= pts[0];
-  const stroke = up ? '#10b981' : '#ef4444';
+  const stroke = up ? '#30d158' : '#ff453a';
   const meta = document.getElementById('perps-eq-meta');
   if (meta) meta.textContent = `${{pts[0].toFixed(2)}} -> ${{pts[pts.length-1].toFixed(2)}} (${{fmtSign(pts[pts.length-1]-pts[0])}})`;
   const X = i => pxL + (i / (pts.length - 1)) * gw;
   const Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#8e8e93'; ctx.font = '11px SF Mono, ui-monospace, monospace'; ctx.textAlign = 'left';
+  for (let i = 0; i <= 3; i++) {{
+    const y = pyT + gh * (i / 3);
+    const val = hi - (hi - lo) * (i / 3);
+    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
+    ctx.fillText(val.toFixed(1), w - pxR + 6, y + 4);
+  }}
+  const grad = ctx.createLinearGradient(0, pyT, 0, pyT + gh);
+  grad.addColorStop(0, up ? 'rgba(48,209,88,0.25)' : 'rgba(255,69,58,0.25)');
+  grad.addColorStop(1, 'rgba(48,209,88,0.0)');
   ctx.beginPath();
   pts.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
-  ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = stroke; ctx.lineWidth = 2.2; ctx.stroke();
+  ctx.lineTo(X(pts.length - 1), pyT + gh);
+  ctx.lineTo(X(0), pyT + gh);
+  ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
 }}
 
 let PERP_HOVER = null;
@@ -1110,10 +1181,10 @@ function drawPerpPriceChart() {{
     ctx.restore();
   }};
   if (ov.entry) {{
-    hLn(ov.target, '#10b981', 'TP ' + Number(ov.target).toFixed(4));
-    hLn(ov.entry, '#94a3b8', 'ENTRY ×' + Number(ov.leverage || 1).toFixed(0));
-    hLn(ov.stop, '#f59e0b', 'SL ' + Number(ov.stop).toFixed(4));
-    hLn(ov.liq, '#ef4444', 'LIQ ' + Number(ov.liq).toFixed(4));
+    hLn(ov.target, '#30d158', 'TP ' + Number(ov.target).toFixed(4));
+    hLn(ov.entry, '#aeaeb2', 'ENTRY ×' + Number(ov.leverage || 1).toFixed(0));
+    hLn(ov.stop, '#ff9f0a', 'SL ' + Number(ov.stop).toFixed(4));
+    hLn(ov.liq, '#ff453a', 'LIQ ' + Number(ov.liq).toFixed(4));
   }}
 
   const cw = Math.max(2, Math.min(9, (gw / cs.length) * 0.64));
@@ -1121,7 +1192,7 @@ function drawPerpPriceChart() {{
     const x = X(i);
     const o = Number(c.open || c.close), hiC = Number(c.high || c.close), loC = Number(c.low || c.close), cl = Number(c.close);
     const up = cl >= o;
-    const col = up ? '#10b981' : '#ef4444';
+    const col = up ? '#30d158' : '#ff453a';
     ctx.strokeStyle = col; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x, Y(hiC)); ctx.lineTo(x, Y(loC)); ctx.stroke();
     const yTop = Y(Math.max(o, cl)), yBot = Y(Math.min(o, cl));
@@ -1466,6 +1537,7 @@ function renderNews() {{
   const filtered = news.filter(n => {{
     if (NEWS_FILTER === 'CATALYST' && Number(n.impact || 0) < 0.45) return false;
     else if (NEWS_FILTER === 'MATCHED' && !n.matched_tokens) return false;
+    else if (NEWS_FILTER === 'crypto' && n.category !== 'crypto' && n.category !== 'macro' && (n.region || '') !== 'קריפטו') return false;
     else if (NEWS_FILTER.startsWith('REG:') && (n.region || '') !== NEWS_FILTER.slice(4)) return false;
     else if (NEWS_FILTER === 'sports' && n.category !== 'sports' && (n.region || '') !== 'ספורט') return false;
     if (q && !((n.title || '').toLowerCase().includes(q) || (n.source || '').toLowerCase().includes(q) || (n.region || '').toLowerCase().includes(q))) return false;
@@ -1498,35 +1570,66 @@ function renderNews() {{
 function renderLearning() {{
   const lr = STATE.learning || {{}};
   const st = lr.stats || {{}};
+  const na = lr.news_alpha || STATE.news_alpha || {{}};
+  const psStats = (STATE.perps && STATE.perps.signal_stats) || {{}};
   const insights = lr.insights || [];
   const runs = lr.runs || [];
 
   const rawEval = Number(st.raw_evaluated || 0);
   const uniqEval = Number(st.total_evaluated || 0);
+  const pEval = Number(psStats.total_evaluated || 0);
   document.getElementById('learn-total').textContent =
-    rawEval > uniqEval
-      ? `${{uniqEval}} אותות הוערכו (מתוך ${{rawEval}} דגימות)`
-      : `${{uniqEval}} אותות הוערכו`;
+    `Poly: ${{uniqEval}} (מתוך ${{rawEval}}) · PERPS: ${{pEval}}`;
   document.getElementById('learn-insights').innerHTML = insights.length
-    ? '<ul style="margin:0;padding-right:18px;color:var(--text-2);font-size:12px">' +
-      insights.map(x => `<li style="margin-bottom:5px">${{esc(x)}}</li>`).join('') + '</ul>'
-    : '<div style="color:var(--text-3);font-size:12px">הבוט אוגר תוצאות אותות על פני 6ש׳ / 24ש׳ / 48ש׳ לכיול Walk-Forward.</div>';
+    ? '<ul style="margin:0;padding-right:18px;color:var(--text-2);font-size:12.5px">' +
+      insights.map(x => `<li style="margin-bottom:6px">${{esc(x)}}</li>`).join('') + '</ul>'
+    : '<div style="color:var(--text-3);font-size:12.5px">המנוע מריץ מיקרו-למידה כל 5 דקות על תוצאות מסחר (Polymarket + PERPS) וחדשות.</div>';
+
+  // טבלת News Alpha
+  const naMeta = document.getElementById('news-alpha-meta');
+  if (naMeta) {{
+    naMeta.textContent = na.total_measured
+      ? `${{na.total_measured}} כתבות נמדדו · דיוק ${{na.directional_hit_pct !== null && na.directional_hit_pct !== undefined ? na.directional_hit_pct + '%' : '—'}}`
+      : 'נמדד כל 5 דקות מול מחיר שוק';
+  }}
+  const naBody = document.getElementById('news-alpha-tbody');
+  const srcs = na.by_source || [];
+  if (naBody) {{
+    naBody.innerHTML = srcs.length ? srcs.map(s => `<tr>
+      <td style="color:var(--text);font-weight:500">${{esc(s.source)}}</td>
+      <td class="num">${{s.n}}</td>
+      <td class="num">${{s.high_impact_n || 0}}</td>
+      <td class="num">${{s.hit_pct !== null && s.hit_pct !== undefined ? s.hit_pct + '%' : '—'}}</td>
+      <td class="num">${{s.avg_move_pct !== null && s.avg_move_pct !== undefined ? '±' + Number(s.avg_move_pct).toFixed(2) + '%' : '—'}}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:16px">צובר מדידות מחיר של 1ש׳ / 4ש׳ מרגע פרסום כתבות...</td></tr>';
+  }}
 
   const zMap = st.by_z_bucket || {{}};
-  const zKeys = Object.keys(zMap);
-  document.getElementById('learn-z-tbody').innerHTML = zKeys.length ? zKeys.map(k => {{
+  const regMap = psStats.by_regime || {{}};
+  const polyRows = Object.keys(zMap).map(k => {{
     const row = zMap[k] || {{}};
     const hit = row.hit_latest_pct;
     const mean = row.mean_latest;
     return `<tr>
-      <td class="num" style="color:var(--text)">${{esc(k)}}</td>
-      <td class="num">${{row.n_6h || 0}}</td>
-      <td class="num">${{row.n_24h || 0}}</td>
-      <td class="num">${{row.n_48h || 0}}</td>
+      <td class="num" style="color:var(--text)">Poly Z ${{esc(k)}}</td>
+      <td class="num">${{row.n || 0}}</td>
       <td class="num">${{hit !== null && hit !== undefined ? hit + '%' : '—'}}</td>
       <td class="num ${{(mean || 0) >= 0 ? 'pos' : 'neg'}}">${{mean !== null && mean !== undefined ? fmtSign(mean, 4) : '—'}}</td>
     </tr>`;
-  }}).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:16px">אין נתוני הערכה עדיין</td></tr>';
+  }});
+  const perpRows = Object.keys(regMap).map(k => {{
+    const row = regMap[k] || {{}};
+    const hit = row.hit_pct;
+    const mean = row.mean_pct;
+    return `<tr>
+      <td class="num" style="color:var(--accent)">PERPS ${{esc(k)}}</td>
+      <td class="num">${{row.n || 0}}</td>
+      <td class="num">${{hit !== null && hit !== undefined ? hit + '%' : '—'}}</td>
+      <td class="num ${{(mean || 0) >= 0 ? 'pos' : 'neg'}}">${{mean !== null && mean !== undefined ? fmtSign(mean, 2) + '%' : '—'}}</td>
+    </tr>`;
+  }});
+  const allRows = [...polyRows, ...perpRows];
+  document.getElementById('learn-z-tbody').innerHTML = allRows.length ? allRows.join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-3);padding:16px">צובר תוצאות אותות חיים...</td></tr>';
 
   document.getElementById('learn-runs-tbody').innerHTML = runs.length ? runs.slice(0, 8).map(r => `<tr>
     <td class="num" style="color:var(--text-3)">${{fmtDateTime(r.ts)}}</td>
@@ -1637,12 +1740,12 @@ function drawEquityChart() {{
   const pxL = 12, pxR = 54, pyT = 12, pyB = 20;
   const gw = w - pxL - pxR, gh = h - pyT - pyB;
   const up = pts[pts.length - 1] >= pts[0];
-  const stroke = up ? '#10b981' : '#ef4444';
+  const stroke = up ? '#30d158' : '#ff453a';
 
   document.getElementById('eq-meta').textContent = `${{pts[0].toFixed(2)}} -> ${{pts[pts.length - 1].toFixed(2)}} (${{fmtSign(pts[pts.length - 1] - pts[0])}})`;
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
-  ctx.fillStyle = '#64748b'; ctx.font = '11px monospace'; ctx.textAlign = 'left';
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#8e8e93'; ctx.font = '11px SF Mono, ui-monospace, monospace'; ctx.textAlign = 'left';
   for (let i = 0; i <= 3; i++) {{
     const y = pyT + gh * (i / 3);
     const val = hi - (hi - lo) * (i / 3);
@@ -1654,8 +1757,8 @@ function drawEquityChart() {{
   const Y = (v) => pyT + gh - ((v - lo) / (hi - lo)) * gh;
 
   const grad = ctx.createLinearGradient(0, pyT, 0, pyT + gh);
-  grad.addColorStop(0, up ? 'rgba(16,185,129,0.22)' : 'rgba(239,68,68,0.22)');
-  grad.addColorStop(1, 'rgba(16,185,129,0.0)');
+  grad.addColorStop(0, up ? 'rgba(48,209,88,0.26)' : 'rgba(255,69,58,0.26)');
+  grad.addColorStop(1, 'rgba(48,209,88,0.0)');
 
   ctx.beginPath();
   pts.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
@@ -1767,7 +1870,7 @@ function drawPriceChart() {{
   // מחיר ראשי
   ctx.beginPath();
   prices.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
-  ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2.1; ctx.stroke();
+  ctx.strokeStyle = '#0a84ff'; ctx.lineWidth = 2.2; ctx.stroke();
 
   const tip = document.getElementById('price-tip');
   if (PRICE_HOVER !== null && PRICE_HOVER >= 0 && PRICE_HOVER < prices.length) {{
@@ -1776,7 +1879,7 @@ function drawPriceChart() {{
     ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(pxL, hy); ctx.lineTo(w - pxR, hy); ctx.stroke();
     ctx.restore();
-    ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI * 2); ctx.fillStyle = '#3b82f6'; ctx.fill();
+    ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI * 2); ctx.fillStyle = '#0a84ff'; ctx.fill();
     const sVal = sma[PRICE_HOVER] !== null && sma[PRICE_HOVER] !== undefined ? Number(sma[PRICE_HOVER]).toFixed(3) : '—';
     const rVal = rsi[PRICE_HOVER] !== null && rsi[PRICE_HOVER] !== undefined ? Number(rsi[PRICE_HOVER]).toFixed(1) : '—';
     tip.style.display = 'block';
@@ -1817,8 +1920,8 @@ function drawRsiChart() {{
     if (v === null || v === undefined) return;
     if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v)));
   }});
-  ctx.strokeStyle = '#a78bfa'; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.fillStyle = '#94a3b8'; ctx.fillText('RSI(14)', pxL + 4, pyT + 9);
+  ctx.strokeStyle = '#bf5af2'; ctx.lineWidth = 1.6; ctx.stroke();
+  ctx.fillStyle = '#aeaeb2'; ctx.fillText('RSI(14)', pxL + 4, pyT + 9);
 }}
 
 // Crosshair Listeners

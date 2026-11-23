@@ -335,24 +335,30 @@ class NewsClient:
                 for art in _fetch_wire(item):
                     seen[art.id] = art
 
-        # 2. שאילתות Google News עם בקרת קצב מנומסת (עוצר מיד ב-429 כדי לא להיחסם)
+        # 2. שאילתות Google News ברוטציה מבוקרת קצב (מונע 429 ומביא חדשות טריות כל מחזור)
         gnews_blocked = False
-        for cat, _label, q in _DEFAULT_FEEDS:
+        if not hasattr(self, "_gnews_idx"):
+            self._gnews_idx = 0
+        feeds_rot = list(_DEFAULT_FEEDS)
+        start_i = self._gnews_idx % max(1, len(feeds_rot))
+        ordered_feeds = feeds_rot[start_i:] + feeds_rot[:start_i]
+        self._gnews_idx += 2
+        for cat, _label, q in ordered_feeds[:3]:
             if gnews_blocked:
                 break
             try:
                 for art in self.fetch_query(q, category=cat, limit=8):
                     seen[art.id] = art
                 if self._client is None:
-                    time.sleep(0.25)
+                    time.sleep(0.45)
             except RuntimeError:
                 gnews_blocked = True
-                log.debug("Google News החזיר 429 — ממשיך עם רשת הפידים הגלובלית")
+                log.debug("Google News החזיר 429 — ממשיך עם רשת 22+ הפידים הגלובלית")
 
-        # 3. שאילתות ממוקדות לשווקים פתוחים/פעילים
+        # 3. שאילתות ממוקדות לשווקים פתוחים/פעילים (עד 4 בכל מחזור מרווח)
         asked: set[str] = set()
         for mk in markets:
-            if gnews_blocked or len(asked) >= max_market_queries:
+            if gnews_blocked or len(asked) >= min(4, max_market_queries):
                 break
             q_text = getattr(mk, "question", "") or ""
             kws = extract_keywords(q_text, max_words=3)
@@ -372,12 +378,105 @@ class NewsClient:
                             art.matched_tokens = f"{art.matched_tokens},{tid}".strip(",")
                     seen[art.id] = art
                 if self._client is None:
-                    time.sleep(0.25)
+                    time.sleep(0.45)
             except RuntimeError:
                 gnews_blocked = True
                 break
 
         return sorted(seen.values(), key=lambda a: -a.ts)
+
+
+_CRYPTO_NEWS_MAP: tuple[tuple[str, str], ...] = (
+    ("bitcoin", "BTC"), ("btc", "BTC"), ("etf", "BTC"), ("fomc", "BTC"),
+    ("federal reserve", "BTC"), ("inflation", "BTC"), ("tariff", "BTC"),
+    ("ethereum", "ETH"), ("eth", "ETH"), ("solana", "SOL"), ("sol", "SOL"),
+    ("xrp", "XRP"), ("ripple", "XRP"), ("dogecoin", "DOGE"), ("doge", "DOGE"),
+    ("sui", "SUI"), ("bnb", "BNB"), ("cardano", "ADA"), ("ada", "ADA"),
+    ("crypto", "BTC"), ("liquidation", "BTC"),
+)
+
+
+def _infer_news_target(art: dict) -> tuple[str, str]:
+    """מחזיר ('perp', SYMBOL) או ('poly', token_prefix) למדידת תגובת שוק אמיתית."""
+    matched = [t.strip() for t in str(art.get("matched_tokens") or "").split(",") if t.strip()]
+    title = str(art.get("title") or "").lower()
+    cat = str(art.get("category") or "").lower()
+    for kw, sym in _CRYPTO_NEWS_MAP:
+        if re.search(rf"\b{re.escape(kw)}\b", title):
+            return "perp", sym
+    if cat == "crypto":
+        return "perp", "BTC"
+    if matched:
+        return "poly", matched[0]
+    if cat == "macro":
+        return "perp", "BTC"
+    return "", ""
+
+
+def evaluate_news_alpha(store, *, now_ts: int | None = None, limit: int = 300) -> int:
+    """לומד בזמן אמת איזה מקורות ונושאי חדשות באמת מזיזים מחירים (1ש'/4ש'/12ש')."""
+    now = int(now_ts or time.time())
+    pending = store.pending_news_for_outcome(min_age_hours=1.0, days=7, limit=limit)
+    if not pending:
+        return 0
+
+    updated = 0
+    for row in pending:
+        art = dict(row)
+        kind, target = _infer_news_target(art)
+        if not kind or not target:
+            continue
+        ts = int(art.get("ts") or 0)
+        if kind == "perp":
+            p0 = store.nearest_perp_candle_price(target, ts, window_sec=5400)
+            p1 = store.nearest_perp_candle_price(target, ts + 3600, window_sec=3600) if now >= ts + 3600 else None
+            p4 = store.nearest_perp_candle_price(target, ts + 4 * 3600, window_sec=5400) if now >= ts + 4 * 3600 else None
+            p12 = store.nearest_perp_candle_price(target, ts + 12 * 3600, window_sec=5400) if now >= ts + 12 * 3600 else None
+        else:
+            # חיפוש טוקן מלא לפי קידומת (matched_tokens שומר 12 תווים ראשונים)
+            trow = store._conn.execute(
+                "SELECT token_id FROM ticks WHERE token_id LIKE ? LIMIT 1", (f"{target}%",)
+            ).fetchone()
+            full_tid = str(trow["token_id"]) if trow else target
+            p0 = store.nearest_tick_price(full_tid, ts, window_sec=7200)
+            p1 = store.nearest_tick_price(full_tid, ts + 3600, window_sec=5400) if now >= ts + 3600 else None
+            p4 = store.nearest_tick_price(full_tid, ts + 4 * 3600, window_sec=7200) if now >= ts + 4 * 3600 else None
+            p12 = store.nearest_tick_price(full_tid, ts + 12 * 3600, window_sec=7200) if now >= ts + 12 * 3600 else None
+
+        if p0 is None or p0 <= 0 or (p1 is None and p4 is None and p12 is None):
+            continue
+
+        m1 = round((p1 - p0) / p0 * 100.0, 3) if p1 is not None else None
+        m4 = round((p4 - p0) / p0 * 100.0, 3) if p4 is not None else None
+        m12 = round((p12 - p0) / p0 * 100.0, 3) if p12 is not None else None
+
+        sent = float(art.get("sentiment") or 0.0)
+        ref_m = m4 if m4 is not None else m1
+        aligned = None
+        if ref_m is not None and abs(sent) >= 0.10:
+            aligned = 1 if ((sent > 0 and ref_m > 0) or (sent < 0 and ref_m < 0)) else 0
+
+        store.upsert_news_outcome({
+            "article_id": str(art["id"]),
+            "ts": ts,
+            "source": str(art.get("source") or ""),
+            "category": str(art.get("category") or ""),
+            "title": str(art.get("title") or ""),
+            "sentiment": sent,
+            "impact": float(art.get("impact") or 0.0),
+            "target_symbol": target,
+            "entry_price": round(p0, 6),
+            "price_1h": round(p1, 6) if p1 is not None else None,
+            "price_4h": round(p4, 6) if p4 is not None else None,
+            "price_12h": round(p12, 6) if p12 is not None else None,
+            "move_1h_pct": m1,
+            "move_4h_pct": m4,
+            "move_12h_pct": m12,
+            "aligned_4h": aligned,
+            "evaluated_at": now,
+        })
+        updated += 1
+    return updated
 
 
 def infer_region(source: str, category: str, title: str) -> str:
@@ -462,8 +561,15 @@ def refresh_news_to_store(
     mkt_list = list(markets)
     articles = client.fetch_live(mkt_list, max_market_queries=max_market_queries)
 
-    # שידוך אוטומטי גם מול כותרות שוק כלליות שלא נשאלו ישירות
+    # שידוך אוטומטי מול כותרות שוק כלליות ושקלול אמינות מקורות נלמדת מביצועי עבר
+    try:
+        rel_map = store.news_source_reliability()
+    except Exception:
+        rel_map = {}
+
     for art in articles:
+        if art.source in rel_map:
+            art.impact = round(max(0.0, min(1.0, art.impact * rel_map[art.source])), 3)
         hits = []
         for mk in mkt_list:
             q_text = getattr(mk, "question", "") or ""

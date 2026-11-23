@@ -14,11 +14,70 @@ from typing import Any
 import yaml
 
 from ..config import DEFAULT_CONFIG, Config
+from ..data.news import evaluate_news_alpha
 from ..data.store import Store
 from .backtest import run_perp_walkforward
 from .exchange import MultiPerpExchange
+from .signals import assess_perps_news
 
 log = logging.getLogger(__name__)
+
+
+def evaluate_perp_live_signals(store: Store, *, now_ts: int | None = None, limit: int = 400) -> int:
+    """מעריך תוצאות אותות PERPS חיים מול נרות perp_candles (1ש', 4ש', 12ש') ושומר ל-SQLite."""
+    now = int(now_ts or time.time())
+    pending = store.pending_perp_signals_for_outcome(min_age_hours=1.0, limit=limit)
+    if not pending:
+        return 0
+    news_rows = [dict(r) for r in store.recent_news(hours=24 * 10, limit=250)]
+    updated = 0
+    for row in pending:
+        sym = str(row["symbol"] or "")
+        ts = int(row["ts"] or 0)
+        entry_px = row["price"]
+        direction = str(row["direction"] or "FLAT")
+        if not sym or not entry_px or direction not in ("LONG", "SHORT"):
+            continue
+        entry_px = float(entry_px)
+        p1 = store.nearest_perp_candle_price(sym, ts + 3600, window_sec=3600) if now >= ts + 3600 else None
+        p4 = store.nearest_perp_candle_price(sym, ts + 4 * 3600, window_sec=5400) if now >= ts + 4 * 3600 else None
+        p12 = store.nearest_perp_candle_price(sym, ts + 12 * 3600, window_sec=5400) if now >= ts + 12 * 3600 else None
+        if p1 is None and p4 is None and p12 is None:
+            continue
+
+        mult = 1.0 if direction == "LONG" else -1.0
+        r1 = round((p1 - entry_px) / entry_px * 100.0 * mult, 3) if p1 is not None else None
+        r4 = round((p4 - entry_px) / entry_px * 100.0 * mult, 3) if p4 is not None else None
+        r12 = round((p12 - entry_px) / entry_px * 100.0 * mult, 3) if p12 is not None else None
+        feats = {}
+        try:
+            feats = json.loads(row["features"] or "{}")
+        except Exception:
+            pass
+        ni = float(feats.get("news_impact") or 0.0)
+        if ni == 0.0 and news_rows:
+            sub_n = [n for n in news_rows if ts - 4 * 3600 <= int(n.get("ts") or 0) <= ts]
+            if sub_n:
+                ni = assess_perps_news(sym, sub_n, window_hours=4.0).get("max_impact", 0.0)
+
+        store.upsert_perp_signal_outcome({
+            "signal_id": int(row["id"]),
+            "symbol": sym,
+            "ts": ts,
+            "direction": direction,
+            "entry_price": entry_px,
+            "regime": str(row["regime"] or ""),
+            "strategy": str(row["strategy"] or ""),
+            "z_score": feats.get("z"),
+                "score": float(row["score"] or 0.0),
+                "leverage": float(row["leverage"] or 1.0),
+            "news_impact": ni,
+            "price_1h": p1, "price_4h": p4, "price_12h": p12,
+            "realized_1h_pct": r1, "realized_4h_pct": r4, "realized_12h_pct": r12,
+            "evaluated_at": now,
+        })
+        updated += 1
+    return updated
 
 
 @dataclass
@@ -74,6 +133,8 @@ def run_perp_self_learning_cycle(
     reports_dir: str | Path = "reports",
 ) -> PerpLearningReport:
     now = int(time.time())
+    evaluate_perp_live_signals(store, now_ts=now)
+    evaluate_news_alpha(store, now_ts=now)
     if datasets is None:
         ex = exchange or MultiPerpExchange(cfg.perps.exchange)
         insts = ex.scan()[:16]

@@ -48,20 +48,20 @@ _המסמך הזה הוא נקודת הכניסה היחידה לפרויקט. �
 ## 4. המצב הנוכחי (מדויק, לא שיווקי)
 
 ```
-223 בדיקות · 27 פקודות (כולל pmmb perps *) · אפס קריאות רשת בבדיקות
-1) זרוע Polymarket (ADR #18–22):
+224 בדיקות · 27 פקודות (כולל pmmb perps *) · אפס קריאות רשת בבדיקות
+1) זרוע Polymarket (ADR #18–22, 25):
   Portfolio Backtest (`pmmb backtest --top 35 --portfolio`, 25 שווקים, spread=0.015):
     47 עסקאות | Win Rate 66.0% | PF 2.16 | תשואה +17.56% (1175.57 USDC) | Max DD 4.11% | עמלות 13.92 USDC
   Walk-Forward OOS (`pmmb walkforward --markets 35 --spread 0.01`, 3 חלונות, 25 שווקים):
     +56.19 USDC OOS על 54 עסקאות (ללא מוביל +28.23, 13/21 שווקים חיוביים, עקביות 100%) | Baseline OOS: +82.01 USDC
 
-2) זרוע חוזים תמידיים — PERPS ×50 (ADR #23–24, OKX + Hyperliquid + Binance):
+2) זרוע חוזים תמידיים — PERPS ×50 (ADR #23–25, OKX + Hyperliquid + Binance):
   Portfolio Backtest (`pmmb perps backtest --assets 16 --lookback 720`, נרות 1h + Funding אמיתי):
     96 עסקאות | Win Rate 67.7% | PF 1.62 | תשואה +38.29% (1382.90 USDC) | Max DD 9.4% | ליקווידציות 0
     מינוף ממוצע ×20.7 (שיא ×46.4, תקרה ×50) | 3-Fold Walk-Forward OOS: +21.79% (עקביות 100%, לעומת +6.83% ב-24 נכסים)
     פרמטרים מקובעים: `max_assets=16`, `sl_atr_mult=1.5`, `tp_atr_mult=2.6`, `z_entry=1.8`, `adx_trend_threshold=25.0`, `liquidation_buffer_mult=2.2`
 
-רשת חדשות של 22+ פידים מוסדיים (כולל קריפטו-מאקרו) + למידה רקע אסינכרונית + ניטור תוך-מחזורי (60s) + Command Center UI (`pmmb serve --autostart`)
+רשת חדשות של 22+ פידים מוסדיים + מיקרו-למידה רציפה כל 5 דק' (Polymarket + PERPS + News Alpha) + כיול OOS כל 30 דק' + Apple Pro UI (`pmmb serve --autostart`)
 ```
 
 פרמטרים מכוילים: `lookback_candles=24`, `z_entry=1.8`, `z_max=6.5`, `reversion_ratio=0.55`,

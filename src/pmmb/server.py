@@ -386,10 +386,13 @@ class _TraderManager:
 
         def _loop() -> None:
             from .autopilot import run_auto_backup, run_auto_reconcile, run_auto_reports
+            from .data.news import evaluate_news_alpha
+            from .perps.learning import evaluate_perp_live_signals
 
             next_trade = 0.0
             next_perps = 0.0
             next_stream = 0.0
+            next_micro_learn = time.time() + 45.0
             next_learn = time.time() + min(120.0, float(self.cfg.learning.interval_sec))
             next_perps_learn = time.time() + min(180.0, float(self.cfg.perps.learn_interval_sec))
             next_backup = time.time() + 90.0
@@ -423,6 +426,19 @@ class _TraderManager:
                             self.perps_last_error = str(pexc)
                             log.warning("מחזור Perps בלולאה: %s", pexc)
                         next_perps = time.time() + max(30.0, float(self.cfg.perps.interval_sec))
+
+                    # מיקרו-למידה רציפה כל 5 דקות (מסחר דו-זרועי + חדשות מול שוק על DB מקומי ללא רשת)
+                    if now >= next_micro_learn:
+                        st_ml = Store(self.cfg.data.db_path)
+                        try:
+                            n_poly = evaluate_live_signals(st_ml, clob=None, now_ts=int(now), limit=250)
+                            n_perp = evaluate_perp_live_signals(st_ml, now_ts=int(now), limit=250)
+                            n_news = evaluate_news_alpha(st_ml, now_ts=int(now), limit=200)
+                            if (n_poly + n_perp + n_news) > 0:
+                                log.info("🧠 מיקרו-למידה רציפה: %d Polymarket | %d PERPS | %d חדשות-שוק", n_poly, n_perp, n_news)
+                        finally:
+                            st_ml.close()
+                        next_micro_learn = time.time() + 300.0
 
                     if self.cfg.perps.enabled and self.cfg.perps.auto_learn and now >= next_perps_learn:
                         self._trigger_perps_learning_bg()

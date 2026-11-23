@@ -351,14 +351,17 @@ def build_command_center_data(
             default_chart = build_chart_series(store, cfg, cands[0]["token_id"]) if cands else None
             out["charts"] = {"candidates": cands, "default": default_chart}
 
-            # למידה עצמית
+            # למידה עצמית רציפה (Polymarket + PERPS + תוצאות חדשות)
             l_stats = store.signal_outcome_stats(days=30)
             l_runs = store.recent_learning_runs(limit=15)
+            n_alpha = store.news_alpha_stats(days=14)
             out["learning"] = {
                 "stats": l_stats,
                 "runs": l_runs,
                 "insights": (l_runs[0].get("details") or {}).get("insights", []) if l_runs else [],
+                "news_alpha": n_alpha,
             }
+            out["news_alpha"] = n_alpha
             out["market_intel"] = store.recent_market_intel(limit=60)
             out["autopilot"] = store.recent_autopilot_runs(limit=25)
             out["perps"] = build_perps_status(cfg, store, reports_dir=reports_dir)
@@ -652,6 +655,7 @@ def build_perps_status(cfg, store: Store, *, reports_dir: str | Path = "reports"
         "intel": intel_rows,
         "equity_curve": eq_curve,
         "learning_runs": store.recent_perp_learning_runs(limit=10),
+        "signal_stats": store.perp_signal_outcome_stats(days=30),
         "default_chart": build_perps_chart_series(store, cfg, default_sym),
         "reports_md": bt_md,
         "guards": {

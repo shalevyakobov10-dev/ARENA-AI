@@ -279,7 +279,7 @@ class PerpsConfig:
     news_exit_impact: float = 0.85
     news_exit_sentiment: float = -0.55
     auto_learn: bool = True
-    learn_interval_sec: float = 3600.0
+    learn_interval_sec: float = 1800.0
     exchange: PerpsExchangeConfig = field(default_factory=PerpsExchangeConfig)
     signal: PerpsSignalConfig = field(default_factory=PerpsSignalConfig)
     risk: PerpsRiskConfig = field(default_factory=PerpsRiskConfig)

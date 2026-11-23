@@ -96,7 +96,7 @@ learning:
   enabled: true
   auto_apply_paper: true
   allow_auto_apply_live: false
-  interval_sec: 3600
+  interval_sec: 1800
   max_markets: 35
   min_oos_trades: 25
   min_consistency: 0.66
@@ -114,7 +114,7 @@ perps:
   news_exit_impact: 0.85
   news_exit_sentiment: -0.55
   auto_learn: true
-  learn_interval_sec: 3600.0
+  learn_interval_sec: 1800.0
   exchange:
     enabled_exchanges:
     - okx

@@ -22,6 +22,7 @@ import yaml
 from .backtest import Backtester
 from .config import DEFAULT_CONFIG, Config
 from .data.clob import Candle
+from .data.news import evaluate_news_alpha
 from .models import Market
 from .sectors import classify
 from .walkforward import _NoNet, _apply, _evaluate, _snapshot_cfg, run_walkforward
@@ -251,7 +252,7 @@ def _save_learned_yaml(cfg_path: Path, candidate: dict[str, Any]) -> bool:
     return True
 
 
-def _build_insights(live_stats: dict[str, Any], min_n: int = 12) -> list[str]:
+def _build_insights(live_stats: dict[str, Any], news_alpha: dict[str, Any] | None = None, min_n: int = 12) -> list[str]:
     insights: list[str] = []
     act = live_stats.get("actionable") or {}
     if act.get("n", 0) >= min_n:
@@ -273,6 +274,16 @@ def _build_insights(live_stats: dict[str, Any], min_n: int = 12) -> list[str]:
         insights.append(
             f"השוואת חדשות: שוק שקט {bn['quiet'].get('hit_latest_pct')}% hit מול גל חדשות {bn['news_catalyst'].get('hit_latest_pct')}%"
         )
+    if news_alpha and (news_alpha.get("total_measured") or 0) >= 3:
+        dh = news_alpha.get("directional_hit_pct")
+        mv = news_alpha.get("avg_abs_move_4h_pct")
+        dh_txt = f" | התאמה כיוונית {dh}%" if dh is not None else ""
+        mv_txt = f" | תנועת מחיר ממוצעת ±{mv}%" if mv is not None else ""
+        insights.append(f"למידת חדשות חיה: {news_alpha['total_measured']} כתבות נמדדו מול מחירי השוק{dh_txt}{mv_txt}")
+        top_src = [s for s in (news_alpha.get("by_source") or []) if s.get("hit_pct") is not None and (s.get("n") or 0) >= 3]
+        if top_src:
+            best = max(top_src, key=lambda x: float(x["hit_pct"]))
+            insights.append(f"מקור חדשות מדויק מוביל: {best['source']} ({best['hit_pct']}% התאמה על {best['n']} כתבות)")
     return insights
 
 
@@ -289,15 +300,17 @@ def run_self_learning_cycle(
 ) -> LearningReport:
     """
     מריץ מחזור למידה עצמית מלא:
-    1. הערכת תוצאות אותות קודמים ב-DB.
+    1. הערכת תוצאות אותות קודמים + למידת תגובת שוק לחדשות (News Alpha).
     2. איסוף היסטוריה עדכנית (אם לא הוזרקו datasets).
     3. השוואת Baseline מול Walk-Forward OOS.
     4. שמירת דוח + עדכון פרמטרים מבוקר (ב-paper בלבד כברירת מחדל).
     """
     now = int(time.time())
     evaluated = evaluate_live_signals(store, clob=clob, now_ts=now)
+    news_eval = evaluate_news_alpha(store, now_ts=now)
     live_stats = store.signal_outcome_stats(days=30)
-    insights = _build_insights(live_stats, min_n=cfg.learning.min_live_signals_for_alert)
+    news_alpha = store.news_alpha_stats(days=14)
+    insights = _build_insights(live_stats, news_alpha=news_alpha, min_n=cfg.learning.min_live_signals_for_alert)
 
     if datasets is None and gamma is not None and clob is not None:
         from .data.gamma import MarketUniverse

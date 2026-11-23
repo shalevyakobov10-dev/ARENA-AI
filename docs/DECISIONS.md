@@ -179,6 +179,13 @@ CNBC ו-NPR נוספו לצד Google News (`data/news.py`), ויחס האצת ה
 (ב) **מיגון ביצוע, מקביליות ומהירות תגובה (`perps/engine.py`, `server.py`)**: מקבול משיכת נרות+ספר ב־`ThreadPoolExecutor(8)`, בדיקת `read_halt()` (`halt.json`) לפני כל כניסה חדשה, הגנת נר-כניסה (`opened_at < last_candle.ts` למניעת עצירת-שווא מפתיל טרום-כניסה), ופונקציית `monitor_open_positions()` מהירה המנטרת פוזיציות פתוחות כל דקה בשידור החי.
 (ג) **שלמות חשבונאית, דיוק Live, חדשות וטלגרם (`reconcile.py`, `autopilot.py`, `perps/broker.py`, `news.py`, `telegram_bot.py`, `ui.py`)**: נוספו `reconcile_perps()`, חיתוך `round_step()` ל־`lot_size`/`tick_size` ב־OKX/Binance + תמיכת `Hyperliquid` חיה, פקודת טלגרם `/perps` ופירוט Perps ב־`/status`, 3 ערוצי חדשות קריפטו-מאקרו נוספים (`Cointelegraph`, `CryptoSlate`, Crypto-Macro query), וגרף **נרות יפניים (`OHLC Candlesticks` + Crosshair חי)** בטאב `⚡ חוזים (PERPS ×50)`.
 
+## 25. למידה מתמדת על מסחר וחדשות (24/7) + עיצוב Apple Liquid Glass Pro
+2026-11 · מתקבל · מלא (אומת ב-224 בדיקות + 114 כתבות News Alpha ו-414 אותות חיים ב-DB)
+שדרוג ארכיטקטוני של מערכת הלמידה והממשק:
+(א) **מנוע למידת השפעת חדשות (`news_outcomes`, `evaluate_news_alpha`, `news_source_reliability` ב־`news.py`, `store.py`)**: מדידת תנועת השוק האמיתית (`1ש'`, `4ש'`, `12ש'`) אחרי פרסום כל כתבה מול `perp_candles` ו־`ticks`; דיוק מקורות החדשות (`CoinDesk`, `Cointelegraph`, `CryptoSlate`, `CNBC`, `Al Jazeera`, `MarketWatch` וכו') מוזן חזרה כמשקל `0.70–1.35x` לניקוד ה־`impact` בחדשות הבאות.
+(ב) **למידה מתמדת דו-זרועית (`perp_signal_outcomes`, `evaluate_perp_live_signals`, `server.py`)**: מיקרו-למידה כל **5 דקות** (ללא עומס רשת) מעריכה בזמן אמת אותות Polymarket (`6h/24h/48h`), אותות PERPS (`1h/4h/12h` לפי משטר וחדשות) ו־`News Alpha`, לצד כיול Walk-Forward OOS כל **30 דקות** (`1800s`) לשתי הזרועות, ורוטציית Google News המונעת חסימות `429`.
+(ג) **עיצוב Apple Liquid Glass Pro (`ui.py`)**: מיתוג מחדש מלא של ה־Command Center בסגנון macOS Sequoia / iOS 18 — משטחי זכוכית שקופים (`backdrop-filter: saturate(180%) blur(24px)`), פלטת Apple Dark System (`#000000`, `#0A84FF`, `#30D158`, `#FF453A`, `#FF9F0A`, `#BF5AF2`), Segmented Control pill, כרטיסי Bento מעוגלים, גרפי Canvas בסגנון Apple Stocks, ופאנל `News Alpha + Dual-Arm Learning` בזמן אמת.
+
 
 
 

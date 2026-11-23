@@ -330,6 +330,62 @@ def test_reconcile_perps_telegram_and_round_step(tmp_path):
     assert "PERPS" in out_s
 
 
+def test_continuous_news_alpha_and_perp_signal_learning(tmp_path):
+    from pmmb.data.news import evaluate_news_alpha
+    from pmmb.perps.learning import evaluate_perp_live_signals
+    from pmmb.perps.models import PerpSignal
+
+    db = tmp_path / "learn_cont.db"
+    store = Store(db)
+    now = int(datetime.now(tz=timezone.utc).timestamp())
+    t0 = now - 6 * 3600
+    try:
+        # נרות BTC שעתיים עם עלייה חדה של +4% אחרי חדשה חיובית + אות LONG
+        candles = []
+        for i in range(10):
+            ts_c = t0 + i * 3600
+            px = 60000.0 if i <= 1 else 62400.0
+            candles.append((ts_c, px, px + 50, px - 50, px, 1000.0))
+        store.insert_perp_candles("BTC", "okx", "1h", candles)
+
+        sig = PerpSignal(
+            symbol="BTC", exchange="okx", direction="LONG", strategy="pullback",
+            regime="TREND_UP", score=0.82, tier="A+", price=60000.0,
+            stop_price=59100.0, take_profit_price=61560.0,
+            atr=600.0, recommended_leverage=25.0,
+            reason="pullback", features={"z": -1.9, "news_impact": 0.7},
+            ts=datetime.fromtimestamp(t0, tz=timezone.utc),
+        )
+        store.record_perp_signal(sig)
+        # 5 כתבות CoinDesk חיוביות ב-t0 -> בודק שמדידת News Alpha לומדת ויוצרת מכפיל אמינות
+        arts = [
+            {
+                "id": f"art-{i}", "ts": t0, "source": "CoinDesk", "category": "crypto",
+                "title": f"Bitcoin spot ETF inflow rally #{i}", "url": f"https://ex/{i}",
+                "sentiment": 0.75, "impact": 0.65, "matched_tokens": "",
+            }
+            for i in range(5)
+        ]
+        store.upsert_news(arts)
+
+        n_perp = evaluate_perp_live_signals(store, now_ts=now)
+        n_news = evaluate_news_alpha(store, now_ts=now)
+        assert n_perp >= 1
+        assert n_news == 5
+
+        ps_stats = store.perp_signal_outcome_stats()
+        assert ps_stats["total_evaluated"] >= 1
+        assert ps_stats["overall"]["hit_pct"] == 100.0
+
+        na_stats = store.news_alpha_stats()
+        assert na_stats["total_measured"] == 5
+        assert na_stats["directional_hit_pct"] == 100.0
+        rel = store.news_source_reliability(min_samples=4)
+        assert rel["CoinDesk"] > 1.0
+    finally:
+        store.close()
+
+
 def test_perp_backtest_walkforward_and_learning(tmp_path):
     pc = PerpsConfig()
     cs = _mk_candles(360, base=100.0, mode="mr_long")

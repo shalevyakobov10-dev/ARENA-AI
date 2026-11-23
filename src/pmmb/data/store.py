@@ -329,6 +329,47 @@ CREATE TABLE IF NOT EXISTS perp_learning_runs (
     summary       TEXT,
     details       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS perp_signal_outcomes (
+    signal_id       INTEGER PRIMARY KEY,
+    symbol          TEXT NOT NULL,
+    ts              INTEGER NOT NULL,
+    direction       TEXT NOT NULL,
+    entry_price     REAL,
+    regime          TEXT,
+    strategy        TEXT,
+    z_score         REAL,
+    score           REAL,
+    leverage        REAL,
+    news_impact     REAL DEFAULT 0,
+    price_1h        REAL,
+    price_4h        REAL,
+    price_12h       REAL,
+    realized_1h_pct REAL,
+    realized_4h_pct REAL,
+    realized_12h_pct REAL,
+    evaluated_at    INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS news_outcomes (
+    article_id    TEXT PRIMARY KEY,
+    ts            INTEGER NOT NULL,
+    source        TEXT,
+    category      TEXT,
+    title         TEXT,
+    sentiment     REAL DEFAULT 0,
+    impact        REAL DEFAULT 0,
+    target_symbol TEXT,
+    entry_price   REAL,
+    price_1h      REAL,
+    price_4h      REAL,
+    price_12h     REAL,
+    move_1h_pct   REAL,
+    move_4h_pct   REAL,
+    move_12h_pct  REAL,
+    aligned_4h    INTEGER,
+    evaluated_at  INTEGER NOT NULL
+);
 """
 
 
@@ -1424,3 +1465,213 @@ class Store:
             "applied": bool(r["applied"]), "summary": r["summary"],
             "details": json.loads(r["details"] or "{}"),
         } for r in rows]
+
+    # ------------------------------------------------------------------ Continuous Perps & News Learning
+    def nearest_perp_candle_price(self, symbol: str, target_ts: int, window_sec: int = 5400) -> float | None:
+        row = self._conn.execute(
+            """SELECT close FROM perp_candles
+               WHERE symbol=? AND ts BETWEEN ? AND ?
+               ORDER BY ABS(ts - ?) ASC LIMIT 1""",
+            (symbol.upper(), target_ts - window_sec, target_ts + window_sec, target_ts),
+        ).fetchone()
+        return float(row["close"]) if row and row["close"] is not None else None
+
+    def pending_perp_signals_for_outcome(self, min_age_hours: float = 1.0, limit: int = 500) -> list[sqlite3.Row]:
+        cutoff = int(datetime.now(tz=timezone.utc).timestamp() - min_age_hours * 3600)
+        return self._conn.execute(
+            """SELECT s.* FROM perp_signals s
+               LEFT JOIN perp_signal_outcomes o ON o.signal_id = s.id
+               WHERE s.ts <= ?
+                 AND s.direction IN ('LONG', 'SHORT')
+                 AND s.price IS NOT NULL
+                 AND (o.signal_id IS NULL OR o.price_12h IS NULL)
+               ORDER BY (o.signal_id IS NULL) DESC, s.ts ASC LIMIT ?""",
+            (cutoff, limit),
+        ).fetchall()
+
+    def upsert_perp_signal_outcome(self, row: dict[str, Any]) -> None:
+        with self.tx() as c:
+            c.execute(
+                """INSERT INTO perp_signal_outcomes(
+                       signal_id, symbol, ts, direction, entry_price, regime, strategy,
+                       z_score, score, leverage, news_impact,
+                       price_1h, price_4h, price_12h,
+                       realized_1h_pct, realized_4h_pct, realized_12h_pct, evaluated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(signal_id) DO UPDATE SET
+                     price_1h = COALESCE(excluded.price_1h, perp_signal_outcomes.price_1h),
+                     price_4h = COALESCE(excluded.price_4h, perp_signal_outcomes.price_4h),
+                     price_12h = COALESCE(excluded.price_12h, perp_signal_outcomes.price_12h),
+                     realized_1h_pct = COALESCE(excluded.realized_1h_pct, perp_signal_outcomes.realized_1h_pct),
+                     realized_4h_pct = COALESCE(excluded.realized_4h_pct, perp_signal_outcomes.realized_4h_pct),
+                     realized_12h_pct = COALESCE(excluded.realized_12h_pct, perp_signal_outcomes.realized_12h_pct),
+                     evaluated_at = excluded.evaluated_at""",
+                (
+                    int(row["signal_id"]), str(row["symbol"]), int(row["ts"]), str(row["direction"]),
+                    row.get("entry_price"), str(row.get("regime") or ""), str(row.get("strategy") or ""),
+                    row.get("z_score"), row.get("score"), row.get("leverage"), float(row.get("news_impact") or 0.0),
+                    row.get("price_1h"), row.get("price_4h"), row.get("price_12h"),
+                    row.get("realized_1h_pct"), row.get("realized_4h_pct"), row.get("realized_12h_pct"),
+                    int(row.get("evaluated_at") or datetime.now(tz=timezone.utc).timestamp()),
+                ),
+            )
+
+    def perp_signal_outcome_stats(self, days: int = 30) -> dict[str, Any]:
+        since = int(datetime.now(tz=timezone.utc).timestamp() - days * 86400)
+        raw_rows = list(self._conn.execute(
+            """SELECT * FROM perp_signal_outcomes
+               WHERE ts >= ? AND (realized_1h_pct IS NOT NULL OR realized_4h_pct IS NOT NULL OR realized_12h_pct IS NOT NULL)
+               ORDER BY ts ASC""",
+            (since,),
+        ).fetchall())
+        # דדופליקציה לפי (symbol, direction, שעה)
+        dedup: dict[tuple[str, str, int], sqlite3.Row] = {}
+        for r in raw_rows:
+            dedup[(str(r["symbol"]), str(r["direction"]), int(r["ts"]) // 3600)] = r
+        rows = list(dedup.values())
+
+        def _agg(sub: list[sqlite3.Row]) -> dict[str, Any]:
+            r1 = [float(r["realized_1h_pct"]) for r in sub if r["realized_1h_pct"] is not None]
+            r4 = [float(r["realized_4h_pct"]) for r in sub if r["realized_4h_pct"] is not None]
+            r12 = [float(r["realized_12h_pct"]) for r in sub if r["realized_12h_pct"] is not None]
+            latest = [
+                float(r["realized_12h_pct"] if r["realized_12h_pct"] is not None else (
+                    r["realized_4h_pct"] if r["realized_4h_pct"] is not None else r["realized_1h_pct"]
+                ))
+                for r in sub
+                if (r["realized_12h_pct"] is not None or r["realized_4h_pct"] is not None or r["realized_1h_pct"] is not None)
+            ]
+            return {
+                "n": len(sub), "n_1h": len(r1), "n_4h": len(r4), "n_12h": len(r12),
+                "hit_pct": round(sum(1 for x in latest if x > 0) / len(latest) * 100, 1) if latest else None,
+                "mean_pct": round(sum(latest) / len(latest), 3) if latest else None,
+            }
+
+        by_reg: dict[str, list[sqlite3.Row]] = {}
+        quiet: list[sqlite3.Row] = []
+        news_cat: list[sqlite3.Row] = []
+        for r in rows:
+            by_reg.setdefault(str(r["regime"] or "RANGE"), []).append(r)
+            if float(r["news_impact"] or 0.0) >= 0.45:
+                news_cat.append(r)
+            else:
+                quiet.append(r)
+
+        return {
+            "total_evaluated": len(rows),
+            "raw_evaluated": len(raw_rows),
+            "overall": _agg(rows),
+            "by_regime": {k: _agg(v) for k, v in sorted(by_reg.items())},
+            "by_news": {"quiet": _agg(quiet), "news_catalyst": _agg(news_cat)},
+        }
+
+    def pending_news_for_outcome(self, min_age_hours: float = 1.0, days: int = 7, limit: int = 350) -> list[sqlite3.Row]:
+        now = int(datetime.now(tz=timezone.utc).timestamp())
+        cutoff_new = int(now - min_age_hours * 3600)
+        cutoff_old = int(now - days * 86400)
+        return self._conn.execute(
+            """SELECT n.* FROM news_items n
+               LEFT JOIN news_outcomes o ON o.article_id = n.id
+               WHERE n.ts BETWEEN ? AND ?
+                 AND (o.article_id IS NULL OR o.price_12h IS NULL)
+               ORDER BY (o.article_id IS NULL) DESC, n.ts DESC LIMIT ?""",
+            (cutoff_old, cutoff_new, limit),
+        ).fetchall()
+
+    def upsert_news_outcome(self, row: dict[str, Any]) -> None:
+        with self.tx() as c:
+            c.execute(
+                """INSERT INTO news_outcomes(
+                       article_id, ts, source, category, title, sentiment, impact,
+                       target_symbol, entry_price, price_1h, price_4h, price_12h,
+                       move_1h_pct, move_4h_pct, move_12h_pct, aligned_4h, evaluated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(article_id) DO UPDATE SET
+                     price_1h = COALESCE(excluded.price_1h, news_outcomes.price_1h),
+                     price_4h = COALESCE(excluded.price_4h, news_outcomes.price_4h),
+                     price_12h = COALESCE(excluded.price_12h, news_outcomes.price_12h),
+                     move_1h_pct = COALESCE(excluded.move_1h_pct, news_outcomes.move_1h_pct),
+                     move_4h_pct = COALESCE(excluded.move_4h_pct, news_outcomes.move_4h_pct),
+                     move_12h_pct = COALESCE(excluded.move_12h_pct, news_outcomes.move_12h_pct),
+                     aligned_4h = COALESCE(excluded.aligned_4h, news_outcomes.aligned_4h),
+                     evaluated_at = excluded.evaluated_at""",
+                (
+                    str(row["article_id"]), int(row["ts"]), str(row.get("source") or ""),
+                    str(row.get("category") or ""), str(row.get("title") or "")[:180],
+                    float(row.get("sentiment") or 0.0), float(row.get("impact") or 0.0),
+                    str(row.get("target_symbol") or ""), row.get("entry_price"),
+                    row.get("price_1h"), row.get("price_4h"), row.get("price_12h"),
+                    row.get("move_1h_pct"), row.get("move_4h_pct"), row.get("move_12h_pct"),
+                    row.get("aligned_4h"), int(row.get("evaluated_at") or datetime.now(tz=timezone.utc).timestamp()),
+                ),
+            )
+
+    def news_alpha_stats(self, days: int = 14) -> dict[str, Any]:
+        since = int(datetime.now(tz=timezone.utc).timestamp() - days * 86400)
+        rows = list(self._conn.execute(
+            """SELECT * FROM news_outcomes
+               WHERE ts >= ? AND (move_1h_pct IS NOT NULL OR move_4h_pct IS NOT NULL OR move_12h_pct IS NOT NULL)
+               ORDER BY ts DESC""",
+            (since,),
+        ).fetchall())
+        if not rows:
+            return {"total_measured": 0, "directional_hit_pct": None, "avg_abs_move_4h_pct": None, "by_source": [], "by_category": {}}
+
+        def _row_abs(r: sqlite3.Row) -> float | None:
+            v = r["move_4h_pct"] if r["move_4h_pct"] is not None else (r["move_1h_pct"] if r["move_1h_pct"] is not None else r["move_12h_pct"])
+            return abs(float(v)) if v is not None else None
+
+        by_src: dict[str, list[sqlite3.Row]] = {}
+        by_cat: dict[str, list[sqlite3.Row]] = {}
+        aligned = [int(r["aligned_4h"]) for r in rows if r["aligned_4h"] is not None]
+        abs_moves = [m for m in (_row_abs(r) for r in rows) if m is not None]
+        for r in rows:
+            src = str(r["source"] or "RSS")
+            cat = str(r["category"] or "world")
+            by_src.setdefault(src, []).append(r)
+            by_cat.setdefault(cat, []).append(r)
+
+        src_list = []
+        for src, items in by_src.items():
+            al = [int(x["aligned_4h"]) for x in items if x["aligned_4h"] is not None]
+            mv = [m for m in (_row_abs(x) for x in items) if m is not None]
+            high_imp = [x for x in items if float(x["impact"] or 0.0) >= 0.45]
+            src_list.append({
+                "source": src,
+                "n": len(items),
+                "high_impact_n": len(high_imp),
+                "hit_pct": round(sum(al) / len(al) * 100, 1) if al else None,
+                "avg_move_pct": round(sum(mv) / len(mv), 2) if mv else None,
+            })
+        src_list.sort(key=lambda d: (-int(d["n"]), -(d["hit_pct"] or 0.0)))
+
+        cat_dict = {}
+        for cat, items in by_cat.items():
+            al = [int(x["aligned_4h"]) for x in items if x["aligned_4h"] is not None]
+            mv = [m for m in (_row_abs(x) for x in items) if m is not None]
+            cat_dict[cat] = {
+                "n": len(items),
+                "hit_pct": round(sum(al) / len(al) * 100, 1) if al else None,
+                "avg_move_pct": round(sum(mv) / len(mv), 2) if mv else None,
+            }
+
+        return {
+            "total_measured": len(rows),
+            "directional_n": len(aligned),
+            "directional_hit_pct": round(sum(aligned) / len(aligned) * 100, 1) if aligned else None,
+            "avg_abs_move_4h_pct": round(sum(abs_moves) / len(abs_moves), 2) if abs_moves else None,
+            "by_source": src_list[:10],
+            "by_category": cat_dict,
+        }
+
+    def news_source_reliability(self, min_samples: int = 4) -> dict[str, float]:
+        """מחזיר מכפיל אמינות לכל מקור חדשות (0.70 עד 1.35) מתוך תוצאות אמת."""
+        st = self.news_alpha_stats(days=21)
+        rel: dict[str, float] = {}
+        for row in st.get("by_source", []):
+            if int(row.get("n") or 0) < min_samples or row.get("hit_pct") is None:
+                continue
+            hit = float(row["hit_pct"]) / 100.0
+            # Hit rate 50% -> 1.0 | 80% -> 1.30 | 25% -> 0.75
+            rel[str(row["source"])] = round(max(0.70, min(1.35, 1.0 + (hit - 0.50))), 3)
+        return rel
