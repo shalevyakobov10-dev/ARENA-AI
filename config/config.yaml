@@ -1,0 +1,173 @@
+execution:
+  mode: paper
+  starting_cash: 1000.0
+  slippage_bps: 10
+  taker_fee_bps: 0
+  max_slippage_bps: 150
+  order_type: FAK
+universe:
+  max_markets: 120
+  min_volume_24h: 3500
+  min_liquidity: 2000
+  max_spread: 0.025
+  max_taker_fee_rate: 0.02
+  price_band:
+  - 0.2
+  - 0.85
+  min_hours_to_resolution: 6
+  min_entry_hours_to_resolution: 48
+  max_hours_to_resolution: 1080
+  exclude_sectors:
+  - crypto
+  - sports
+  - culture
+  exclude_tags: []
+  exclude_slug_contains: []
+  require_order_book: true
+signal:
+  engine: meanrev
+  meanrev:
+    lookback_candles: 24
+    z_entry: 1.65
+    z_max: 6.5
+    reversion_ratio: 0.55
+    max_room_pct: 0.6
+    allow_short: false
+    horizon_hours: 24
+    rsi_max: 40.0
+    max_spread_to_edge: 0.75
+    confluence_boost: true
+    trend_guard: false
+  candle_fidelity_min: 60
+  lookback_candles: 144
+  ema_fast: 9
+  ema_slow: 26
+  breakout_window: 20
+  momentum_window: 12
+  vol_window: 30
+  min_score: 0.55
+  min_edge: 0.005
+  confirm_candles: 2
+  trend_filter: true
+  allow_short: true
+  exit:
+    stop_mode: abs
+    take_profit: 0.06
+    stop_loss: 0.07
+    time_stop_hours: 48
+    exit_on_flip: false
+risk:
+  risk_per_trade_pct: 0.03
+  kelly_fraction: 0.8
+  max_position_pct: 0.1
+  max_total_exposure_pct: 0.55
+  max_open_positions: 7
+  max_positions_per_event: 1
+  max_positions_per_sector: 2
+  max_daily_loss_pct: 0.05
+  max_drawdown_pct: 0.2
+  cooldown_minutes: 360
+  min_order_size: 5.0
+  max_price_impact_pct: 0.02
+  drawdown_throttle_pct: 0.05
+data:
+  gamma_base_url: https://gamma-api.polymarket.com
+  clob_base_url: https://clob.polymarket.com
+  http_timeout: 15
+  max_retries: 3
+  rate_limit_rps: 8
+  history_cache_ttl_sec: 120
+  db_path: pmmb.db
+logging:
+  level: INFO
+  file: logs/pmmb.log
+  json_console: false
+news:
+  enabled: true
+  refresh_interval_sec: 180
+  block_on_catalyst: true
+  spike_window_hours: 4.0
+  min_spike_articles: 2
+  spike_impact_threshold: 0.65
+  volume_spike_ratio: 6.0
+  max_market_queries: 12
+  emergency_exit_impact: 0.85
+  emergency_exit_sentiment: -0.55
+learning:
+  enabled: true
+  auto_apply_paper: true
+  allow_auto_apply_live: false
+  interval_sec: 1200
+  max_markets: 35
+  min_oos_trades: 25
+  min_consistency: 0.66
+  min_improvement_pct: 0.05
+  min_live_signals_for_alert: 12
+perps:
+  enabled: true
+  mode: paper
+  interval_sec: 60.0
+  slippage_bps: 3.5
+  taker_fee_bps: 3.5
+  maker_fee_bps: 1.0
+  use_news_filter: true
+  news_block_impact: 0.8
+  news_exit_impact: 0.85
+  news_exit_sentiment: -0.55
+  auto_learn: true
+  learn_interval_sec: 1200.0
+  exchange:
+    enabled_exchanges:
+    - okx
+    - hyperliquid
+    - binance
+    preferred_exchange: auto
+    min_volume_24h_usd: 12000000.0
+    min_open_interest_usd: 5000000.0
+    max_spread_bps: 15.0
+    max_assets: 16
+    cross_exchange_crypto_only: true
+    symbols: []
+    http_timeout: 10.0
+  signal:
+    timeframe: 1h
+    lookback_candles: 160
+    adx_trend_threshold: 25.0
+    er_trend_threshold: 0.32
+    z_entry: 1.8
+    z_max: 5.0
+    rsi_oversold: 38.0
+    rsi_overbought: 62.0
+    min_score: 0.56
+    htf_macro_bias: true
+    allow_short: true
+    max_funding_hourly_against: 0.0005
+  risk:
+    starting_cash: 1000.0
+    max_leverage: 50.0
+    dynamic_leverage: true
+    liquidation_buffer_mult: 2.2
+    risk_per_trade_pct: 0.03
+    max_margin_per_position_pct: 0.25
+    max_total_margin_pct: 0.59
+    max_open_positions: 4
+    max_positions_per_direction: 4
+    sl_atr_mult: 1.5
+    tp_atr_mult: 3.4
+    trailing_enabled: true
+    trailing_trigger_atr: 1.4
+    trailing_dist_atr: 0.95
+    time_stop_hours: 36.0
+    cooldown_bars: 6
+    max_daily_loss_pct: 0.08
+    max_drawdown_pct: 0.24
+    default_mmr: 0.005
+autopilot:
+  enabled: true
+  trade_interval_sec: 120
+  stream_interval_sec: 45
+  reconcile_every_cycles: 5
+  auto_fix_paper: true
+  backup_interval_sec: 14400
+  backup_keep: 14
+  reports_interval_sec: 1800

@@ -1,0 +1,10 @@
+requests>=2.31
+PyYAML>=6.0
+python-dotenv>=1.0
+pandas>=2.1
+numpy>=1.26
+rich>=13.7
+pytest>=8.0
+
+# אופציונלי — נדרש רק למסחר אמיתי (mode: live)
+# pip install -r requirements-live.txt

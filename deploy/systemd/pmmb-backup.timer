@@ -1,0 +1,9 @@
+[Unit]
+Description=PMMB — גיבוי DB יומי
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target

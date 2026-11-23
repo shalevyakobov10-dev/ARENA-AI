@@ -1,0 +1,18 @@
+# מאזין לפקודות Telegram מהטלפון (/status, /positions, /guards, /readiness, /halt, /resume)
+[Unit]
+Description=PMMB — בוט פקודות Telegram
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/polymarket-momentum-bot
+EnvironmentFile=/opt/polymarket-momentum-bot/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/polymarket-momentum-bot/.venv/bin/pmmb telegram
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

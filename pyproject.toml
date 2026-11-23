@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pmmb"
+version = "0.1.0"
+description = "Polymarket momentum bot (strategy B: signal/momentum)"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "PyYAML>=6.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+live = ["py-clob-client>=0.17.0"]
+dev = ["pytest>=8.0", "pandas>=2.1"]
+
+[project.scripts]
+pmmb = "pmmb.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests"]

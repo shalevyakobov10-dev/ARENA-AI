@@ -1,0 +1,28 @@
+# בוט המסחר — רץ לבד, מתאושש לבד, שורד reboot.
+# התקנה:
+#   sudo cp deploy/systemd/pmmb-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now pmmb-bot
+[Unit]
+Description=PMMB — בוט מסחר פולימרקט (paper)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/opt/polymarket-momentum-bot
+EnvironmentFile=/opt/polymarket-momentum-bot/.env
+Environment=PYTHONUNBUFFERED=1
+# paper כברירת מחדל. למסחר אמיתי: --mode live (רק אחרי שהגנות אומתו)
+ExecStart=/opt/polymarket-momentum-bot/.venv/bin/pmmb paper --interval 60
+Restart=always
+RestartSec=15
+# הגנת משאבים — בוט לא אוכל את המחשב
+MemoryMax=1G
+CPUQuota=60%
+StandardOutput=append:/opt/polymarket-momentum-bot/logs/bot.log
+StandardError=append:/opt/polymarket-momentum-bot/logs/bot.err.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,103 @@
+# יומן — arena
+
+## 2026-11-22 — עמלות, ביצוע, ועצמאות תפעולית
+
+**עמלות.** גילויי: 91/100 שווקים מובילים עם `feesEnabled: true`. הנוסחה
+`C×rate×p×(1−p)`, מייקרים פטורים, geopolitics פטור. אימתתי מול הטבלה הרשמית
+(1.25 / 0.45 ל-100 מניות). נבנה `fees.py`, העמלה נכנסת ל-friction, ובבקטסט
+127.09 עמלות מתוך 361.72 PnL = 35%.
+
+**ביצוע.** מדדתי שלוש שיטות על אותה סדרה: טאקר +361.72, פסיבי w1 +269.06,
+פסיבי w3 +149.05. מונוטוני — ככל שממתינים יותר מפסידים יותר. adverse selection.
+מסקנה: `--entry passive` נשאר כלי מדידה. תיעוד: `reports/execution.md`.
+
+**החרגות.** crypto+macro = +198.68 על 61 עסקאות (ניטרלי, לא הוחרג).
+crypto+macro+tech+other = +30.75, עקביות 67% ⇒ קרס. נשאר `["crypto"]`.
+
+**עצמאות.** `runtime.py` (דופק אטומי), `status.py`, `server.py` (דשבורד
+בספרייה הסטנדרטית), `notify.py` (Telegram), `watchdog.sh`, systemd/launchd/docker.
+
+**בדיקות.** 124 ירוקות.
+
+## 2026-11-22 (שלב ב') — אמינות בקטסט, stop_mode=abs, שחזור ו-reconcile
+
+**בדיקת זליגה וספרד.** גיליתי ש-Backtester לא חייב חצי-ספרד בכניסה/יציאה.
+עם ספרד מלא ואפס זליגה מחלון החימום, `stop_mode=pct` נפל ל--71.30 OOS.
+עברתי ל-`stop_mode=abs` (TP +5c / SL -8c, lookback 24ש', z=1.8):
+OOS קפץ ל-+284.00 (73 עסקאות, 100% עקביות, 12/20 שווקים חיוביים), ותיק משותף
+של $1,000 הניב +8.37% עם Max DD 1.02%. ה-bias נבדק על 650 שווקים (EV +0.0022 — מת).
+
+**עמידות ושליטה.** מומש שחזור תיק מלא ב-Engine אחרי ריסטארט (מניעת קנייה כפולה),
+סליקת שווקים שהוכרעו דרך CLOB `/markets/{cid}`, `pmmb reconcile` (שתפס ותיקן פער
+אמיתי ב-`pmmb.db`!), `pmmb backup` חם, `halt.json` מתמיד, `pmmb telegram` (קריאה +
+`/halt` בלבד), ושדרוג הדשבורד (שם שוק, נוכחי, לא ממומש, SL/TP, מד שבוע paper).
+
+**בדיקות.** 172 ירוקות, אפס רשת.
+
+## 2026-11-22 (שלב ג') — הגנות קורלציה, ספר דק, סימולציית תיק ו־HEAD תמיכה בשרת
+
+- תוקנו: `do_HEAD` ב-`server.py` (השרת החזיר 501 לבדיקות HEAD), כפילות עמלת כניסה ב-`fees_paid`
+  ב-`backtest.py`, חסר `fee_rate` ב-`pmmb scan`, ושמירת עסקאות חוזרות על אותו טוקן ב-`daily.py`
+  ו-`pmmb report`.
+- נוספו הגנות: `event_id` deduplication (`max_positions_per_event=1` נשמר ב-SQLite),
+  `max_positions_per_sector=3`, בדיקת עומק ספר (`estimate_fill`) לפני פתיחה, ו-`min_entry_hours_to_resolution=24`
+  (מונע פתיחת פוזיציות שעה לפני יציאה כפויה).
+- נוסף `pmmb backtest --portfolio` לסימולציית תיק משותף אמיתי על ציר זמן מאוחד:
+  `+19.44%` (`1,194.35 USDC`), `68` עסקאות, `54.4% win`, `PF 3.20`, `MaxDD 4.28%`.
+- `config/config.yaml` עודכן בפועל גם לשורות `lookback_candles: 24` ו-`z_entry: 1.8`.
+- **178 בדיקות ירוקות (אפס רשת).**
+
+## 2026-11-22 (שלב ד') — מחקר Trailing/Time-stop + חוסן תפעולי ודשבורד מצטבר
+
+- נבדקו אמפירית עם ספרד מלא:
+  - `price_band=(0.05, 0.95)` עדיף על רצועות צרות יותר (`+3.18%` בתיק מול `+0.47%` / `-0.49%`).
+  - `time_stop=48h` (`+2.65%`, PF 1.45) עדיף על `24h` (`-0.56%`, PF 0.92).
+  - `TP=+5c / SL=-8c` קשיחים (`+157.71`, 57.4% win) עדיפים על BreakEven / Trailing (`+147.84`..`+156.94`).
+- תשתית: SQLite WAL + `busy_timeout=5000`, `ProcessLock` (`flock`) למניעת הרצה כפולה,
+  טיפול ב-`SIGTERM` לעצירה נקייה בסוף מחזור, וטיפול בשאריות dust ביציאה.
+- שדרוג `status.py`: כרטיסיית `מצטבר` (`overall`: win%, PF, PnL, עמלות) וטבלת `עסקאות סגורות אחרונות`.
+- **182 בדיקות ירוקות (אפס רשת).**
+
+## 2026-11-22 (שלב ה') — תוכנת הבקרה המלאה PMMB Command Center
+
+- נבנתה תוכנת בקרה גרפית שלמה (RTL, אפס תלויות ו-URLs חיצוניים): `src/pmmb/ui.py` +
+  `build_command_center_data()` ב-`status.py` + נקודות API אינטראקטיביות ב-`server.py`
+  (`GET /`, `/lite`, `/api/state`, `/status.json`, `/healthz`, ו-`POST /api/halt|resume|backup|reconcile|paper-cycle|trader/start|trader/stop`).
+- הרצת מסחר דרך הדפדפן מוגבלת ל-`paper` בלבד (`403` במצב `live`) ומוגנת ב-`ProcessLock` + Token אופציונלי.
+- נוסף `--html-out` ל-`pmmb status` לייצוא דוח תוכנה עצמאי (`reports/pmmb_command_center.html`).
+- **184 בדיקות ירוקות (אפס רשת).**
+
+## 2026-11-22 (שלב ו') — שידור חי 24/7, חדשות שווקים, גרפים חיים ולמידה עצמית
+
+- **`src/pmmb/data/news.py`**: פיד Google News RSS חי לפי קטגוריות + שאילתות אוטומטיות לשווקי
+  הפולימרקט הפתוחים, עם ניקוד סנטימנט וקטליזטורים (`impact`). מחובר ל-`Engine` כמגן
+  "סכין נופלת" (`חדשות: תזוזה מונעת ידיעה`).
+- **`src/pmmb/learning.py`**: מעקב אוטומטי אחר אותות עבר ב-DB (6ש'/24ש'/48ש') והרצת
+  Walk-Forward OOS השוואתית מול הקונפיגורציה הפעילה. קידום אוטומטי מוגבל ל-`paper` בלבד
+  אחרי 4 שערי בטיחות (`min_oos_trades`, `consistency`, `oos_ex_top > 0`, שיפור >=5%).
+- **שידור חי רציף ב-`server.py` + `ui.py`**: תוספת לשוניות **"📈 גרפים וחדשות בשידור חי"**
+  ו-**"🧠 למידה עצמית ואבולוציה"**, הזרמת טיקים וספרי פקודות ברקע (`--autostart`), ונקודות
+  קצה `GET /api/chart`, `POST /api/news-refresh`, `POST /api/learn` ופקודות `pmmb news` / `pmmb learn`.
+- **189 בדיקות ירוקות (אפס רשת).**
+
+## 2026-11-22 (שלב ז') — מודיעין שווקים מורחב, Autopilot עצמאי וממשק מוסדי חדש
+
+- **מודיעין רב-ממדי + זינוק נפח**: נוספו 4 פידים מוסדיים ישירים (BBC World/Business, CNBC, NPR)
+  ב-`data/news.py`, שדה `Market.volume_1wk`/`volume_ratio` ב-`models.py` (מגן קפיצת נפח פי 6 ב-`engine.py`),
+  וטבלאות `market_intel` + `autopilot_runs` ב-`data/store.py`.
+- **Autopilot מלא (`src/pmmb/autopilot.py` + `server.py`)**: אימות ותיקון DB אוטומטי (`run_auto_reconcile`),
+  גיבויי SQLite תקופתיים (`run_auto_backup`), הפקת דוחות יומיים/מוכנות (`run_auto_reports`), וניטור
+  פוזיציות פתוחות מול חדשות שליליות בזמן אמת + נתיב `POST /api/autopilot/maintain`.
+- **עיצוב מחדש של `src/pmmb/ui.py`**: ממשק מסחר מוסדי נקי ומינימליסטי (4 לשוניות, אייקוני SVG דקים,
+  `tabular-nums`, גרפי Canvas אינטראקטיביים, רדאר מודיעין חי, אפס אימוג'ים קרטוניים).
+- **193 בדיקות ירוקות (אפס רשת).**
+
+## 2026-11-22 (שלב ח') — טכניקות סוחר מקצועי, רשת 14 סוכנויות חדשות וטרמינל Split-Pane Trading Desk
+
+- **שדרוג מנוע `MeanReversionEngine` (`signals/meanrev.py`, `config.py`, `config.yaml`)**: שער קונפלואנס `RSI(14) <= 45.0`, מסנן יעילות ספרד `spread <= 1.1 * edge` ודירוג סטאפים (`A+`/`A`/`B`). סימולציית תיק משותף על 720 נרות שיפרה את יחס הזכייה מ-44.4% ל-69.2% ואת ה-Profit Factor ל-4.92 (DD 0.51%).
+- **ניהול סיכונים אקטיבי וביצוע (`risk/manager.py`, `engine.py`, `store.py`)**: Drawdown Throttling אוטומטי (`0.65x` מ-5% ירידה, `0.50x` מ-10%), חישוב `Microprice` ושמירה של `rsi`/`setup_tier`/`microprice` ב-`market_intel`, ויציאת חירום יזומה מפוזיציות פתוחות כשמתפרסם קטליזטור חדשותי שלילי קיצוני לאחר הפתיחה.
+- **מודיעין חדשות גלובלי (`data/news.py`)**: משיכה מקבילית (`ThreadPoolExecutor`) מ-14 רשתות בינלאומיות (`BBC`, `Al Jazeera`, `DW`, `France 24`, `CNBC`, `NPR`, `MarketWatch`, `CoinDesk`, `NYT`, `Guardian`), מנגנון `compute_global_pulse`, בלימת `429` מול Google News וסינון מילות גנריות/False-Positives ב-`match_market_news`.
+- **שדרוג טרמינל המסחר (`ui.py`, `status.py`, `server.py`)**: ממשק Split-Pane Trading Desk הכולל סרגל דופק עולמי, Watchlist בר-חיפוש/סינון, Bot Thesis Card, Order Book Depth Ladder של 6 רמות, מד `SL <-> Entry <-> TP`, גרפי Canvas עם Crosshair ו-`RSI(14)` וטבלת חדשות גלובלית עם פילטר אזורי.
+- **198 בדיקות ירוקות (`python -m pytest -q`), נבדק מול שרת חי ו-`node --check`.**
+
+

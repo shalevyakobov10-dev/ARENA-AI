@@ -1,0 +1,203 @@
+# החלטות (ADR מקוצר)
+
+פורמט: `## N. כותרת` · תאריך · סטטוס · ההחלטה · הנימוק · הראיה.
+
+## 1. Python + py-clob-client
+2026-11 · מתקבל · מלא
+סטאק: Python. נבחר על TypeScript. py-clob-client הוא ה-SDK הרשמי, והאקוסיסטם
+של ניתוח נתונים בפייתון התאים למדידות שהיו צריכות לקרות כאן.
+
+## 2. skeleton מלא לפני live
+2026-11 · מתקבל · מלא
+קודם מודולים, בדיקות ומדידה; מסחר אמיתי אחר כך. paper כברירת מחדל.
+
+## 3. מומנטום נדחה, ממומנטום להיפוך לממוצע
+2026-11 · מתקבל · מלא
+corr(12 שעות עבר, 24 שעות הבא) = −0.165 על 4,444 דגימות. מומנטום מפסיד.
+היפוך לממוצע עם אופק 48 שעות עובד.
+
+## 4. trend guard נדחה
+נדחה בכל החלונות ב-walk-forward. לא הופעל.
+
+## 5. ארביטראז' נמדד ולא קיים
+2026-11 · מתקבל · מלא
+min(ask(Y)+ask(N)) = 1.0010 על 71 שווקים; סלי negRisk 1.004–1.049.
+אין ארביטראז' להרוויח ממנו. לא לבנות סורקי ארביטראז'.
+
+## 6. החרגת crypto בלבד
+2026-11 · מתקבל · מלא
+crypto: 8% hit, נטו −0.2714. הוחרג. politics נבדקה להחרגה — ה-OOS צנח
+מ-+38.45 ל-+5.24 ⇒ נשארה. macro+tech+other הוחרגו בניסוי ⇒ OOS קרס ל-+30.75
+⇒ לא הוחרגו. **כלל: טבלה לא מספיקה, צריך fold-level proof.**
+
+## 7. עמלות במודל (fee = C×rate×p(1−p))
+2026-11 · מתקבל · מלא
+91/100 שווקים עם feesEnabled. מייקרים פטורים, geopolitics פטור.
+העמלה נכנסת ל-friction בסיגנל. 35% מהרווח ברוטו הולך לעמלות.
+
+## 8. ביצוע טאקר כברירת מחדל
+2026-11 · מתקבל · מלא
+כניסה פסיבית (מגבלה על ה-bid) חוסכת עמלה אבל מפסידה:
++362 (טאקר) → +269 (המתנה 1) → +149 (המתנה 3). adverse selection.
+ה-edge מתכלה. `--entry passive` נשאר ככלי מדידה בלבד.
+
+## 9. דופק + status לעצמאות
+2026-11 · מתקבל · מלא
+`state/heartbeat.json` כל מחזור; `pmmb status --json` עם קוד יציאה 0/3;
+watchdog שמפעיל מחדש. בלי זה אי אפשר להריץ לבד על המחשב והטלפון.
+
+## 10. בקטסט עם ספרד מלא + סטופ אבסולוטי (stop_mode=abs, lookback=24)
+2026-11 · מתקבל · מלא
+Backtester המקורי לא חייב חצי-ספרד בכניסה/יציאה. כשהוספנו ספרד אמיתי:
+סטופים באחוזים (10%/12%, lookback=12) נפלו ל--71.30 OOS (33% עקביות בקיזוז מוביל)
+כי במחירים נמוכים (0.10-0.25) ספרד של 1 סנט גורר עצירה מיידית.
+מעבר ל-stop_mode=abs (+5c TP / -8c SL, lookback=24, z=1.8) הפך את התמונה:
++284.00 OOS על 73 עסקאות (100% עקביות בין 3 חלונות, +16.94 גם ללא השוק המוביל),
+ובסימולציית תיק משותף ($1,000, מקס' 5 פוזיציות, 40% חשיפה): +8.37% עם Max DD 1.02%.
+
+## 11. התמדה בהפעלה מחדש + Reconcile + עצירה/פקודות מהטלפון
+2026-11 · מתקבל · מלא
+Engine משחזר אוטומטית פוזיציות פתוחות, מזומן, רווח יומי ושיא הון מ-SQLite,
+ומסלק שווקים שהוכרעו דרך CLOB /markets/{condition_id}. נבנו reconcile (paper+live),
+גיבוי חם (sqlite3.backup), עצירת חירום מתמדת (halt.json), ולולאת פקודות Telegram.
+
+## 12. הגנת קורלציה (event_id / סקטור), עומק ספר וסימולציית תיק משותף
+2026-11 · מתקבל · מלא
+בפועל ב-Polymarket אירוע בחירות/ספורט יחיד מתחלק לעשרות שווקים בינאריים.
+נוספו: (א) מעקב event_id ו-max_positions_per_event=1 + max_positions_per_sector=3
+כדי למנוע ריכוז יתר באותו אירוע (מאומת ב-SQLite גם אחרי ריסטארט),
+(ב) בדיקת עומק ספר (estimate_fill) לפני שליחת פקודה כדי לא לבלוע את ה-edge בספר דק,
+(ג) min_entry_hours_to_resolution=24 (מול יציאה בכוח ב-6ש') כדי לא להיכנס לשוק שעומד
+להתרוקן ולהיסגר כיתום (נמדד ב-paper על GTA VI),
+(ד) backtest --portfolio המדמה תיק משותף אמיתי (+19.44%, PF 3.20, MaxDD 4.28%),
+ותיקון כפילות ספירת עמלת הכניסה ב-fees_paid + דוח יומי/היסטורי מבוסס fills.
+
+## 13. חוסן תפעולי (WAL, ProcessLock, SIGTERM) ושמירת TP/SL קשיחים
+2026-11 · מתקבל · מלא
+נבדק אמפירית ב-28 שווקים עם ספרד מלא: נעילת Break-Even / Trailing צרה פגעה בתוצאות
+(+147.84 עד +156.94, 53.5%-56.5% win) לעומת TP=+5c / SL=-8c קשיחים (+157.71, 57.4% win).
+תשתית הריצה שודרגה ל-SQLite WAL + busy_timeout=5000 (קריאה מקבילית מהדשבורד
+ומ-telegram בלי נעילות), ProcessLock אטומי למניעת הרצה כפולה, עצירת SIGTERM
+נקייה בסוף מחזור, ותצוגת מדדים מצטברים ועסקאות אחרונות ב-status.py.
+
+## 14. תוכנת הבקרה PMMB Command Center + ייצוא עצמאי
+2026-11 · מתקבל · מלא
+נבנתה תוכנת בקרה מלאה בדפדפן (RTL עברית, אפס CDN / URLs חיצוניים) על בסיס
+stdlib HTTPServer (`ui.py` + `build_command_center_data` ב-`status.py` + `server.py`):
+4 לשוניות (סקירה חיה, פוזיציות/מילויים/סיגנלים, מחקר/Walk-Forward/Readiness,
+קונפיגורציה/גיבויים/תפעול), רענון אוטומטי, תמיכה ב-Token וב-Head,
+הרצת פעולות תפעוליות (`halt`, `resume`, `backup`, `reconcile`) והגבלת פעולות
+מסחר מהדפדפן (`paper-cycle`, `trader/start|stop`) למצב `paper` בלבד (403 ב-`live`)
+ומגבילים פעולות מסחר מהדפדפן (`paper-cycle`, `trader/start|stop`) למצב `paper` בלבד (403 ב-`live`)
+כדי למנוע מסחר כספי לא מבוקר מממשק אינטרנט. זמין גם בייצוא קובץ עצמאי (`pmmb status --html-out`).
+
+## 15. פיד חדשות שווקים חיות (Catalyst Guard), גרפים חיים ולמידה עצמית מתמשכת
+2026-11 · מתקבל · מלא
+מומשה שכבת מודיעין חיה ולמידה מתמדת הפועלת ללא הפסקה (`pmmb serve --autostart`):
+(א) `data/news.py`: קורא חדשות שווקים בזמן אמת מ-Google News RSS ומזהה קטליזטורים
+שוברי-שוק (breaking/resignation/injury/...) — מנוע `Engine` חוסם כניסות על "סכין נופלת"
+(`חדשות: תזוזה מונעת ידיעה`) בזמן שצניחה מונעת מידיעה מתפרצת.
+(ב) `learning.py`: עוקב בזמן אמת אחרי תוצאות כל האותות ב-DB (6ש'/24ש'/48ש', לפי טווח z,
+סקטור ונוכחות חדשות) ומריץ אופטימיזציית Walk-Forward OOS מול ה-Baseline הפעיל.
+קידום פרמטרים אוטומטי מותר **רק** במצב `paper` ורק לאחר מעבר 4 שערי בטיחות
+קשיחים (`oos_trades`, `consistency >= 66%`, `oos_ex_top > 0`, שיפור >=5%); במצב `live`
+המנוע לעולם לא משנה פרמטרים לבד אלא רק מתעד המלצה (`allow_auto_apply_live=false`).
+(ג) שידור חי של גרפי שוק (`GET /api/chart`, SMA + רצועת Z + SL/TP) ופיד חדשות ב-UI.
+
+## 16. אוטופיילוט תפעולי מלא, מודיעין שווקים רב-ממדי וממשק מוסדי נקי
+2026-11 · מתקבל · מלא
+(א) **מודיעין רב-ממדי (`market_intel` + פידים מוסדיים)**: פידים ישירים של BBC World/Business,
+CNBC ו-NPR נוספו לצד Google News (`data/news.py`), ויחס האצת הנפח (`Market.volume_ratio`
+מתוך `volume24hr / (volume1wk / 7)`) עוצר כניסות בקפיצות נפח חריגות (`volume_spike_ratio: 6.0`).
+בכל מחזור `Engine` שומר בטבלת `market_intel` את עומק הספר, חוסר האיזון, שינויי 1h/6h/24h,
+ה-Z-Score, השפעת החדשות והסטטוס לכל שוק.
+(ב) **Autopilot מלא (`autopilot.py` + `server.py`)**: שרת הבקרה מתזמן אוטומטית `run_auto_reconcile`
+(תיקון פערים ב-paper), `run_auto_backup` (שמירת 14 גיבויים חמים), `run_auto_reports` (דוח יומי +
+מוכנות Live), ו־`monitor_open_positions_news` (ניטור חדשות שליליות על פוזיציות פתוחות), עם תיעוד ב-`autopilot_runs`.
+(ג) **ממשק מוסדי מחודש (`ui.py`)**: ממשק HTML מינימליסטי נקי ב-4 לשוניות (`סקירה ומסחר`,
+`שווקים וגרפים`, `חדשות ולמידה`, `תפעול אוטונומי`), גרפי Canvas חדים, אפס אימוג'ים קרטוניים
+ואפס Markdown גולמי.
+
+## 17. אסטרטגיית Pro-Trader (קונפלואנס RSI + Spread/Edge + Microprice + הגנת חדשות אקטיבית) וטרמינל Trading Desk
+2026-11 · מתקבל · מלא (אומת באבלציות Walk-Forward & Portfolio על 720 נרות)
+(א) **קונפלואנס מרובה-מדדים (`signals/meanrev.py`, `engine.py`)**: אחרי אבלציה היסטורית (דחיית פילטר "התייצבות נר" שקיצץ +58% מהרווחיות, ודחיית Trailing Break-Even Stop לאחר שקיצץ רווחיות מ-+3.11%/75% win ל-+2.98%/69.2% על 17 שווקים), אומת שילוב של `RSI(14) <= 45.0` + `spread <= 1.1 * edge` + דירוג איכות סטאפ (`A+`/`A`/`B` המשקלל עומק Z, אי-איזון ספר L2 וביצוע מיקרו-מחיר). בסימולציית פורטפוליו חיה שופר Win Rate מ-44.4% ל-69.2% ו-PF ל-4.92 (DD 0.51%).
+(ב) **ניהול סיכונים ויציאת חירום (`risk/manager.py`, `engine.py`)**: נוסף Drawdown Throttle (`drawdown_throttle_pct=0.05` המפחית גודל פוזיציה ל-`0.65x`/`0.50x` בירידות תיק), חישוב `Microprice` מדויק מ-L1, הוספת `RSI` וסטטוס `NEAR` (התחממות לקראת אות) לכל שוק ב-`market_intel`, ויציאת חירום יזומה מפוזיציות פתוחות (`emergency_exit_impact=0.85`, `emergency_exit_sentiment=-0.55`).
+(ג) **רשת חדשות גלובלית של 19 סוכנויות (`data/news.py`)**: משיכה מקבילית מ-19 מקורות בינלאומיים (BBC World/Business/Tech, Al Jazeera, DW, France 24, CNBC Top/World, NPR, MarketWatch, CoinDesk, NYT World/Business, Guardian World, Sky Sports, SCMP Asia, CNA Asia, Federal Reserve, Politico), מנגנון `infer_region` ו-`by_region` לפי יבשות/תחומים, מניעת False-Positives ב-`match_market_news`, ושבירת מעגל `429` ל-Google News + `compute_global_pulse`.
+(ד) **טרמינל Trading Desk Split-Pane (`ui.py`, `server.py`)**: שולחן מסחר דו-טורי עם סרגל דופק עולמי עליון, Watchlist הניתן לחיפוש וסינון (`A+`, `פתוח`, `חסימת חדשות`), כרטיס Bot Thesis, סולם Depth חי של 6 רמות Bid/Ask, מד טווח `SL <-> Entry <-> TP`, וגרפי Canvas אינטראקטיביים עם Crosshair ותת-גרף `RSI(14)`.
+
+## 18. הקשחת ייצור מלאה: הגנת עמלות/סקטורים, ניטור יתומות מבוסס TP/SL, דופק ולמידה ללא חסימה, ותאימות Live
+2026-11 · מתקבל · מלא (אומת ב-204 בדיקות + WF OOS +27.85 / 67% עקביות + Portfolio +5.51% על 21 שווקים)
+ביקורת אמינות עמוקה מול נתוני אמת חשפה ופתרה ארבעה כשלי פרודקשן קריטיים:
+(א) **באג הדליפה ב-`_close_orphans()` (`engine.py`)**: גרסה קודמת חיסלה אוטומטית כל פוזיציה פתוחה שהשוק שלה נשר מהסריקה הרגעית ("שוק יצא מסינון"), מה שגרם להפסדי כפייה מלאכותיים (`-23.5`, `-17.1`, `-12.7 USDC`) בכל תזוזת נפח/ספרד רגעית. `_close_orphans()` הוסב למנטר מקומי שמעדכן `mark` מהספר, מוציא רק לפי `TP`/`SL`/`time_stop` או `<6h` לפדיון, ורושם יציאה תקינה ב-`CycleStats`.
+(ב) **חסימת Heartbeat ע"י למידה סינכרונית (`server.py`, `learning.py`)**: הרצת `run_learning_now` בתוך לולאת המסחר חסמה את הדופק ל-858 שניות ונתקעה על timeout של CLOB (`1440` נרות בלי מגבלת שליפה). הלמידה הועברה ל-thread רקע עם נעילת `_learn_lock`, לקוח `ClobClient` מהיר (`timeout=8s`, `max_retries=1`), `max_clob_fetches=12`, והשוואת OOS על `720` נרות ושמירת `rsi_max`/`max_spread_to_edge` בעת החלת קונפיג.
+(ג) **רפורמת יקום: אופק `1080h` (45d) + חסם עמלת Taker `<= 2%` + הוצאת `culture` וזליגות ספורט (`config.yaml`, `sectors.py`, `gamma.py`)**: שווקי 5% taker (`taker_fee_rate=0.05`) אכלו את יעד `take_profit=0.05`, ושחקני `Ligue 1` / `Serie B` / `FURIA` / `Zcash` / גיימינג (`xQc/GTA`) זלגו ל-`other`. הורחבו כללי `sectors.py`, `max_taker_fee_rate=0.02` נאכף ב-`_passes()`, והאבלציה הוכיחה עדיפות מובהקת ל-`h<=1080` + `[0.12, 0.88]` + `rsi_max=40.0` + `stop_loss=0.07` (Portfolio **`+5.51%`**, `62.8%` WR, **`PF 2.10`**, `DD 2.33%`; Walk-Forward OOS **`+27.85`**, `ex_top +20.76`, `13/16` שווקים חיוביים, עקביות **`67%`**).
+(ד) **שערים חיים (`live.py`, `engine.py`, `readiness.py`)**: נוסף אימות טרום-טיסה של מחיר (`[0.01, 0.99]`), גודל (`BUY >= 5.0` חוזים) ועיגול ל-tick ב-`LiveBroker.execute()`, בדיקת יתרת `usdc_balance()` לפני כניסה חיה, ובדיקת `live_keys` בשער המוכנות.
+
+## 19. כיול כמותי של `z_max=6.5` ו-`take_profit=0.06`, הגנת פדיון ליתומות ואכיפת `price_band` בסימולטור
+2026-11 · מתקבל · מלא (אומת ב-206 בדיקות + 100% WF OOS +60.55 / ex-top +46.84 + Portfolio +8.32% / PF 2.45)
+מחקר המשך על טבלת `books` (`2,032` דגימות), אותות אמת ומטריצת אבלציות חוזרת הביא לארבעה שדרוגים מוכחים:
+(א) **אבלציית `books` L2 ו־`time_stop_hours`**: אומת ש־`imbalance > 0.25` מניב יתרון מיקרו-תזמון בטווח הקצר (`h=600s`: `+0.0037`) ומתהפך בטווח `4h`, ולכן נשמר בדירוג A+ / מיקרו-מחיר בלבד; כמו כן `time_stop=48h` הביס את `24/36/60/72h` בשארפ וב-PF (`8.14`/`2.04`).
+(ב) **`z_max: 6.5` ו-`take_profit: 0.06` (`config.yaml`, `walkforward.py`)**: תחת הגנת החדשות (`Catalyst Guard`), תנודות חריגות של `z=5.0..6.5` ללא קטליזטור חדשותי הן אובר-שוטינג טהור (אושר גם באותות החיים: `z=3.0+` עם `55%` hit מול `12.5%` ב-`z=2-3`). העלאת `z_max` ל-`6.5` ויעד הרווח ל-`0.06` הזניקה את ה-Portfolio תחת ספרד 1.5c ל-**`+8.32%`** (`63.8%` WR, **`PF 2.45`**, `MaxDD 1.56%`) ואת ה-Walk-Forward ל-**`+60.55 USDC` OOS** (`ex_top +46.84`, **`100%` עקביות** על `65` עסקאות ו-`14/21` שווקים חיוביים).
+(ג) **הגנת פדיון לפוזיציות יתומות (`engine.py`)**: `_close_orphans()` שולף כעת מטא-דאטה דרך `Gamma` ומעביר `hours_to_resolution` ל-`RiskManager.evaluate_exit()`, כדי שפוזיציה שירדה מהיקום לפני סגירה עדיין תיסגר בבטחה לפני שער `< 6h` ולא תיכנס להכרעה בינארית.
+(ד) **זהות סימולטור-מציאות וניקוי יקום (`backtest.py`, `sectors.py`, `watchdog.sh`)**: `Backtester` אוכף `price_band` בכל כניסה (`[0.12, 0.88]`), דפוס `truth[- ]social` הוסף ל-`culture` (הוסרו 4 שווקי ספאם), ו-`watchdog.sh` תומך בגמישות ב-`PMMB_SERVICE` / `pmmb-server`.
+
+## 20. סייזינג Kelly מותאם-אסטרטגיה (`0.65`), צינון 6 שעות (`cooldown=360m`), ותיקון סיווג סקטורים בלייב
+2026-11 · מתקבל · מלא (אומת ב-208 בדיקות + Portfolio +19.66% / PF 2.33 / MaxDD 4.06% + 100% WF OOS)
+חקר עסקאות מפסידות וסיגנלים חיים חשף שלושה צווארי בקבוק משמעותיים שנפתרו ואומתו:
+(א) **באג הכניסה החוזרת אחרי סטופ (`config.yaml`, `backtest.py`)**: `cooldown_minutes=30` היה קצר מנרות השעה (`60m`), ו־`Backtester.run()` כלל לא אכף cooldown — כך שבמפולת שערים הבוט נכנס שוב ושוב בנר הבא לתוך אותו "סכין נופלת". העלאת `cooldown_minutes` ל־`360` דקות (6 שעות) ואכיפתו גם ב־`Backtester.run()` חתכה את ה־`MaxDD` בתיק המשותף מ־`6.94%` ל־`4.06%`, העלתה את ה־`PF` מ־`1.75` ל־`2.33`, והעלתה את תשואת התיק ל־**`+19.66%` (`1,196.59 USDC`)** על `5` פוזיציות מקסימליות.
+(ב) **איזון סייזינג (`kelly_fraction=0.65`, `max_open_positions=5`)**: אסטרטגיית `TP +6c / SL -7c` אינה מוחזקת עד `[0, 1]`, ולכן `kelly_fraction=0.25` חנק פוזיציות A+ ל-`~2%` מהתיק בלבד. קביעת `kelly_fraction=0.65` (תוך שמירה על תקרת הפסד `2%` לסטופ ו־`10%` לפוזיציה) שמרה על `100%` עקביות ב־Walk-Forward (**`+75.16 USDC` OOS**, `ex_top +52.80`; Baseline **`+95.00 OOS`**) והכפילה את התשואה וה־Calmar Ratio.
+(ג) **תיקון מיפוי הסקטורים בלייב (`learning.py`, `sectors.py`)**: `evaluate_live_signals()` משך שמות שווקים רק מ־`positions` ולכן סיווג אותות ללא פוזיציה כ־`other`; מעבר לשליפה מ־`market_intel` + תיקון regex של `spread:\b` (שפספס הימורי מרווח NFL/NBA כגון `Spread: 49ers (-3.5)`) והוספת תחרויות/חיפושים ל־`culture` ודו"חות כספיים ל־`macro` פתרו לחלוטין את ההטיה בסקירה החיה.
+
+## 21. הקשחת יחס עלות/תוחלת (`max_spread_to_edge=0.75`), תיעדוף שווקים Two-Pass, וניקוי False-Positives בחדשות ובאותות החיים
+2026-11 · מתקבל · מלא (אומת ב-211 בדיקות + Portfolio +17.56% / Win 66.0% / PF 2.16 + 100% WF OOS +82.01 Baseline)
+בדיקה אמפירית של טבלאות `pmmb.db` (`news_items`, `signal_outcomes`, `fills`) ושל עקומות `Walk-Forward` ו־`Portfolio` חשפה ופתרה ארבעה מוקדים:
+(א) **הקשחת יחס עלות-לתוחלת (`max_spread_to_edge: 0.75`, `max_positions_per_sector: 2`)**: סריקת גריד על 25 שווקי CLOB (תחת `sp=0.015` ו־`WF sp=0.010`) הוכיחה שמגבלת `edge >= 1.33 * spread` עם תקרה של 2 פוזיציות לסקטור חותכת עסקאות רווח שולי, מעלה את ה־Win Rate בתיק ל־**`66.0%`** ואת ה־`PF` ל־**`2.16`** (**`+17.56%`**, `MaxDD 4.11%`), ומעלה את ה־`Fixed OOS` ביותר מ־`50%` (ל־**`+82.01 USDC`** ב־`learning.md` עם **100% עקביות** בחלונות WF). *נדחו:* הצרת `price_band` (`[0.15/0.18/0.20, 0.85]` הזיקו לתשואה), `time_stop_hours=36` (נפל ל-67% OOS), ו־Trailing Break-Even Stop (חנק תיקונים בדרך ל-`+6c`).
+(ב) **ארכיטקטורת Two-Pass ודירוג כניסות (`engine.py`, `backtest.py`)**: `Engine.run_once()` ו־`Backtester.run_portfolio()` מפרידים כעת בין מעבר 1 (הערכה וביצוע כל היציאות + `_close_orphans` לפינוי הון ומכסות פוזיציות) לבין מעבר 2 הממיין את כל מועמדי הכניסה לפי `(-score, -edge, -volume_24h)` כך שהסטאפים האיכותיים ביותר יקבלו עדיפות על הסלוטים הפנויים.
+(ג) **ניקוי False Positives וזיהוי קטליזטורים אמיתיים (`news.py`)**: אבחון `news_items` ב־`pmmb.db` גילה ש־`match_market_news` שייך בטעות כתבות לא קשורות בגלל מילים גנריות בודדות באורך >= 7 (`reported`, `announces`) ופספס כותרות מהותיות (`reinstates`, `probing`, `espionage`, `scandal`, `airspace`, `blockade`). המילים הגנריות הוחרגו, מילת יחיד בודדת באורך >= 7 מותרת כעת רק לשם פרטי ייחודי (אות גדולה בשאלה), ו־`316` כתבות + `86` תוצאות אותות ב־`pmmb.db` עודכנו רטרואקטיבית.
+(ד) **דדופליקציית אותות חיים לשעה (`store.py`)**: הדגימה המחזורית כל 3 דקות יצרה 10+ כפילויות לכל אות שעתי וניפחה סטטיסטיקת שווא; `signal_outcome_stats()` מאחדת כעת לפי `(token_id, direction, ts // 3600)` ושומרת `raw_evaluated` במקביל — ומראה `41.4%` הצלחה אמיתית על `29` אותות עצמאיים במקום `24.6%` מעוות.
+
+## 22. שימור מצב בין-מחזורי (`cooldown` והתראות), הקשחת ביצוע Live, ומניעת הצפת רשת בשרת
+2026-11 · מתקבל · מלא (אומת ב-214 בדיקות ובשרת הרציף החי)
+ביקורת קוד עמוקה של שכבות ה־Runtime, הביצוע והשרת (`engine.py`, `server.py`, `store.py`, `ui.py`) חשפה ופתרה ארבעה כשלי זמן-ריצה שקטים:
+(א) **אובדן `cooldown_minutes=360` והצפת התראות במצב `pmmb serve` (`store.py`, `engine.py`, `server.py`)**: כיוון ש־`_TraderManager.run_single_cycle()` יצר מופע `Engine` חדש בכל מחזור של 3 דקות, `_cooldown_until` ו־`_seen_pos_alerts` שבזיכרון נמחקו בסוף כל מחזור ובעלייה מחדש. `Store.recent_exits()` ו־`Store.recent_event_data()` משחזרים כעת ב־`_restore_state()` את תקופות הצינון מ־`fills` (SELL) ואת התראות החדשות לפוזיציות מ־12 השעות האחרונות, והשרת מעביר `eng.cycle` ו־`_seen_pos_alerts` מעודכנים.
+(ב) **שליפת 26+ בקשות RSS/Google בכל 60 שנ' (`server.py`, `engine.py`)**: לולאת הזרמת הטיקים של כל 60 שנ' (`refresh_news_and_stream(include_markets=False)`) ו־`Engine._last_news_refresh` המתאפס רעננו מחדש את כל 19 הפידים ושאילתות Google כמעט בכל דקה. כעת `force_news` מכובד אוטומטית (`include_markets=True` מהכפתור) בעוד שידור הרקע ו־`Engine` סופרים כנגד `self.last_news_ts` ו־`refresh_interval_sec` (900s) — הפחתה של ~93% בעומס ה־RSS.
+(ג) **הגנות ביצוע וסנכרון חוטים (`engine.py`, `server.py`)**: נוסף `_effective_sell_size()` המגביל כמות SELL במצב `live` מול `conditional_balance()` כדי שפער עיגול של `0.01` טוקן לעולם לא יכשיל Stop-Loss/Exit; נוספה הגנת `imb is None` ב־`market_intel` לספר ריק ושימור `taker_fee_rate` באורפנים; ו־`run_learning_now()` מריץ אופטימיזציה על `copy.deepcopy(self.cfg)` ומחיל שינוי רק בתוך `self._lock`.
+(ד) **שקיפות דשבורד (`ui.py`)**: כרטיסיית הלמידה והגדרות הסיכון מציגות כעת גם `raw_evaluated` (כשיש כפילויות דגימה) וגם את `max_positions_per_sector` ו־`cooldown_minutes`.
+
+## 23. זרוע החוזים התמידיים האוטונומית (PERPS ×50) — מתאם רב-בורסות, מנוע רב-מצבי וניהול סיכון Isolated Margin
+2026-11 · מתקבל · מלא (אומת ב-221 בדיקות + Backtest חי על 16 חוזים: +38.29% / PF 1.62 / 0 ליקווידציות + 100% OOS +21.79%)
+הרחבת המערכת המאוחדת תוך שמירה מלאה על זרוע Polymarket הקיימת (ADR #22), תחת עקרון "מדידה לפני ייצור":
+(א) **מתאם רב-בורסות והפרדת נזילות 24/7 (`src/pmmb/perps/exchange.py`)**: חיבור מקבילי (`ThreadPoolExecutor`) ל־`OKX SWAP` (מינוף עד ×100 למסחר מוסדי), `Hyperliquid DEX` (235 נכסים, נרות 720h ו-Funding שעתי), ו־`Binance Futures` (עם זיהוי אוטומטי של חסימת Geo `451`/`403` וגיבוי חלק). דגל `cross_exchange_crypto_only=True` מסנן החוצה חוזי מניות/Pre-IPO טוקנייזד (`NVDA`, `SOXL`, `ANTHROPIC` וכו' שאינם סחירים 24/7) ומשמר יקום קריפטו טהור ונזיל 24/7.
+(ב) **מנוע אסטרטגיה רב-מצבי (`src/pmmb/perps/signals.py`)**: מחקר אמפירי על 16 נכסים (721 נרות `1h` ו־961 נרות `15m`) הוכיח כי מסחר `15m` ו־`Donchian Breakout` נאיבי סופגים שחיקת עמלות והחלקה (`-15%` עד `-57%`), בעוד משטר `1h` משולב **`ProMultiRegimeEngine`** (`ADX + Kaufman Efficiency Ratio`, Pullbacks במגמה + Mean-Reversion `Z>=1.8 / RSI 38-62` בטווח + `BTC HTF Bias` + הצלבת `Funding` + פילטר חדשות מאקרו מ-19 רשתות) שקודם אוטונומית ע"י `pmmb perps learn` ל־`sl_atr_mult=1.5 / tp_atr_mult=2.6` מניב **`+38.29%`** (`96` עסקאות, `67.7% WR`, `PF 1.62`, `DD 9.4%`) ו־**`100%` עקביות OOS** (`3/3` חלונות Walk-Forward, **`+21.79%`** OOS).
+(ג) **מינוף דינמי עד ×50 ומגן ליקווידציה (`src/pmmb/perps/risk.py`)**: עבודה ב־`Isolated Margin` בלבד; מגן `liquidation_buffer_mult=2.2` מחייב שמרחק ה־`Stop Loss` (`1.5*ATR`) יפגע לפני מחיר הליקווידציה (אחרת המינוף מתכווץ אוטומטית מהסטאפ `A+` מ-`×50` למטה בהתאם ל־ATR — כך שבמבחני Walk-Forward על 16 חוזים התקבלו **0 ליקווידציות** תחת מינוף ממוצע `×20.7` ושיא `×46.4`). כולל `ATR Trailing Stop` (`1.2/1.0`), `Time Stop 36h`, ו־`Kill Switch` יומי/Drawdown.
+(ד) **תפעול אוטונומי וממשק (`perps/{engine,broker,backtest,learning}.py`, `store.py`, `server.py`, `ui.py`, `cli.py`)**: 7 טבלאות SQLite ייעודיות (`perp_*`), למידת Walk-Forward ברקע, כפתורי שליטה וגרף `SL / TP / LIQ` חי בטאב `⚡ חוזים (PERPS ×50)` בדשבורד, והגנות 3-שכבות על `LivePerpBroker`.
+
+## 24. הקשחת Production לזרוע ה-PERPS (`max_assets=16`, מיקבול, ניטור 60 שנ', Reconcile ו-Candlesticks)
+2026-11 · מתקבל · מלא (אומת ב-223 בדיקות + Walk-Forward ablation על `max_assets=10..24`)
+המשך הקשחה ואופטימיזציה אמפירית על דאטה חי מ־OKX + Hyperliquid (720 שעות):
+(א) **עקומת `max_assets=16` (`config.yaml`, `config.py`)**: סריקת גודל יקום (`10, 12, 14, 16, 18, 20, 24`) הוכיחה כי בדיוק **`16`** חוזי הדגל הנזילים ביותר ממקסמים את איכות ה־OOS (**`+38.29%` Full, `PF 1.62`, `WR 67.7%`, `DD 9.4%`, `+21.79%` OOS ב־`100%`** עקביות), בעוד הרחבה ל־`18/20/24` אלטים קטנים שוחקת את ה־OOS ל־`+6.83%` (`67%` עקביות, `DD 13.0%`). *נדחתה* גם הסרת Trailing Stop (`33%` OOS).
+(ב) **מיגון ביצוע, מקביליות ומהירות תגובה (`perps/engine.py`, `server.py`)**: מקבול משיכת נרות+ספר ב־`ThreadPoolExecutor(8)`, בדיקת `read_halt()` (`halt.json`) לפני כל כניסה חדשה, הגנת נר-כניסה (`opened_at < last_candle.ts` למניעת עצירת-שווא מפתיל טרום-כניסה), ופונקציית `monitor_open_positions()` מהירה המנטרת פוזיציות פתוחות כל דקה בשידור החי.
+(ג) **שלמות חשבונאית, דיוק Live, חדשות וטלגרם (`reconcile.py`, `autopilot.py`, `perps/broker.py`, `news.py`, `telegram_bot.py`, `ui.py`)**: נוספו `reconcile_perps()`, חיתוך `round_step()` ל־`lot_size`/`tick_size` ב־OKX/Binance + תמיכת `Hyperliquid` חיה, פקודת טלגרם `/perps` ופירוט Perps ב־`/status`, 3 ערוצי חדשות קריפטו-מאקרו נוספים (`Cointelegraph`, `CryptoSlate`, Crypto-Macro query), וגרף **נרות יפניים (`OHLC Candlesticks` + Crosshair חי)** בטאב `⚡ חוזים (PERPS ×50)`.
+
+## 25. למידה מתמדת על מסחר וחדשות (24/7) + עיצוב Apple Liquid Glass Pro
+2026-11 · מתקבל · מלא (אומת ב-224 בדיקות + 114 כתבות News Alpha ו-414 אותות חיים ב-DB)
+שדרוג ארכיטקטוני של מערכת הלמידה והממשק:
+(א) **מנוע למידת השפעת חדשות (`news_outcomes`, `evaluate_news_alpha`, `news_source_reliability` ב־`news.py`, `store.py`)**: מדידת תנועת השוק האמיתית (`1ש'`, `4ש'`, `12ש'`) אחרי פרסום כל כתבה מול `perp_candles` ו־`ticks`; דיוק מקורות החדשות (`CoinDesk`, `Cointelegraph`, `CryptoSlate`, `CNBC`, `Al Jazeera`, `MarketWatch` וכו') מוזן חזרה כמשקל `0.70–1.35x` לניקוד ה־`impact` בחדשות הבאות.
+(ב) **למידה מתמדת דו-זרועית (`perp_signal_outcomes`, `evaluate_perp_live_signals`, `server.py`)**: מיקרו-למידה כל **5 דקות** (ללא עומס רשת) מעריכה בזמן אמת אותות Polymarket (`6h/24h/48h`), אותות PERPS (`1h/4h/12h` לפי משטר וחדשות) ו־`News Alpha`, לצד כיול Walk-Forward OOS כל **30 דקות** (`1800s`) לשתי הזרועות, ורוטציית Google News המונעת חסימות `429`.
+(ג) **עיצוב Apple Liquid Glass Pro (`ui.py`)**: מיתוג מחדש מלא של ה־Command Center בסגנון macOS Sequoia / iOS 18 — משטחי זכוכית שקופים (`backdrop-filter: saturate(180%) blur(24px)`), פלטת Apple Dark System (`#000000`, `#0A84FF`, `#30D158`, `#FF453A`, `#FF9F0A`, `#BF5AF2`), Segmented Control pill, כרטיסי Bento מעוגלים, גרפי Canvas בסגנון Apple Stocks, ופאנל `News Alpha + Dual-Arm Learning` בזמן אמת.
+
+## 26. מישור Trailing OOS מאומת (`+43.77% / +29.77% OOS`), למידה מוקדמת (15 דק'), ופיצ'רי Apple Pro (`⌘K`, What-If Lab, Combined Hero)
+2026-11 · מתקבל · מלא (אומת ב-225 בדיקות + Walk-Forward 16 נכסים: +43.77% Full / +29.77% OOS ב-100% עקביות)
+שיפור עומק משולב באסטרטגיית ה-PERPS, בלמידה החיה ובחוויית המשתמש:
+(א) **כיול Trailing Stop במישור OOS יציב (`config.yaml`, `config.py`, `perps/learning.py`)**: סריקת גריד Walk-Forward על 16 חוזים (720 שעות) הוכיחה מישור ביצועים רחב סביב `trailing_trigger_atr=1.4`, `trailing_dist_atr=0.95` (העלאת רף ההפעלה מ-`1.2` מונעת ניעור בתיקונים מוקדמים ושומרת על `pullback` חיובי): תשואה מלאה זינקה מ־`+38.29%` ל־**`+43.77%`** (`1,437.67 USDC`, `94` עסקאות, `PF 1.68`, `DD 9.61%`, `0` ליקווידציות) ותשואת **OOS מ־`+21.79%` ל־`+29.77%` (`100%` עקביות 3/3 חלונות)**. גריד ה-Walk-Forward ב־`perps/learning.py` הורחב לכיול שוטף גם של פרמטרי ה-Trailing.
+(ב) **העמקת אותות ולמידת PERPS מהירה (`perps/signals.py`, `perps/learning.py`, `store.py`)**: הרחבת מפת הכותרות לשבעה מטבעות אלט-מובילים (`NEAR`, `HYPE`, `WLD`, `ENA`, `UNI`, `ZEC`, `ADA`), בונוס מיזוג חדשות תומכות (`+0.03`) והצלבת פער Funding OKX מול HL (`+0.02`), והורדת סף הגיל ב־`evaluate_perp_live_signals` ל־`0.25h` (15 דק') עם השלמת mark-to-market בזמן אמת מ־`perp_intel` לפני סגירת נר השעה המלא.
+(ג) **אינטראקטיביות Apple Pro ופורטפוליו מאוחד (`status.py`, `server.py`, `ui.py`)**: נוסף סיכום `combined` מאוחד (`Polymarket + PERPS`) עם **Unified NAV Hero Strip** והקצאת הון חיה, **macOS Spotlight Search (`⌘K` / `Ctrl+K`)** לחיפוש ופקודות מהירות מכל מסך, כרטיס **תיזת סוחר (Regime / ADX / ER / L2 / Funding)** מתחת לגרף הנרות, ו־**What-If Strategy & Leverage Lab** המריצה `POST /api/perps/simulate` עם Apple Range Sliders ישירות על נרות השמורים ב-DB.
+
+
+
+
+
+
+
+
+

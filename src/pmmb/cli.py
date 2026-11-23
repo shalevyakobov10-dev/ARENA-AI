@@ -1,0 +1,1207 @@
+"""
+ממשק שורת פקודה.
+
+  pmmb doctor                  בדיקת חיבור וקונפיג
+  pmmb scan                    סריקה חד-פעמית של היקום + הסיגנלים
+  pmmb paper --cycles 5        ריצת paper (סימולציה) עם לופ
+  pmmb live                    מסחר אמיתי (מוגן בסיסמה)
+  pmmb backtest --top 5        בקטסט על שווקים אמיתיים
+  pmmb report                  סיכום ביצועים מה-DB
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import sys
+from datetime import datetime, timezone
+
+from .backtest import Backtester, write_report
+from .config import Config
+from .data.clob import ClobClient
+from .data.http import HttpClient
+from .data.store import Store
+from .models import Market
+from .engine import Engine
+from .logging_setup import setup_logging
+
+log = logging.getLogger("pmmb")
+
+
+# ----------------------------------------------------------------------
+def _build_clob(cfg: Config) -> ClobClient:
+    return ClobClient(
+        HttpClient(cfg.data.clob_base_url, cfg.data.http_timeout, cfg.data.max_retries,
+                   cfg.data.rate_limit_rps),
+        history_ttl=cfg.data.history_cache_ttl_sec,
+    )
+
+
+def _table(rows: list[list[str]], headers: list[str]) -> str:
+    widths = [max(len(str(h)), *(len(str(r[i])) for r in rows)) if rows else len(h) 
+              for i, h in enumerate(headers)]
+    sep = "  "
+    out = [sep.join(str(h).ljust(widths[i]) for i, h in enumerate(headers))]
+    out.append(sep.join("-" * w for w in widths))
+    for r in rows:
+        out.append(sep.join(str(c).ljust(widths[i]) for i, c in enumerate(r)))
+    return "\n".join(out)
+
+
+# ----------------------------------------------------------------------
+def cmd_doctor(args, cfg: Config) -> int:
+    ok = True
+    print(f"קונפיג: mode={cfg.execution.mode}, cash={cfg.execution.starting_cash}, "
+          f"db={cfg.data.db_path}")
+    from .data.gamma import GammaClient, MarketUniverse
+
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    try:
+        raw = gamma.fetch_markets(limit=5)
+        print(f"✅ Gamma נגיש ({len(raw)} שווקים לדוגמה)")
+    except Exception as exc:
+        print(f"❌ Gamma לא נגיש: {exc}")
+        return 1
+
+    # בודקים CLOB על טוקן חי — לא על מזהה קבוע שיכול לפוג
+    probe = None
+    for m in raw:
+        mk = Market.from_gamma(m)
+        if mk is not None:
+            probe = mk
+            break
+    try:
+        mid = clob.get_midpoint(probe.yes_token_id) if probe else None
+        book = clob.get_book(probe.yes_token_id) if probe else None
+        if mid is None or book is None:
+            print("⚠️  CLOB נגיש אבל לא החזיר מחיר לשוק הנבדק")
+        else:
+            print(f"✅ CLOB נגיש (midpoint={mid:.3f}, "
+                  f"bid={book.best_bid}, ask={book.best_ask}, "
+                  f"spread={book.spread:.3f})")
+    except Exception as exc:
+        print(f"❌ CLOB לא נגיש: {exc}")
+        return 1
+
+    uni = MarketUniverse(gamma, cfg.universe)
+    markets = uni.scan()
+    print(f"✅ סינון יקום: {len(markets)} שווקים עוברים את הפילטרים")
+    if markets:
+        rows = [[m.question[:45], f"{m.yes_price:.3f}", f"{m.spread:.3f}",
+                 f"{m.volume_24h:,.0f}", f"{m.hours_to_resolution:.0f}h"] for m in markets[:5]]
+        print(_table(rows, ["שוק", "YES", "ספרד", "מחזור24h", "לסגירה"]))
+    return 0 if ok else 1
+
+
+def cmd_scan(args, cfg: Config) -> int:
+    from .signals import build_signal_engine
+    from .data.gamma import GammaClient, MarketUniverse
+
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    engine = build_signal_engine(cfg.signal)
+    markets = MarketUniverse(gamma, cfg.universe).scan()
+    print(f"נסרקו {len(markets)} שווקים\n")
+
+    rows = []
+    for mk in markets:
+        candles = clob.get_history(mk.yes_token_id, cfg.signal.candle_fidelity_min,
+                                   cfg.signal.lookback_candles)
+        book = clob.get_book(mk.yes_token_id)
+        if book is None or book.mid is None:
+            continue
+        sig = engine.evaluate(mk, [c.price for c in candles],
+                             market_price=book.mid, spread=book.spread,
+                             extra={"fee_rate": mk.taker_fee_rate})
+        if args.all or sig.direction != "FLAT":
+            rows.append([
+                mk.question[:42],
+                f"{book.mid:.3f}",
+                f"{sig.direction}",
+                f"{sig.score:.2f}",
+                f"{sig.fair_price:.3f}",
+                f"{sig.edge:+.3f}",
+                sig.reason[:46],
+            ])
+    rows.sort(key=lambda r: -float(r[3]))
+    if not rows:
+        print("אין סיגנלים במחזור הזה (זה נורמלי — הסיגנל נדיר בכוונה).")
+        return 0
+    print(_table(rows, ["שוק", "מחיר", "כיוון", "score", "fair", "edge", "הסבר"]))
+    n_tradeable = sum(1 for r in rows if r[2] != "FLAT")
+    print(f"\nסה\"כ {len(rows)} שווקים עם נתונים, {n_tradeable} עם סיגנל פעיל.")
+    return 0
+
+
+def cmd_run(args, cfg: Config) -> int:
+    from .runtime import ProcessLock, ProcessLockError
+
+    broker = None
+    if args.command == "live":
+        cfg.execution.mode = "live"
+        from .execution.live import LiveBroker, LiveTradingDisabled
+
+        try:
+            broker = LiveBroker(cfg.execution)
+        except LiveTradingDisabled as exc:
+            print(f"⛔ {exc}")
+            return 2
+        print("🔴 מצב LIVE — פקודות אמיתיות. Ctrl+C לעצירה.")
+
+    try:
+        lock = ProcessLock(f"pmmb-{cfg.execution.mode}").acquire()
+    except ProcessLockError as exc:
+        print(f"⛔ {exc}")
+        return 5
+
+    engine = Engine(cfg, broker=broker)
+    if broker is None:
+        print(f"📄 מצב {cfg.execution.mode} — סימולציה. "
+              f"הון התחלתי {cfg.execution.starting_cash:.0f} USDC")
+    try:
+        engine.run_forever(interval_sec=args.interval, max_cycles=args.cycles)
+    except KeyboardInterrupt:
+        print("\nנעצר.")
+    finally:
+        snap = engine.portfolio.snapshot(engine._last_marks)
+        print(f"\nסיכום: הון {snap.equity:.2f} | מזומן {snap.cash:.2f} | "
+              f"חשיפה {snap.exposure:.2f} | פוזיציות {snap.open_positions} | "
+              f"PnL ממומש {engine.portfolio.realized_pnl:+.2f}")
+        engine.close()
+        lock.release()
+    return 0
+
+
+def cmd_backtest(args, cfg: Config) -> int:
+    from .data.gamma import GammaClient, MarketUniverse
+
+    clob = _build_clob(cfg)
+    bt = Backtester(cfg, clob)
+
+    if args.token:
+        from .models import Market
+
+        dummy = Market(
+            condition_id=args.token[:10], question=args.token[:20], slug=args.token[:20],
+            yes_token_id=args.token, no_token_id=args.token,
+            yes_price=0.5, no_price=0.5, spread=0.01, volume_24h=0, liquidity=0, end_date=None,
+        )
+        candles = bt.fetch(args.token, fidelity=args.fidelity, lookback=args.lookback)
+        if not candles:
+            print("❌ אין היסטוריה לטוקן הזה")
+            return 1
+        res = bt.run(dummy, candles, label=args.token[:16], spread=args.spread,
+                     entry_style=args.entry, passive_wait=args.wait)
+        print(_summary_line(res))
+        write_report([res], args.out, engine=cfg.signal.engine)
+        return 0
+
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                  cfg.data.max_retries, cfg.data.rate_limit_rps))
+    markets = MarketUniverse(gamma, cfg.universe).scan()
+    if args.top:
+        markets = markets[: args.top]
+    print(f"בודק {len(markets)} שווקים, fidelity={args.fidelity} דק', "
+          f"{args.lookback} נרות\n")
+
+    results = []
+    datasets = []
+    for mk in markets:
+        candles = bt.fetch(mk.yes_token_id, fidelity=args.fidelity, lookback=args.lookback)
+        if len(candles) < bt.engine.min_candles + 10:
+            log.debug("מדלג על %s (היסטוריה קצרה: %d נרות)", mk.slug, len(candles))
+            continue
+        datasets.append((mk, candles))
+        res = bt.run(mk, candles, label=mk.slug, spread=max(mk.spread, args.spread),
+                     entry_style=args.entry, passive_wait=args.wait)
+        results.append(res)
+        print(_summary_line(res))
+
+    if not results:
+        print("לא נמצאו שווקים עם היסטוריה מספקת.")
+        return 1
+
+    if getattr(args, "portfolio", False):
+        from .backtest import write_portfolio_report
+
+        pres = bt.run_portfolio(datasets, spread=args.spread)
+        ppath = write_portfolio_report(pres, args.out, engine=cfg.signal.engine)
+        print("\n" + _summary_line(pres))
+        print(f"📄 סימולציית תיק משותף נכתבה ל-{ppath} | "
+              f"הון סופי {pres.ending_equity:.2f} ({pres.total_return_pct:+.2f}%) | "
+              f"MaxDD {pres.max_drawdown_pct:.2f}% | עמלות {pres.fees_paid:.2f}")
+        return 0
+
+    path = write_report(results, args.out, engine=cfg.signal.engine)
+    n = sum(r.n_trades for r in results)
+    pnl = sum(t.pnl for r in results for t in r.trades)
+    print(f"\n📄 דו\"ח נכתב ל-{path} | {n} עסקאות | PnL {pnl:+.2f} USDC")
+    return 0
+
+
+def cmd_analyze(args, cfg: Config) -> int:
+    """אבחון כוח הניבוי של הסיגנל — לפני בקטסט, לפני כיול."""
+    from .diagnostics import run_diagnostics, write_diagnostics
+    from .data.gamma import GammaClient, MarketUniverse
+    from .signals import build_signal_engine
+
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    markets = MarketUniverse(gamma, cfg.universe).scan()[: args.markets]
+    engine = build_signal_engine(cfg.signal)
+
+    datasets = []
+    for mk in markets:
+        candles = clob.get_history(mk.yes_token_id, fidelity_min=args.fidelity,
+                                   lookback_candles=args.lookback, use_cache=False)
+        if len(candles) >= engine.min_candles + max(24, args.horizon) + 5:
+            datasets.append((mk, candles))
+    if not datasets:
+        print("אין שווקים עם היסטוריה מספקת.")
+        return 1
+
+    print(f"מאבחן {len(datasets)} שווקים, {sum(len(c) for _, c in datasets):,} נרות...\n")
+    res = run_diagnostics(engine, datasets, spread=args.spread)
+    print(res.to_markdown())
+    path = write_diagnostics(res, args.out)
+    print(f"\n📄 {path}")
+
+    best = max(res.horizons.values(), key=lambda s: s.ic)
+    if abs(best.ic) < 0.03:
+        print("\n🔴 מסקנה: אין כוח ניבוי מדיד (|IC| < 0.03). הסיגנל הזה לא ישרוד עלויות.")
+    elif best.ic > 0:
+        print(f"\n🟢 מסקנה: יש אות חלש-חיובי באופק {best.horizon} (IC={best.ic:+.3f}). "
+              "שווה להמשיך ולבדוק עלויות.")
+    else:
+        print(f"\n🟠 מסקנה: האות שלילי באופק {best.horizon} (IC={best.ic:+.3f}) — "
+              "הפוך הכיוון או זרוק את הפיצ'ר.")
+    return 0
+
+
+def cmd_tune(args, cfg: Config) -> int:
+    """סריקת פרמטרים גסה על שווקים אמיתיים. לכיול בלבד — לא קסמים."""
+    from .backtest import run_grid, write_grid_report
+    from .data.gamma import GammaClient, MarketUniverse
+
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    markets = MarketUniverse(gamma, cfg.universe).scan()[: args.markets]
+    bt = Backtester(cfg, clob)
+
+    datasets = []
+    for mk in markets:
+        candles = bt.fetch(mk.yes_token_id, fidelity=args.fidelity, lookback=args.lookback)
+        if len(candles) >= bt.engine.min_candles + 20:
+            datasets.append((mk, candles))
+    if not datasets:
+        print("אין שווקים עם היסטוריה מספקת.")
+        return 1
+    print(f"מריץ גריד על {len(datasets)} שווקים "
+          f"({sum(len(c) for _, c in datasets):,} נרות)\n")
+
+    grid = [
+        {"min_score": ms, "min_edge": me, "take_profit": tp, "stop_loss": sl}
+        for ms in (0.45, 0.55, 0.65)
+        for me in (0.02, 0.05)
+        for tp, sl in ((0.08, 0.05), (0.12, 0.07), (0.20, 0.10))
+    ]
+
+    def progress(i, n, row):
+        print(f"[{i:2d}/{n}] score>{row['min_score']} edge>{row['min_edge']} "
+              f"tp={row['take_profit']} sl={row['stop_loss']} → "
+              f"{row['trades']:3d} עסקאות, win {row['win_rate']:5.1f}%, PnL {row['pnl']:+8.2f}")
+
+    rows = run_grid(bt, datasets, grid, spread=args.spread, progress=progress)
+    rows.sort(key=lambda r: -r["pnl"])
+    path = write_grid_report(rows, args.out)
+
+    print("\n🏆 5 הקונפיגורציות המובילות:")
+    for r in rows[:5]:
+        print(f"  score>{r['min_score']} edge>{r['min_edge']} tp={r['take_profit']} "
+              f"sl={r['stop_loss']} → PnL {r['pnl']:+.2f}, {r['trades']} עסקאות, "
+              f"win {r['win_rate']}%")
+    print(f"\n📄 {path}")
+    print("⚠️  זו סריקה על תקופה אחת — סימן לכיוון, לא הוכחה. אמת על שווקים אחרים ואז paper.")
+    return 0
+
+
+def cmd_collect(args, cfg: Config) -> int:
+    """אוסף snapshots של ספר הפקודות — הדאטה שמאפשר למדוד imbalance."""
+    import time as _time
+
+    from .data.gamma import GammaClient, MarketUniverse
+
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    markets = MarketUniverse(gamma, cfg.universe).scan()
+    store = Store(cfg.data.db_path)
+
+    print(f"אוסף snapshots עבור {len(markets)} שווקים · "
+          f"{args.minutes:g} דק' · כל {args.interval:g}s")
+    started = _time.time()
+    cycles = 0
+    try:
+        while (_time.time() - started) / 60 < args.minutes:
+            cycles += 1
+            ts = int(_time.time())
+            recorded = 0
+            for mk in markets:
+                book = clob.get_book(mk.yes_token_id)
+                if book is not None and book.mid is not None:
+                    store.record_book(mk.yes_token_id, ts, book, levels=args.levels)
+                    recorded += 1
+            print(f"  מחזור {cycles}: {recorded} snapshots", end="\r", flush=True)
+            _time.sleep(args.interval)
+    except KeyboardInterrupt:
+        print("\nנעצר ידנית")
+    finally:
+        total = store._conn.execute("SELECT COUNT(*) c FROM books").fetchone()["c"]
+        store.close()
+    print(f"\n✅ נאספו {total:,} snapshots בסך הכל. "
+          f"הרץ: pmmb imbalance --horizon-min {args.interval * 4 / 60:.0f}")
+    return 0
+
+
+def cmd_imbalance(args, cfg: Config) -> int:
+    """האם imbalance מנבא תנועת מחיר? (דורש דאטה מ-collect/paper)"""
+    from .imbalance import analyze_imbalance, write_imbalance_report
+
+    store = Store(cfg.data.db_path)
+    rep = analyze_imbalance(store, horizon_min=args.horizon_min, levels=args.levels,
+                            tolerance_min=args.tolerance)
+    store.close()
+    if rep.snapshots == 0:
+        print("אין snapshots של ספר הפקודות ב-DB.")
+        print("הרץ קודם:  pmmb collect --minutes 30 --interval 20")
+        return 1
+    print(rep.to_markdown())
+    path = write_imbalance_report(rep, args.out)
+    print(f"\n📄 {path}")
+    return 0
+
+
+def cmd_sectors(args, cfg: Config) -> int:
+    """איפה האות עובד: פילוח לפי סקטור שוק."""
+    from .diagnostics import run_sector_analysis, sectors_markdown
+    from .data.gamma import GammaClient, MarketUniverse
+    from .signals import build_signal_engine
+    from pathlib import Path
+
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    # לוקחים יקום רחב — לא רק המובילים — כדי שיהיו מספיק סקטורים
+    saved = cfg.universe.max_markets
+    cfg.universe.max_markets = max(saved, args.markets)
+    markets = MarketUniverse(gamma, cfg.universe).scan()[: args.markets]
+    cfg.universe.max_markets = saved
+
+    engine = build_signal_engine(cfg.signal)
+    datasets = []
+    for mk in markets:
+        candles = clob.get_history(mk.yes_token_id, fidelity_min=args.fidelity,
+                                   lookback_candles=args.lookback, use_cache=False)
+        need = engine.min_candles + int(args.horizon * 60 / args.fidelity) + 5
+        if len(candles) >= need:
+            datasets.append((mk, candles))
+    if not datasets:
+        print("אין שווקים עם היסטוריה מספקת.")
+        return 1
+
+    print(f"מנתח {len(datasets)} שווקים, אופק {args.horizon:g}ש'...\n")
+    rows = run_sector_analysis(engine, datasets, fidelity_min=args.fidelity,
+                               horizon_hours=args.horizon, spread=args.spread)
+    md = sectors_markdown(rows, args.horizon)
+    print(md)
+    out = Path(args.out) / "sectors.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(md, encoding="utf-8")
+    import json as _json
+
+    (Path(args.out) / "sectors.json").write_text(_json.dumps({
+        "horizon_hours": args.horizon, "spread": args.spread,
+        "rows": [{
+            "sector": r.sector, "n": r.n, "hit_rate": round(r.hit_rate, 3),
+            "mean_realized": round(r.mean_realized, 4), "mean_fee": round(r.mean_fee, 4),
+            "net_of_cost": round(r.net_of_cost, 4),
+        } for r in rows],
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"\n📄 {out} + sectors.json")
+
+    bad = [s.sector for s in rows if s.n >= 20 and s.net_of_cost < 0]
+    if bad:
+        print(f"\n🟠 סקטורים עם נטו שלילי (מועמדים להחרגה): {', '.join(bad)}")
+        print("   הוסף ל-universe.exclude_sectors ואמת ב-walkforward.")
+    else:
+        print("\n🟢 אין סקטור מובהק עם נטו שלילי במדגם הזה.")
+    return 0
+
+
+def cmd_calibrate(args, cfg: Config) -> int:
+    """האם הצפי של המנוע תואם את המציאות? המבחן הנקי ביותר שלנו."""
+    from .diagnostics import run_calibration
+    from .data.gamma import GammaClient, MarketUniverse
+    from .signals import build_signal_engine
+
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    markets = MarketUniverse(gamma, cfg.universe).scan()[: args.markets]
+    engine = build_signal_engine(cfg.signal)
+
+    datasets = []
+    for mk in markets:
+        candles = clob.get_history(mk.yes_token_id, fidelity_min=args.fidelity,
+                                   lookback_candles=args.lookback, use_cache=False)
+        if len(candles) >= engine.min_candles + 50:
+            datasets.append((mk, candles))
+    if not datasets:
+        print("אין שווקים עם היסטוריה מספקת.")
+        return 1
+
+    res = run_calibration(engine, datasets, fidelity_min=args.fidelity,
+                          horizon_hours=args.horizon, spread=args.spread)
+    print(res.to_markdown())
+
+    if not res.rows:
+        print("\nאין מספיק סיגנלים לכיול — הדק את הספים או הגדל את המדגם.")
+        return 0
+    total = next((r for r in res.rows if r.label == "כל הסיגנלים"), None)
+    if total and total.bias_ratio > 1.5:
+        print(f"\n🟠 המנוע מבטיח פי {total.bias_ratio:.1f} ממה שמתממש. "
+              f"יחס מומלץ: {res.suggested_ratio:.2f} (במקום {res.current_ratio:g}).")
+    elif total and total.bias_ratio < 0.7:
+        print(f"\n🔵 המנוע שמרני מדי (פי {total.bias_ratio:.1f}) — אפשר להעלות את היחס.")
+    else:
+        print("\n🟢 הצפי מכויל בסטייה של פחות מ-50%.")
+    return 0
+
+
+def cmd_walkforward(args, cfg: Config) -> int:
+    """כיול על חלון אחד, מבחן על החלון שאחריו — שלא נרמה את עצמנו."""
+    from .walkforward import run_walkforward, write_walkforward
+    from .data.gamma import GammaClient, MarketUniverse
+    from .signals import build_signal_engine
+
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    markets = MarketUniverse(gamma, cfg.universe).scan()[: args.markets]
+    engine = build_signal_engine(cfg.signal)
+
+    datasets = []
+    for mk in markets:
+        candles = clob.get_history(mk.yes_token_id, fidelity_min=args.fidelity,
+                                   lookback_candles=args.lookback, use_cache=False)
+        if len(candles) >= engine.min_candles + args.folds * 40:
+            datasets.append((mk, candles))
+    if not datasets:
+        print("אין שווקים עם היסטוריה מספקת ל-walk-forward.")
+        return 1
+    print(f"walk-forward על {len(datasets)} שווקים · מנוע={cfg.signal.engine} · "
+          f"{args.folds} חלונות\n")
+
+    res = run_walkforward(cfg, datasets, folds=args.folds, spread=args.spread,
+                          progress=lambda m: print("·", m))
+    print()
+    print(res.to_markdown())
+    path = write_walkforward(res, args.out)
+    print(f"\n📄 {path}")
+
+    if res.oos_trades == 0:
+        print("\n⚠️  אין עסקאות מחוץ למדגם — הפרמטרים שנבחרו בכיול מדכאים מסחר. "
+              "אין ממה להסיק.")
+    elif res.consistency >= 0.66 and res.oos_pnl > 0:
+        print("\n🟢 ה-OOS חיובי ברוב החלונות — יש כאן משהו שווה בדיקה נוספת "
+              "(ואז paper, לא live).")
+    else:
+        print("\n🔴 ה-OOS לא מחזיק. הכיול הוא התאמה לרעש — לא לסמוך על הפרמטרים האלה.")
+    return 0
+
+
+def _summary_line(r) -> str:
+    s = r.summary()
+    pf = "—" if s["profit_factor"] is None else f"{s['profit_factor']:.2f}"
+    return (f"{s['label'][:38]:38s} | {s['trades']:3d} עסקאות | win {s['win_rate']:5.1f}% | "
+            f"PF {pf:>5s} | תשואה {s['total_return_pct']:+7.2f}% | DD {s['max_drawdown_pct']:5.2f}%")
+
+
+def cmd_daily(args, cfg: Config) -> int:
+    """דוח יומי מה-DB — להרצה אוטומטית (cron), לא דורש שהבוט ירוץ."""
+    from .daily import build_daily_report, write_daily_report
+
+    store = Store(cfg.data.db_path)
+    rep = build_daily_report(store, hours=args.hours, starting_cash=cfg.execution.starting_cash,
+                             planned_horizon_hours=cfg.signal.exit.time_stop_hours,
+                             mode=cfg.execution.mode)
+    store.close()
+    print(rep.to_markdown())
+    if not args.no_write:
+        path = write_daily_report(rep, args.out)
+        print(f"\n📄 {path}")
+    return 0
+
+
+def cmd_status(args, cfg: Config) -> int:
+    """מצב המערכת — JSON למכונה, טבלה לבן אדם, או ייצוא אפליקציית HTML."""
+    import json
+    from pathlib import Path
+
+    from .status import build_command_center_data, build_status
+    from .ui import command_center_html
+
+    if getattr(args, "html_out", None):
+        cc = build_command_center_data(cfg, max_age_sec=args.max_age)
+        out = Path(args.html_out)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(command_center_html(cc, refresh_sec=0, interactive=False), encoding="utf-8")
+        print(f"🖥️  יוצא קובץ תוכנה עצמאי: {out}")
+        return 0 if cc["health"]["healthy"] else 3
+
+    st = build_status(cfg, max_age_sec=args.max_age)
+    if args.json:
+        print(json.dumps(st, ensure_ascii=False, indent=2))
+        return 0 if st["health"]["healthy"] else 3
+
+    h = st["health"]
+    hb = st.get("heartbeat") or {}
+    bank = st.get("bankroll") or {}
+    today = st.get("today") or {}
+    icon = "🟢" if h["healthy"] else "🔴"
+    print(f"\n{icon} {h['reason']}")
+    if hb:
+        print(f"   מחזור #{hb.get('cycle')} · {hb.get('mode')} · {hb.get('engine')} · "
+              f"גיל {hb.get('age_sec', 0):.0f}ש' · pid {hb.get('pid')}")
+    if bank:
+        print(f"   הון {bank.get('equity')} · מזומן {bank.get('cash')} · "
+              f"חשיפה {bank.get('exposure')} · פוזיציות {bank.get('open_positions')}")
+    if today:
+        print(f"   היום: {today.get('fills')} מילואים · PnL {today.get('realized_pnl'):+.2f} · "
+              f"עמלות {today.get('fees'):.2f}")
+    for p in st.get("positions") or []:
+        mark_txt = f"→{p['mark_price']:.3f}" if p.get("mark_price") is not None else ""
+        unr_txt = f" ({p['unrealized_pnl']:+.2f})" if p.get("unrealized_pnl") is not None else ""
+        q = (p.get("question") or p["token_id"])[:36]
+        print(f"   · {p['direction']} {p['size']:.1f} @ {p['avg_price']:.3f}{mark_txt}{unr_txt} "
+              f"({p['age_hours']:.1f}ש') {q}")
+    return 0 if h["healthy"] else 3
+
+
+def cmd_serve(args, cfg: Config) -> int:
+    """מרים את תוכנת הבקרה והמצב (http://host:port)."""
+    from .server import serve
+
+    httpd = serve(cfg, host=args.host, port=args.port,
+                  max_age_sec=args.max_age, refresh_sec=args.refresh,
+                  token=args.token, autostart=getattr(args, "autostart", False),
+                  interval_sec=getattr(args, "interval", 180.0))
+    mode_lbl = " + מצב רציף אוטומטי (Paper)" if getattr(args, "autostart", False) and cfg.execution.mode == "paper" else ""
+    print(f"🌐 PMMB Command Center{mode_lbl}: http://{args.host}:{args.port}  (Ctrl+C לעצירה)")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nנעצר")
+    finally:
+        tm = getattr(httpd, "_trader_manager", None)
+        if tm is not None:
+            tm.stop()
+        httpd.server_close()
+    return 0
+
+
+def cmd_learn(args, cfg: Config) -> int:
+    """מריץ מחזור למידה עצמית: מעקב אותות + Walk-Forward + קידום מבוקר."""
+    from .data.gamma import GammaClient, MarketUniverse
+    from .learning import run_self_learning_cycle
+
+    cfg.learning.max_markets = args.markets
+    clob = _build_clob(cfg)
+    gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                   cfg.data.max_retries, cfg.data.rate_limit_rps))
+    store = Store(cfg.data.db_path)
+    try:
+        rep = run_self_learning_cycle(
+            cfg, store, gamma=gamma, clob=clob,
+            apply_changes=not args.no_apply, reports_dir=args.out,
+        )
+    finally:
+        store.close()
+
+    print(f"\n🧠 {rep.summary}")
+    print(f"   אותות שהוערכו: {rep.signals_evaluated} | "
+          f"Baseline OOS: {rep.baseline_oos:+.2f} | "
+          f"מועמד OOS: {rep.candidate_oos:+.2f} (עקביות {rep.consistency*100:.0f}%)")
+    for ins in rep.insights:
+        print(f"   · {ins}")
+    print(f"\n📄 {args.out}/learning.md")
+    return 0
+
+
+def cmd_news(args, cfg: Config) -> int:
+    """מושך ומציג חדשות שווקים חיות והתאמתן לשווקי Polymarket."""
+    from datetime import datetime as _dt, timezone as _tz
+    from .data.gamma import GammaClient, MarketUniverse
+    from .data.news import refresh_news_to_store
+
+    store = Store(cfg.data.db_path)
+    try:
+        if args.refresh:
+            gamma = GammaClient(HttpClient(cfg.data.gamma_base_url, cfg.data.http_timeout,
+                                           cfg.data.max_retries, cfg.data.rate_limit_rps))
+            markets = MarketUniverse(gamma, cfg.universe).scan()[:25]
+            refresh_news_to_store(store, markets=markets, max_market_queries=cfg.news.max_market_queries)
+        rows = store.recent_news(hours=48, limit=args.limit)
+    finally:
+        store.close()
+
+    if not rows:
+        print("אין חדשות שמורות ב-DB עדיין. הרץ `pmmb news --refresh`.")
+        return 0
+    for r in rows:
+        ts = _dt.fromtimestamp(r["ts"], tz=_tz.utc).strftime("%m-%d %H:%M")
+        imp = float(r["impact"] or 0.0)
+        sent = float(r["sentiment"] or 0.0)
+        mark = "🔥" if imp >= cfg.news.spike_impact_threshold else "📰"
+        print(f"{mark} [{ts}] ({r['category']}, imp={imp:.2f}, sent={sent:+.2f}) {r['title']} — {r['source']}")
+    return 0
+
+
+def cmd_reconcile(args, cfg: Config) -> int:
+    """סנכרון ה-DB מול מציאות החשבון/הבורסה (Polymarket + PERPS)."""
+    from .reconcile import reconcile_live, reconcile_paper, reconcile_perps
+
+    mode = args.mode or cfg.execution.mode
+    store = Store(cfg.data.db_path)
+    perp_rep = None
+    try:
+        if mode == "live":
+            from .execution.live import LiveBroker, LiveTradingDisabled
+
+            cfg.execution.mode = "live"
+            try:
+                broker = LiveBroker(cfg.execution)
+            except LiveTradingDisabled as exc:
+                print(f"⛔ {exc}")
+                return 2
+            rep = reconcile_live(
+                store, broker,
+                starting_cash=cfg.execution.starting_cash,
+                fix=args.fix,
+                cancel_orders=args.cancel_orders,
+            )
+        else:
+            rep = reconcile_paper(
+                store, starting_cash=cfg.execution.starting_cash, fix=args.fix,
+            )
+        if cfg.perps.enabled:
+            perp_rep = reconcile_perps(
+                store, mode=cfg.perps.mode, starting_cash=cfg.perps.risk.starting_cash, fix=args.fix
+            )
+    finally:
+        store.close()
+
+    print()
+    print(rep.to_markdown())
+    if perp_rep is not None:
+        print()
+        print(perp_rep.to_markdown())
+    ok_main = rep.clean or (args.fix and all(d.fixed for d in rep.discrepancies))
+    ok_perp = perp_rep is None or perp_rep.clean or (args.fix and all(d.fixed for d in perp_rep.discrepancies))
+    return 0 if (ok_main and ok_perp) else 4
+
+
+def cmd_backup(args, cfg: Config) -> int:
+    """גיבוי חם ואטומי של מסד הנתונים."""
+    from .backup import backup_db
+
+    res = backup_db(cfg.data.db_path, backups_dir=args.out, keep=args.keep)
+    kb = res.size_bytes / 1024
+    extra = f" (נוקו {res.removed} ישנים)" if res.removed else ""
+    print(f"✅ גיבוי תקין: {res.path} ({kb:.1f} KB){extra}")
+    return 0
+
+
+def cmd_halt(args, cfg: Config) -> int:
+    """עצירת חירום מתמדת (מונעת כניסות עד pmmb resume)."""
+    from .runtime import write_halt
+
+    reason = " ".join(args.reason).strip() or "עצירה ידנית מה-CLI"
+    p = write_halt(reason, source="cli")
+    print(f"🛑 הופעלה עצירת חירום ({p}): {reason}")
+    return 0
+
+
+def cmd_resume(args, cfg: Config) -> int:
+    """שחרור עצירה ידנית."""
+    from .runtime import clear_halt
+
+    if clear_halt():
+        print("▶️  העצירה הידנית בוטלה.")
+    else:
+        print("ℹ️  לא הייתה עצירה פעילה.")
+    return 0
+
+
+def cmd_telegram(args, cfg: Config) -> int:
+    """האזנה לפקודות Telegram מהטלפון (/status, /positions, /halt, /resume)."""
+    from .runtime import ProcessLock, ProcessLockError
+    from .telegram_bot import TelegramController
+
+    bot = TelegramController(cfg)
+    if not bot.enabled:
+        print("⚪️ חסרים PMMB_TELEGRAM_TOKEN / PMMB_TELEGRAM_CHAT_ID")
+        return 1
+    if args.once:
+        n = bot.poll_once(timeout=args.timeout)
+        print(f"טופלו {n} פקודות")
+        return 0
+    try:
+        lock = ProcessLock("pmmb-telegram").acquire()
+    except ProcessLockError as exc:
+        print(f"⛔ {exc}")
+        return 5
+    try:
+        print("🤖 מאזין לפקודות Telegram (Ctrl+C לעצירה)...")
+        bot.run_forever(timeout=args.timeout)
+    finally:
+        lock.release()
+    return 0
+
+
+def cmd_notify_test(args, cfg: Config) -> int:
+    """בודק שהתראות Telegram עובדות — לפני שמסתמכים עליהן."""
+    from .notify import Notifier, fmt_daily
+
+    n = Notifier()
+    if not n.enabled:
+        print("⚪️ לא הוגדר: PMMB_TELEGRAM_TOKEN / PMMB_TELEGRAM_CHAT_ID")
+        return 1
+    ok = n.send(fmt_daily(cfg.execution.mode, 1000.0, 0.0, 0), force=True)
+    print("✅ נשלחה הודעת בדיקה" if ok else "❌ השליחה נכשלה — בדוק טוקן/chat_id")
+    return 0 if ok else 1
+
+
+def cmd_readiness(args, cfg: Config) -> int:
+    """שער המעבר ל-live: צ'קליסט שנבדק ע"י מכונה. exit 0 = מוכן."""
+    from .readiness import (ICON, Thresholds, collect_facts, evaluate,
+                            is_ready, readiness_markdown, summary)
+
+    th = Thresholds(soak_days=args.days, max_gap_min=args.max_gap,
+                    min_consistency=args.consistency, max_errors=args.max_errors)
+    checks = evaluate(collect_facts(cfg, reports_dir=args.out), th)
+
+    print()
+    for c in checks:
+        print(f"{ICON[c.status]} {c.label:22s} {c.detail}")
+    print(f"\n{summary(checks)}")
+
+    if args.write:
+        from pathlib import Path
+
+        p = Path(args.out) / "readiness.md"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(readiness_markdown(checks, th), encoding="utf-8")
+        print(f"📄 {p}")
+    return 0 if is_ready(checks) else 2
+
+
+def cmd_fees(args, cfg: Config) -> int:
+    from .feeview import fee_table, write_fee_report
+
+    from pathlib import Path
+    import json as _json
+
+    measured = {}
+    sec = Path(args.out) / "sectors.json"
+    if sec.exists():
+        try:
+            measured = {r["sector"]: r["mean_realized"]
+                        for r in _json.loads(sec.read_text(encoding="utf-8"))["rows"]}
+        except Exception:      # noqa: BLE001 — קובץ פגום לא אמור לעצור כלי דיאגנוסטי
+            measured = {}
+    rows = fee_table(spread=args.spread, edge=args.edge, price=args.price,
+                     measured_edges=measured)
+    print()
+    print(f"{'סקטור':12s} {'עמלה':>6s} {'סבב':>7s} {'עובי':>7s} {'נדרש':>7s} {'נטו':>8s}  פסק דין")
+    print("-" * 72)
+    for r in rows:
+        print(f"{r.sector:12s} {r.rate:6.1%} {r.rt_fee:7.4f} {r.edge:7.4f} {r.breakeven:7.4f} "
+              f"{r.net_at_edge:+8.4f}  {r.verdict}")
+    print("\n(עובי = מהמדידה בפועל אם reports/sectors.json קיים, אחרת ברירת מחדל)")
+    out = write_fee_report(f"{args.out}/fees.md", rows, spread=args.spread,
+                           edge=args.edge, price=args.price)
+    print(f"\n📄 {out}")
+    return 0
+
+
+def cmd_report(args, cfg: Config) -> int:
+    store = Store(cfg.data.db_path)
+    mode = cfg.execution.mode
+    sells = store._conn.execute(
+        """SELECT f.ts, f.token_id, f.price, f.size, f.realized, f.reason,
+                  COALESCE(p.question, f.token_id) AS question
+           FROM fills f LEFT JOIN positions p ON p.token_id = f.token_id
+           WHERE f.side='SELL' AND f.mode=? ORDER BY f.ts, f.id""",
+        (mode,),
+    ).fetchall()
+    if sells:
+        wins = [s for s in sells if (s["realized"] or 0) > 0]
+        total = sum((s["realized"] or 0) for s in sells)
+        fees = sum((r["f"] or 0) for r in store._conn.execute(
+            "SELECT SUM(fee) f FROM fills WHERE mode=?", (mode,)
+        ).fetchall())
+        rows = []
+        for s in sells[-args.limit:]:
+            ts = datetime.fromtimestamp(s["ts"], tz=timezone.utc).strftime("%m-%d %H:%M")
+            rows.append([ts, (s["question"] or s["token_id"])[:34], f"{s['size']:.1f}",
+                         f"{s['price']:.3f}", f"{s['realized']:+.2f}", (s["reason"] or "")[:28]])
+        print(_table(rows, ["נסגר", "שוק", "כמות", "יציאה", "PnL", "סיבה"]))
+        print(f"\nסה\"כ {len(sells)} יציאות ({mode}) | win rate {len(wins) / len(sells) * 100:.1f}% | "
+              f"PnL ממומש {total:+.2f} USDC | עמלות {fees:.2f}")
+        store.close()
+        return 0
+
+    trades = store.closed_trades()
+    if not trades:
+        print("אין עסקאות סגורות ב-DB עדיין.")
+        store.close()
+        return 0
+    wins = [t for t in trades if (t["realized_pnl"] or 0) > 0]
+    total = sum((t["realized_pnl"] or 0) for t in trades)
+    rows = []
+    for t in trades[-args.limit:]:
+        ts = datetime.fromtimestamp(t["closed_at"], tz=timezone.utc).strftime("%m-%d %H:%M")
+        rows.append([ts, (t["question"] or t["token_id"])[:34], t["direction"],
+                     f"{t['avg_price']:.3f}", f"{t['realized_pnl']:+.2f}", t["exit_reason"] or ""])
+    print(_table(rows, ["נסגר", "שוק", "כיוון", "כניסה", "PnL", "סיבה"]))
+    print(f"\nסה\"כ {len(trades)} עסקאות | win rate {len(wins) / len(trades) * 100:.1f}% | "
+          f"PnL ממומש {total:+.2f} USDC")
+    store.close()
+    return 0
+
+
+def cmd_perps(args, cfg: Config) -> int:
+    """שליטה מלאה בזרוע ה-PERPS (סריקה רב-בורסות, Paper/Live עד ×50, בקטסט ולמידה OOS)."""
+    from .perps.backtest import run_perp_portfolio_backtest, run_perp_walkforward, write_perp_reports
+    from .perps.broker import LivePerpBroker, PaperPerpBroker
+    from .perps.engine import PerpEngine
+    from .perps.exchange import MultiPerpExchange
+    from .perps.learning import run_perp_self_learning_cycle
+    from .perps.signals import ProMultiRegimeEngine
+    from .status import build_perps_status
+
+    act = args.perps_cmd
+    if act == "scan":
+        ex = MultiPerpExchange(cfg.perps.exchange)
+        sig_eng = ProMultiRegimeEngine(cfg.perps)
+        insts = ex.scan()
+        btc_i = next((i for i in insts if i.symbol == "BTC"), None)
+        btc_cs = ex.get_candles(btc_i, interval=cfg.perps.signal.timeframe, lookback=160) if btc_i else []
+        rows = []
+        for inst in insts:
+            cs = btc_cs if (inst.symbol == "BTC" and btc_cs) else ex.get_candles(inst, interval=cfg.perps.signal.timeframe, lookback=160)
+            bk = ex.get_book(inst)
+            s = sig_eng.evaluate(inst, cs, book=bk, btc_candles=btc_cs)
+            rows.append([
+                inst.symbol, inst.exchange.upper(), f"${inst.mark_price:,.2f}" if inst.mark_price > 10 else f"${inst.mark_price:.4f}",
+                s.regime, s.direction if s.direction != "FLAT" else "—",
+                f"×{s.recommended_leverage:.0f}", f"{s.features.get('adx', 0):.1f}",
+                f"{s.features.get('z', 0):+.2f}", f"{inst.funding_1h*100:+.4f}%", s.reason[:42],
+            ])
+        print(_table(rows, ["מטבע", "זירה", "מחיר", "משטר", "אות", "מינוף", "ADX", "Z", "Fund/1h", "נימוק"]))
+        return 0
+
+    if act == "status":
+        store = Store(cfg.data.db_path)
+        try:
+            ps = build_perps_status(cfg, store)
+            print(
+                f"⚡ PERPS [{ps['mode'].upper()}] | זירות: {', '.join(ps['exchanges']).upper()} | "
+                f"הון {ps['equity']:.2f} USDC | מזומן {ps['cash']:.2f} | מרג'ין {ps['margin_used']:.2f} | "
+                f"מינוף ממוצע ×{ps['avg_leverage']:.1f} | פוזיציות {len(ps['positions'])}"
+            )
+            if ps["positions"]:
+                rows = [
+                    [p["symbol"], p["exchange"].upper(), p["side"], f"×{p['leverage']:.0f}",
+                     f"${p['margin_used']:.1f}", f"{p['entry_price']:.4f}", f"{p['mark_price']:.4f}",
+                     f"{p['liquidation_price']:.4f} ({p['liq_distance_pct']:.1f}%)", f"{p['unrealized_pnl']:+.2f}"]
+                    for p in ps["positions"]
+                ]
+                print(_table(rows, ["חוזה", "זירה", "כיוון", "מינוף", "מרג'ין", "כניסה", "נוכחי", "LIQ (%)", "לא ממומש"]))
+        finally:
+            store.close()
+        return 0
+
+    if act == "backtest":
+        ex = MultiPerpExchange(cfg.perps.exchange)
+        insts = ex.scan()[: args.assets]
+        datasets = {}
+        funding_map = {}
+        for inst in insts:
+            cs = ex.get_candles(inst, interval=cfg.perps.signal.timeframe, lookback=args.lookback)
+            if len(cs) >= 240:
+                datasets[inst.symbol] = (inst, cs)
+                if inst.hl_funding_1h is not None:
+                    funding_map[inst.symbol] = ex.hl.get_funding_history(inst.symbol, days=30)
+        full = run_perp_portfolio_backtest(cfg.perps, datasets, funding_map=funding_map)
+        wf = run_perp_walkforward(cfg.perps, datasets, funding_map=funding_map, folds=3)
+        p = write_perp_reports(full, wf, out_dir=args.out)
+        print(
+            f"⚡ PERPS Backtest ({len(datasets)} חוזים, ×{cfg.perps.risk.max_leverage:.0f} max):\n"
+            f"  תשואה: {full.return_pct:+.2f}% | הון סופי {full.ending_equity:.2f} | "
+            f"עסקאות {full.trades} (WR {full.win_rate_pct:.1f}%, PF {full.profit_factor:.2f}) | "
+            f"DD {full.max_drawdown_pct:.1f}% | ליקווידציות {full.liquidations}\n"
+            f"  מינוף ממוצע ×{full.avg_leverage:.1f} (שיא ×{full.max_leverage_used:.1f}) | "
+            f"OOS (3 חלונות): {wf.oos_return_pct:+.2f}% (עקביות {wf.consistency*100:.0f}%)\n"
+            f"📄 {p}"
+        )
+        return 0
+
+    if act == "learn":
+        store = Store(cfg.data.db_path)
+        try:
+            rep = run_perp_self_learning_cycle(cfg, store, apply_changes=not args.no_apply)
+            print(f"🧠 {rep.summary}")
+            print(f"  Baseline OOS: {rep.baseline_oos_pct:+.2f}% | Candidate OOS: {rep.candidate_oos_pct:+.2f}% | 0 ליקווידציות: {rep.liquidations == 0}")
+        finally:
+            store.close()
+        return 0
+
+    if act in ("paper", "live"):
+        if act == "live":
+            cfg.perps.mode = "live"
+            broker = LivePerpBroker(cfg.perps)
+        else:
+            cfg.perps.mode = "paper"
+            broker = PaperPerpBroker(cfg.perps)
+        eng = PerpEngine(cfg, broker=broker)
+        n_cycles = args.cycles or 1
+        try:
+            for idx in range(n_cycles):
+                st = eng.run_once()
+                print(
+                    f"⚡ מחזור #{idx+1}: נסרקו {st.scanned} | אותות {st.signalled} | "
+                    f"כניסות {st.entries} | יציאות {st.exits} | הון {eng._equity():.2f}"
+                )
+                if idx + 1 < n_cycles:
+                    time.sleep(args.interval)
+        finally:
+            eng.close()
+        return 0
+
+    return 1
+
+
+# ----------------------------------------------------------------------
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="pmmb", description="Polymarket Momentum Bot (אסטרטגיה B)")
+    p.add_argument("--config", default=None, help="נתיב ל-config.yaml")
+    p.add_argument("--log-level", default=None)
+    p.add_argument("--engine", default=None, choices=["momentum", "meanrev"],
+                   help="עקיפת מנוע הסיגנל (ברירת מחדל: config)")
+
+    sub = p.add_subparsers(dest="command", required=True)
+
+    sub.add_parser("doctor", help="בדיקת חיבור וקונפיג")
+
+    s = sub.add_parser("scan", help="סריקה חד-פעמית והצגת סיגנלים")
+    s.add_argument("--all", action="store_true", help="הצג גם שווקים ללא סיגנל")
+
+    for name, hlp in (("paper", "הרצת סימולציה"), ("live", "מסחר אמיתי (מוגן)")):
+        r = sub.add_parser(name, help=hlp)
+        r.add_argument("--cycles", type=int, default=None, help="מספר מחזורים ואז עצור")
+        r.add_argument("--interval", type=float, default=60.0, help="שניות בין מחזורים")
+
+    b = sub.add_parser("backtest", help="בקטסט היסטורי")
+    b.add_argument("--top", type=int, default=5, help="כמה שווקים מהרשימה המובילה")
+    b.add_argument("--token", default=None, help="token id ספציפי לבדיקה")
+    b.add_argument("--fidelity", type=int, default=60, help="רזולוציית נרות (דקות)")
+    b.add_argument("--lookback", type=int, default=720, help="מספר נרות היסטוריים")
+    b.add_argument("--spread", type=float, default=0.01, help="ספרד קבוע להנחה")
+    b.add_argument("--entry", choices=["taker", "passive"], default="taker",
+                   help="taker = חוצים את הספרד ומשלמים עמלה · passive = מגבלה על ה-bid (מייקר, פטור מעמלה)")
+    b.add_argument("--wait", type=int, default=3,
+                   help="כמה נרות להמתין למילוי פסיבי לפני מעבר לטאקר")
+    b.add_argument("--portfolio", action="store_true",
+                   help="סימולציית תיק משותף אמיתי (מגבלות פוזיציות, חשיפה ואירוע)")
+    b.add_argument("--out", default="reports")
+
+    a = sub.add_parser("analyze", help="אבחון כוח ניבוי הסיגנל (IC / hit rate)")
+    a.add_argument("--markets", type=int, default=8)
+    a.add_argument("--fidelity", type=int, default=60)
+    a.add_argument("--lookback", type=int, default=720)
+    a.add_argument("--horizon", type=int, default=24)
+    a.add_argument("--spread", type=float, default=0.01)
+    a.add_argument("--out", default="reports")
+
+    t = sub.add_parser("tune", help="סריקת פרמטרים על דאטה אמיתי (לכיול)")
+    t.add_argument("--markets", type=int, default=4)
+    t.add_argument("--fidelity", type=int, default=60)
+    t.add_argument("--lookback", type=int, default=500)
+    t.add_argument("--spread", type=float, default=0.01)
+    t.add_argument("--out", default="reports")
+
+    co = sub.add_parser("collect", help="איסוף snapshots של ספר הפקודות")
+    co.add_argument("--minutes", type=float, default=30)
+    co.add_argument("--interval", type=float, default=20)
+    co.add_argument("--levels", type=int, default=5)
+
+    im = sub.add_parser("imbalance", help="ניתוח כוח הניבוי של imbalance")
+    im.add_argument("--horizon-min", type=float, default=60)
+    im.add_argument("--tolerance", type=float, default=20)
+    im.add_argument("--levels", type=int, default=5)
+    im.add_argument("--out", default="reports")
+
+    sec = sub.add_parser("sectors", help="פילוח האות לפי סקטור שוק")
+    sec.add_argument("--markets", type=int, default=40)
+    sec.add_argument("--fidelity", type=int, default=60)
+    sec.add_argument("--lookback", type=int, default=1440)
+    sec.add_argument("--horizon", type=float, default=48)
+    sec.add_argument("--spread", type=float, default=0.01)
+    sec.add_argument("--out", default="reports")
+
+    cal = sub.add_parser("calibrate", help="האם הצפי תואם את המציאות")
+    cal.add_argument("--markets", type=int, default=12)
+    cal.add_argument("--fidelity", type=int, default=60)
+    cal.add_argument("--lookback", type=int, default=1440)
+    cal.add_argument("--horizon", type=float, default=24, help="אופק מדידה בשעות")
+    cal.add_argument("--spread", type=float, default=0.01)
+
+    wf = sub.add_parser("walkforward", help="כיול וחילוץ OOS על חלונות זמן")
+    wf.add_argument("--markets", type=int, default=35)
+    wf.add_argument("--folds", type=int, default=3)
+    wf.add_argument("--fidelity", type=int, default=60)
+    wf.add_argument("--lookback", type=int, default=720)
+    wf.add_argument("--spread", type=float, default=0.01)
+    wf.add_argument("--out", default="reports")
+
+    dl = sub.add_parser("daily", help="דוח יומי מה-DB (ל-cron)")
+    dl.add_argument("--hours", type=int, default=24)
+    dl.add_argument("--out", default="reports")
+    dl.add_argument("--no-write", action="store_true", help="לא לכתוב קובץ")
+
+    stt = sub.add_parser("status", help="מצב המערכת (בריאות, הון, פוזיציות, היום)")
+    stt.add_argument("--json", action="store_true", help="פלט JSON למכונה")
+    stt.add_argument("--html-out", default=None, help="יצוא דוח תוכנת בקרה HTML עצמאי לקובץ")
+    stt.add_argument("--max-age", type=float, default=300, help="גיל דופק מקסימלי (שניות)")
+
+    srv = sub.add_parser("serve", help="תוכנת בקרה ודשבורד חיים בדפדפן")
+    srv.add_argument("--host", default="0.0.0.0")
+    srv.add_argument("--port", type=int, default=8787)
+    srv.add_argument("--max-age", type=float, default=300)
+    srv.add_argument("--refresh", type=int, default=30, help="רענון אוטומטי בעמוד (0=כבוי)")
+    srv.add_argument("--token", default=None, help="אם מוגדר — נדרש ?token= בקריאה")
+    srv.add_argument("--autostart", action="store_true", help="הפעל לולאת מסחר/חדשות/למידה רציפה (paper בלבד)")
+    srv.add_argument("--interval", type=float, default=180.0, help="מרווח שניות בין מחזורי מסחר ב-autostart")
+
+    sub.add_parser("notify-test", help="בדיקת התראות Telegram")
+
+    rec = sub.add_parser("reconcile", help="סנכרון ה-DB מול הבורסה / ספר החשבונות")
+    rec.add_argument("--mode", choices=["paper", "live"], default=None)
+    rec.add_argument("--fix", action="store_true", help="תקן פערים ב-DB לפי המציאות")
+    rec.add_argument("--cancel-orders", action="store_true", help="בטל פקודות פתוחות תקועות (live)")
+
+    bk = sub.add_parser("backup", help="גיבוי חם ומאומת של pmmb.db")
+    bk.add_argument("--out", default="backups")
+    bk.add_argument("--keep", type=int, default=14, help="כמה גיבויים לשמור")
+
+    ht = sub.add_parser("halt", help="עצירת חירום מתמדת (נשמרת גם אחרי הפעלה מחדש)")
+    ht.add_argument("reason", nargs="*", help="סיבת העצירה")
+
+    sub.add_parser("resume", help="ביטול עצירת חירום ידנית")
+
+    tg = sub.add_parser("telegram", help="לולאת פקודות Telegram לטלפון (/status, /halt)")
+    tg.add_argument("--once", action="store_true", help="בדוק פעם אחת וצא")
+    tg.add_argument("--timeout", type=int, default=25)
+
+    rd = sub.add_parser("readiness", help="שער המעבר ל-live (exit 0 = מוכן)")
+    rd.add_argument("--days", type=int, default=7, help="כמה ימי paper נדרשים")
+    rd.add_argument("--max-gap", type=float, default=30.0, help="פער הרצה מרבי (דקות)")
+    rd.add_argument("--consistency", type=float, default=0.66, help="עקביות OOS מינימלית")
+    rd.add_argument("--max-errors", type=int, default=3)
+    rd.add_argument("--out", default="reports")
+    rd.add_argument("--no-write", dest="write", action="store_false")
+
+    pf = sub.add_parser("fees", help="כלכלת העמלות לפי סקטור (מה בכלל כדאי לסחור)")
+    pf.add_argument("--spread", type=float, default=0.01)
+    pf.add_argument("--edge", type=float, default=0.025, help="עובי סיגנל טיפוסי (נק' הסתברות)")
+    pf.add_argument("--price", type=float, default=0.50)
+    pf.add_argument("--out", default="reports")
+
+    rp = sub.add_parser("report", help="סיכום ביצועים מה-DB")
+    rp.add_argument("--limit", type=int, default=20)
+
+    lr = sub.add_parser("learn", help="מחזור למידה עצמית והשוואת Walk-Forward")
+    lr.add_argument("--markets", type=int, default=28, help="כמה שווקים לבדיקה")
+    lr.add_argument("--no-apply", action="store_true", help="דוח בלבד — בלי לעדכן פרמטרים")
+    lr.add_argument("--out", default="reports")
+
+    nw = sub.add_parser("news", help="חדשות שווקים חיות וזיהוי קטליזטורים")
+    nw.add_argument("--refresh", action="store_true", help="משוך עכשיו חדשות עדכניות מ-RSS")
+    nw.add_argument("--limit", type=int, default=15)
+
+    pr = sub.add_parser("perps", help="זרוע חוזים תמידיים (Perpetual Futures עד ×50)")
+    pr_sub = pr.add_subparsers(dest="perps_cmd", required=True)
+    pr_sub.add_parser("scan", help="סריקת OKX + Hyperliquid + Binance והצגת סיגנלים")
+    pr_sub.add_parser("status", help="מצב תיק Perps, מרג'ין, מינוף וליקווידציה")
+    for pm in ("paper", "live"):
+        pr_run = pr_sub.add_parser(pm, help=f"הרצת מסחר Perps במצב {pm}")
+        pr_run.add_argument("--cycles", type=int, default=1)
+        pr_run.add_argument("--interval", type=float, default=120.0)
+    pr_bt = pr_sub.add_parser("backtest", help="בקטסט פורטפוליו + 3-Fold Walk-Forward ל-Perps")
+    pr_bt.add_argument("--assets", type=int, default=16)
+    pr_bt.add_argument("--lookback", type=int, default=720)
+    pr_bt.add_argument("--out", default="reports")
+    pr_lr = pr_sub.add_parser("learn", help="למידה עצמית OOS לפרמטרי Perps")
+    pr_lr.add_argument("--no-apply", action="store_true")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    cfg = Config.load(args.config)
+    if getattr(args, "engine", None):
+        cfg.signal.engine = args.engine
+    if args.log_level:
+        cfg.logging.level = args.log_level
+    setup_logging(cfg.logging, quiet=args.command in {"scan", "backtest", "report", "doctor"})
+
+    handlers = {
+        "doctor": cmd_doctor,
+        "scan": cmd_scan,
+        "paper": cmd_run,
+        "live": cmd_run,
+        "backtest": cmd_backtest,
+        "tune": cmd_tune,
+        "analyze": cmd_analyze,
+        "walkforward": cmd_walkforward,
+        "calibrate": cmd_calibrate,
+        "sectors": cmd_sectors,
+        "collect": cmd_collect,
+        "imbalance": cmd_imbalance,
+        "report": cmd_report,
+        "daily": cmd_daily,
+        "fees": cmd_fees,
+        "readiness": cmd_readiness,
+        "status": cmd_status,
+        "serve": cmd_serve,
+        "notify-test": cmd_notify_test,
+        "reconcile": cmd_reconcile,
+        "backup": cmd_backup,
+        "halt": cmd_halt,
+        "resume": cmd_resume,
+        "telegram": cmd_telegram,
+        "learn": cmd_learn,
+        "news": cmd_news,
+        "perps": cmd_perps,
+    }
+    return handlers[args.command](args, cfg)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
