@@ -81,6 +81,29 @@ class _TraderManager:
         self._seen_pos_alerts: set[str] = set()
         self.interval_sec = float(cfg.autopilot.trade_interval_sec)
         self.stream_interval_sec = float(cfg.autopilot.stream_interval_sec)
+        self._state_lock = threading.Lock()
+        self._state_cache: tuple[float, dict] | None = None
+        self._perps_exchange = None
+
+    def _get_perps_exchange(self):
+        if self._perps_exchange is None:
+            from .perps.exchange import MultiPerpExchange
+            self._perps_exchange = MultiPerpExchange(self.cfg.perps.exchange)
+        return self._perps_exchange
+
+    def invalidate_cache(self) -> None:
+        with self._state_lock:
+            self._state_cache = None
+
+    def get_state_snapshot(self, *, max_age_sec: float = 300.0, force: bool = False) -> dict:
+        now = time.monotonic()
+        with self._state_lock:
+            if not force and self._state_cache is not None and (now - self._state_cache[0]) < 2.5:
+                return self._state_cache[1]
+        data = build_command_center_data(cfg=self.cfg, max_age_sec=max_age_sec, trader_state=self.state())
+        with self._state_lock:
+            self._state_cache = (time.monotonic(), data)
+        return data
 
     @property
     def running(self) -> bool:
@@ -183,7 +206,7 @@ class _TraderManager:
             try:
                 from .perps.engine import PerpEngine
                 with self._perps_lock:
-                    peng = PerpEngine(self.cfg)
+                    peng = PerpEngine(self.cfg, exchange=self._get_perps_exchange())
                     try:
                         if peng.positions:
                             peng.monitor_open_positions()
@@ -288,7 +311,7 @@ class _TraderManager:
                 plock = ProcessLock("pmmb-perps-paper").acquire()
             except ProcessLockError as exc:
                 raise RuntimeError(str(exc)) from exc
-            eng = PerpEngine(self.cfg)
+            eng = PerpEngine(self.cfg, exchange=self._get_perps_exchange())
             try:
                 st = eng.run_once()
                 self.perps_cycles += 1
@@ -604,11 +627,14 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                      or self.headers.get("Authorization", "").removeprefix("Bearer "))
             return token_ok(given, token)
 
-        def _send(self, code: int, body: bytes, ctype: str, *, head_only: bool = False) -> None:
+        def _send(self, code: int, body: bytes, ctype: str, *, head_only: bool = False,
+                  headers: dict[str, str] | None = None) -> None:
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            for hk, hv in (headers or {}).items():
+                self.send_header(hk, hv)
             self.end_headers()
             if head_only:
                 return
@@ -752,6 +778,7 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     res = {"ok": True, **trader.stop()}
                 else:
                     return self._send(404, b'{"error":"not found"}', "application/json; charset=utf-8")
+                trader.invalidate_cache()
                 return self._send(200, json.dumps(res, ensure_ascii=False).encode(),
                                   "application/json; charset=utf-8")
             except KeyError as exc:
@@ -789,11 +816,31 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     return self._send(200, json.dumps(st, ensure_ascii=False, indent=2).encode(),
                                       "application/json; charset=utf-8", head_only=head_only)
                 if path == "/api/state":
-                    st = build_command_center_data(
-                        cfg, max_age_sec=max_age_sec, trader_state=trader.state()
-                    )
+                    st = trader.get_state_snapshot(max_age_sec=max_age_sec)
                     return self._send(200, json.dumps(st, ensure_ascii=False).encode(),
                                       "application/json; charset=utf-8", head_only=head_only)
+                if path == "/api/export/trades.csv":
+                    import csv
+                    import io
+                    from datetime import datetime, timezone
+
+                    st = trader.get_state_snapshot(max_age_sec=max_age_sec)
+                    buf = io.StringIO()
+                    w = csv.writer(buf)
+                    w.writerow(["זמן", "זרוע", "נכס / שוק", "כיוון", "מחיר", "נומינלי ($)", "עמלה ($)", "רווח נטו ($)", "סיבה"])
+                    for t in ((st.get("perps") or {}).get("recent_trades") or []):
+                        ts_iso = datetime.fromtimestamp(int(t.get("ts") or 0), tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+                        w.writerow([ts_iso, "PERPS", t.get("symbol"), t.get("side"), t.get("price"),
+                                    t.get("notional"), t.get("fee"), t.get("realized"), t.get("reason")])
+                    for f in (st.get("fills") or []):
+                        ts_iso = datetime.fromtimestamp(int(f.get("ts") or 0), tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+                        w.writerow([ts_iso, "Polymarket", f.get("question"), f.get("side"), f.get("price"),
+                                    f.get("notional"), f.get("fee"), f.get("realized"), f.get("reason")])
+                    csv_bytes = ("\ufeff" + buf.getvalue()).encode("utf-8")
+                    return self._send(
+                        200, csv_bytes, "text/csv; charset=utf-8", head_only=head_only,
+                        headers={"Content-Disposition": 'attachment; filename="pmmb_trades.csv"'},
+                    )
                 if path == "/api/chart":
                     tid = (query.get("token", [""])[0] or "").strip()
                     if not tid:
@@ -814,9 +861,7 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     return self._send(200, status_html(st, refresh_sec=refresh_sec).encode(),
                                       "text/html; charset=utf-8", head_only=head_only)
                 if path in ("/", "/index.html"):
-                    st = build_command_center_data(
-                        cfg, max_age_sec=max_age_sec, trader_state=trader.state()
-                    )
+                    st = trader.get_state_snapshot(max_age_sec=max_age_sec)
                     html = command_center_html(st, refresh_sec=min(max(refresh_sec, 0), 15) if refresh_sec else 0)
                     return self._send(200, html.encode(), "text/html; charset=utf-8", head_only=head_only)
             except Exception as exc:              # noqa: BLE001 — השרת לא נופל על דוח

@@ -149,6 +149,11 @@ def test_server_get_and_head_endpoints(tmp_path, cfg, monkeypatch):
             assert resp.status == 200
             assert b'"readiness"' in resp.read()
 
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/export/trades.csv", timeout=5) as resp:
+            assert resp.status == 200
+            csv_body = resp.read().decode("utf-8-sig")
+            assert "זרוע" in csv_body and "רווח נטו" in csv_body
+
         # POST halt + resume + backup + reconcile + news-refresh + learn
         import json as _json
         for ep, payload, expect in (
@@ -315,11 +320,10 @@ def test_command_center_builder_and_html(tmp_path, cfg, monkeypatch):
         assert "PMMB Command Center" in html
         assert "http://" not in html and "https://" not in html
         assert "Walk-Forward" in html
-        assert "סקירה ומסחר" in html
-        assert "שווקים וגרפים" in html
-        assert "חדשות ולמידה" in html
-        assert "תפעול אוטונומי" in html
-        assert "רדאר מודיעין שווקים חי" in html
+        assert "התיק והמסחר שלי" in html
+        assert "שווקים, PERPS וחדשות" in html
+        assert "מוכנות, סיכונים והגדרות" in html
+        assert "הפוזיציות הפתוחות שלי" in html
         assert "יומן טייס אוטומטי" in html
         # וידוא עיצוב נקי ללא אימוג'ים קרטוניים
         for em in ("📡", "📊", "🛑", "📰", "🧠", "⚙️"):

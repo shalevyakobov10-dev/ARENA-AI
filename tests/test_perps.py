@@ -217,7 +217,7 @@ def test_perp_engine_cycle_persistence_and_ui(tmp_path):
     assert len(cc["perps"]["positions"]) == 1
     html = command_center_html(cc)
     assert "PERPS ×50" in html
-    assert "tab-perps" in html
+    assert "sub-perps" in html
 
 
 def test_perps_server_api_endpoints(tmp_path):

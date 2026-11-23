@@ -377,12 +377,14 @@ class Store:
     def __init__(self, db_path: str | Path) -> None:
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.path, check_same_thread=False, timeout=10.0)
+        self._conn = sqlite3.connect(self.path, check_same_thread=False, timeout=15.0)
         self._conn.row_factory = sqlite3.Row
         try:
-            self._conn.execute("PRAGMA busy_timeout=5000")
+            self._conn.execute("PRAGMA busy_timeout=15000")
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA synchronous=NORMAL")
+            self._conn.execute("PRAGMA temp_store=MEMORY")
+            self._conn.execute("PRAGMA cache_size=-8000")
         except sqlite3.OperationalError:
             pass
         self._conn.executescript(SCHEMA)
