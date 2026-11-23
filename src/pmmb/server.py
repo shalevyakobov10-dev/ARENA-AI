@@ -23,7 +23,7 @@ from .data.http import HttpClient
 from .data.news import match_market_news, refresh_news_to_store
 from .data.store import Store
 from .learning import _apply as _apply_learned_cfg, evaluate_live_signals, run_self_learning_cycle
-from .reconcile import reconcile_paper
+from .reconcile import reconcile_paper, reconcile_perps
 from .runtime import (
     ProcessLock,
     ProcessLockError,
@@ -177,6 +177,21 @@ class _TraderManager:
                 self.last_stream_ts = now_ts
         finally:
             store.close()
+
+        # ניטור מהיר (בין מחזורים) של פוזיציות PERPS פתוחות מול SL/TP/Trailing בזמן אמת
+        if allow_net and self.cfg.perps.enabled and self.cfg.perps.mode == "paper":
+            try:
+                from .perps.engine import PerpEngine
+                with self._perps_lock:
+                    peng = PerpEngine(self.cfg)
+                    try:
+                        if peng.positions:
+                            peng.monitor_open_positions()
+                    finally:
+                        peng.close()
+            except Exception as exc:
+                log.debug("ניטור מהיר ל-PERPS בשידור: %s", exc)
+
         return {
             "message": f"רענון שידור חי: {n_articles} כתבות חדשות | {n_stream} גרפים וספרים",
             "output": f"כתבות: {n_articles} | טוקנים שהוזרמו: {n_stream}",
@@ -588,11 +603,17 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     store = Store(cfg.data.db_path)
                     try:
                         rep = reconcile_paper(store, starting_cash=cfg.execution.starting_cash, fix=bool(body.get("fix")))
+                        perp_rep = reconcile_perps(
+                            store, mode=cfg.perps.mode, starting_cash=cfg.perps.risk.starting_cash, fix=bool(body.get("fix"))
+                        ) if cfg.perps.enabled else None
                     finally:
                         store.close()
-                    res = {"ok": True, "clean": rep.clean,
-                           "message": "אפס פערים ב-DB" if rep.clean else f"נמצאו {len(rep.discrepancies)} פערים",
-                           "output": rep.to_markdown()}
+                    both_clean = rep.clean and (perp_rep is None or perp_rep.clean)
+                    n_disc = len(rep.discrepancies) + (len(perp_rep.discrepancies) if perp_rep else 0)
+                    out_md = rep.to_markdown() + ("\n\n" + perp_rep.to_markdown() if perp_rep else "")
+                    res = {"ok": True, "clean": both_clean,
+                           "message": "אפס פערים ב-DB (Polymarket + PERPS)" if both_clean else f"נמצאו {n_disc} פערים",
+                           "output": out_md}
                 elif path == "/api/news-refresh":
                     res = {"ok": True, **trader.refresh_news_and_stream(include_markets=True)}
                 elif path == "/api/learn":

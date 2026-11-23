@@ -172,6 +172,13 @@ CNBC ו-NPR נוספו לצד Google News (`data/news.py`), ויחס האצת ה
 (ג) **מינוף דינמי עד ×50 ומגן ליקווידציה (`src/pmmb/perps/risk.py`)**: עבודה ב־`Isolated Margin` בלבד; מגן `liquidation_buffer_mult=2.2` מחייב שמרחק ה־`Stop Loss` (`1.5*ATR`) יפגע לפני מחיר הליקווידציה (אחרת המינוף מתכווץ אוטומטית מהסטאפ `A+` מ-`×50` למטה בהתאם ל־ATR — כך שבמבחני Walk-Forward על 16 חוזים התקבלו **0 ליקווידציות** תחת מינוף ממוצע `×20.7` ושיא `×46.4`). כולל `ATR Trailing Stop` (`1.2/1.0`), `Time Stop 36h`, ו־`Kill Switch` יומי/Drawdown.
 (ד) **תפעול אוטונומי וממשק (`perps/{engine,broker,backtest,learning}.py`, `store.py`, `server.py`, `ui.py`, `cli.py`)**: 7 טבלאות SQLite ייעודיות (`perp_*`), למידת Walk-Forward ברקע, כפתורי שליטה וגרף `SL / TP / LIQ` חי בטאב `⚡ חוזים (PERPS ×50)` בדשבורד, והגנות 3-שכבות על `LivePerpBroker`.
 
+## 24. הקשחת Production לזרוע ה-PERPS (`max_assets=16`, מיקבול, ניטור 60 שנ', Reconcile ו-Candlesticks)
+2026-11 · מתקבל · מלא (אומת ב-223 בדיקות + Walk-Forward ablation על `max_assets=10..24`)
+המשך הקשחה ואופטימיזציה אמפירית על דאטה חי מ־OKX + Hyperliquid (720 שעות):
+(א) **עקומת `max_assets=16` (`config.yaml`, `config.py`)**: סריקת גודל יקום (`10, 12, 14, 16, 18, 20, 24`) הוכיחה כי בדיוק **`16`** חוזי הדגל הנזילים ביותר ממקסמים את איכות ה־OOS (**`+38.29%` Full, `PF 1.62`, `WR 67.7%`, `DD 9.4%`, `+21.79%` OOS ב־`100%`** עקביות), בעוד הרחבה ל־`18/20/24` אלטים קטנים שוחקת את ה־OOS ל־`+6.83%` (`67%` עקביות, `DD 13.0%`). *נדחתה* גם הסרת Trailing Stop (`33%` OOS).
+(ב) **מיגון ביצוע, מקביליות ומהירות תגובה (`perps/engine.py`, `server.py`)**: מקבול משיכת נרות+ספר ב־`ThreadPoolExecutor(8)`, בדיקת `read_halt()` (`halt.json`) לפני כל כניסה חדשה, הגנת נר-כניסה (`opened_at < last_candle.ts` למניעת עצירת-שווא מפתיל טרום-כניסה), ופונקציית `monitor_open_positions()` מהירה המנטרת פוזיציות פתוחות כל דקה בשידור החי.
+(ג) **שלמות חשבונאית, דיוק Live, חדשות וטלגרם (`reconcile.py`, `autopilot.py`, `perps/broker.py`, `news.py`, `telegram_bot.py`, `ui.py`)**: נוספו `reconcile_perps()`, חיתוך `round_step()` ל־`lot_size`/`tick_size` ב־OKX/Binance + תמיכת `Hyperliquid` חיה, פקודת טלגרם `/perps` ופירוט Perps ב־`/status`, 3 ערוצי חדשות קריפטו-מאקרו נוספים (`Cointelegraph`, `CryptoSlate`, Crypto-Macro query), וגרף **נרות יפניים (`OHLC Candlesticks` + Crosshair חי)** בטאב `⚡ חוזים (PERPS ×50)`.
+
 
 
 

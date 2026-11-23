@@ -16,28 +16,35 @@ from .daily import build_daily_report, write_daily_report
 from .data.news import match_market_news
 from .notify import Notifier
 from .readiness import Thresholds, collect_facts, evaluate, readiness_markdown
-from .reconcile import reconcile_paper
+from .reconcile import reconcile_paper, reconcile_perps
 
 log = logging.getLogger(__name__)
 
 
 def run_auto_reconcile(cfg, store) -> dict[str, Any]:
-    """מאמת שלמות DB מול פוזיציות ומילויים; במצב paper מתקן אוטומטית פערים."""
+    """מאמת שלמות DB (Polymarket + PERPS) מול פוזיציות ומילויים; במצב paper מתקן אוטומטית פערים."""
     if cfg.execution.mode != "paper":
         return {"ok": True, "fixed": False, "summary": "דילוג (מצב live — דורש סנכרון מפורש)"}
 
     rep = reconcile_paper(store, starting_cash=cfg.execution.starting_cash, fix=False)
-    if rep.clean:
-        store.record_autopilot_run("reconcile", "ok", "אימות DB נקי — 0 פערים")
+    perp_fixed = 0
+    if cfg.perps.enabled and cfg.perps.mode == "paper":
+        p_rep = reconcile_perps(
+            store, mode="paper", starting_cash=cfg.perps.risk.starting_cash, fix=cfg.autopilot.auto_fix_paper
+        )
+        perp_fixed = p_rep.fixes_applied
+
+    if rep.clean and perp_fixed == 0:
+        store.record_autopilot_run("reconcile", "ok", "אימות DB נקי (Polymarket + PERPS) — 0 פערים")
         return {"ok": True, "fixed": False, "summary": "0 פערים"}
 
     if cfg.autopilot.auto_fix_paper:
         rep_fix = reconcile_paper(store, starting_cash=cfg.execution.starting_cash, fix=True)
         rep_verify = reconcile_paper(store, starting_cash=cfg.execution.starting_cash, fix=False)
-        msg = f"תוקנו אוטומטית {rep_fix.fixes_applied} פערים ב-DB"
+        msg = f"תוקנו אוטומטית {rep_fix.fixes_applied + perp_fixed} פערים ב-DB"
         store.record_autopilot_run(
             "reconcile", "fixed", msg,
-            details={"discrepancies": [d.kind for d in rep_fix.discrepancies], "clean_after": rep_verify.clean},
+            details={"discrepancies": [d.kind for d in rep_fix.discrepancies], "clean_after": rep_verify.clean, "perps_fixed": perp_fixed},
         )
         store.event("autopilot_reconcile", msg, level="WARNING")
         return {"ok": rep_verify.clean, "fixed": True, "summary": msg}

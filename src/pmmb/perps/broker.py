@@ -51,6 +51,16 @@ def estimate_book_fill(book: PerpBook, is_buy: bool, notional_usd: float) -> tup
     return spent_usd / filled_qty, filled_qty
 
 
+def round_step(val: float, step: float) -> float:
+    """חיתוך מדויק לפי גודל לוט/טיק של הבורסה למניעת דחיית Precision."""
+    if step <= 0:
+        return round(val, 6)
+    import math
+    n = math.floor(val / step + 1e-9)
+    dec = max(0, min(8, -int(math.floor(math.log10(step))) if step < 1 else 0))
+    return round(n * step, dec)
+
+
 class PaperPerpBroker:
     mode = "paper"
 
@@ -142,7 +152,7 @@ class LivePerpBroker:
         sig = hmac.new(self.bn_secret.encode(), qs.encode(), hashlib.sha256).hexdigest()
         return f"{qs}&signature={sig}"
 
-    def execute(self, order: PerpOrder, *, ct_val: float = 1.0, **_kw) -> PerpFill | None:
+    def execute(self, order: PerpOrder, *, ct_val: float = 1.0, lot_size: float = 0.001, tick_size: float = 0.01, **_kw) -> PerpFill | None:
         if order.leverage > self.cfg.risk.max_leverage or order.leverage > 50.0:
             raise ValueError(f"חריגה מתקרת מינוף ב-Live: {order.leverage}")
         if order.exchange == "okx" and self.has_okx:
@@ -155,7 +165,8 @@ class LivePerpBroker:
                 timeout=10.0,
             ).raise_for_status()
             side = "buy" if ((order.side == "LONG" and order.action == "OPEN") or (order.side == "SHORT" and order.action == "CLOSE")) else "sell"
-            sz_contracts = max(0.01, round(order.size / max(1e-9, ct_val), 2))
+            step_c = max(0.01, lot_size / max(1e-9, ct_val))
+            sz_contracts = max(step_c, round_step(order.size / max(1e-9, ct_val), step_c))
             ord_body = json.dumps({
                 "instId": inst_id,
                 "tdMode": "isolated",
@@ -176,11 +187,12 @@ class LivePerpBroker:
                 log.warning("OKX Live order rejected: %s", data)
                 return None
             oid = str((data.get("data") or [{}])[0].get("ordId") or "okx-live")
-            notional = order.price * order.size
+            exec_sz = round(sz_contracts * ct_val, 6)
+            notional = order.price * exec_sz
             fee = round(notional * self.cfg.taker_fee_bps / 10_000.0, 6)
             return PerpFill(
                 symbol=order.symbol, exchange="okx", side=order.side, action=order.action,
-                price=order.price, size=order.size, notional=notional, leverage=order.leverage,
+                price=order.price, size=exec_sz, notional=notional, leverage=order.leverage,
                 margin_delta=-(notional / order.leverage) if order.action == "OPEN" else 0.0,
                 fee=fee, reason=order.reason, order_id=oid, ts=utcnow(),
             )
@@ -198,9 +210,10 @@ class LivePerpBroker:
                 headers=hdr, timeout=10.0,
             ).raise_for_status()
             side = "BUY" if ((order.side == "LONG" and order.action == "OPEN") or (order.side == "SHORT" and order.action == "CLOSE")) else "SELL"
+            qty_str = str(max(lot_size, round_step(order.size, lot_size)))
             q = self._binance_sign({
                 "symbol": ex_sym, "side": side, "type": "MARKET",
-                "quantity": str(round(order.size, 4)),
+                "quantity": qty_str,
                 "reduceOnly": "true" if order.reduce_only else "false",
                 "timestamp": str(int(time.time() * 1000)),
             })
@@ -208,7 +221,7 @@ class LivePerpBroker:
             resp.raise_for_status()
             d = resp.json()
             px = float(d.get("avgPrice") or order.price)
-            qty = float(d.get("executedQty") or order.size)
+            qty = float(d.get("executedQty") or qty_str)
             notional = px * qty
             return PerpFill(
                 symbol=order.symbol, exchange="binance", side=order.side, action=order.action,
@@ -216,6 +229,27 @@ class LivePerpBroker:
                 margin_delta=-(notional / order.leverage) if order.action == "OPEN" else 0.0,
                 fee=round(notional * self.cfg.taker_fee_bps / 10_000.0, 6),
                 reason=order.reason, order_id=str(d.get("orderId") or "bn-live"), ts=utcnow(),
+            )
+
+        if order.exchange == "hyperliquid" and self.has_hl:
+            try:
+                from hyperliquid.exchange import Exchange as HLExchange
+                from eth_account import Account
+            except ImportError as exc:
+                raise PerpsLiveDisabled("נדרשת חבילת hyperliquid-python-sdk למסחר חי ישיר ב-Hyperliquid (או הגדר מפתחות OKX/Binance)") from exc
+            wallet = Account.from_key(self.hl_key)
+            hl_ex = HLExchange(wallet)
+            hl_ex.update_leverage(int(order.leverage), order.symbol.upper(), is_cross=False)
+            is_buy = (order.side == "LONG" and order.action == "OPEN") or (order.side == "SHORT" and order.action == "CLOSE")
+            sz_hl = max(lot_size, round_step(order.size, lot_size))
+            res = hl_ex.market_open(order.symbol.upper(), is_buy, sz_hl, px=None, slippage=0.01) if not order.reduce_only else hl_ex.market_close(order.symbol.upper(), sz=sz_hl)
+            notional = order.price * sz_hl
+            return PerpFill(
+                symbol=order.symbol, exchange="hyperliquid", side=order.side, action=order.action,
+                price=order.price, size=sz_hl, notional=notional, leverage=order.leverage,
+                margin_delta=-(notional / order.leverage) if order.action == "OPEN" else 0.0,
+                fee=round(notional * self.cfg.taker_fee_bps / 10_000.0, 6),
+                reason=order.reason, order_id=str(res.get("status") or "hl-live"), ts=utcnow(),
             )
 
         raise PerpsLiveDisabled(f"לא הוגדרו מפתחות פעילים לבורסה {order.exchange}")

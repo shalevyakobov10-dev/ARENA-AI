@@ -210,10 +210,10 @@ class AutopilotConfig:
 class PerpsExchangeConfig:
     enabled_exchanges: list[str] = field(default_factory=lambda: ["okx", "hyperliquid", "binance"])
     preferred_exchange: str = "auto"   # auto | okx | hyperliquid | binance
-    min_volume_24h_usd: float = 10_000_000.0
+    min_volume_24h_usd: float = 12_000_000.0
     min_open_interest_usd: float = 5_000_000.0
     max_spread_bps: float = 15.0
-    max_assets: int = 24
+    max_assets: int = 16
     cross_exchange_crypto_only: bool = True
     symbols: list[str] = field(default_factory=list)
     http_timeout: float = 10.0

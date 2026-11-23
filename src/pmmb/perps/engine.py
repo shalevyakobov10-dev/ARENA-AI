@@ -1,28 +1,31 @@
 """
 PerpEngine — מנוע המסחר האוטונומי לחוזים תמידיים (Perpetual Futures) עד מינוף ×50.
 
-מחזור דו-מעברי:
+מחזור דו-מעברי + ניטור מהיר לפוזיציות פתוחות:
   0. שחזור מצב מלא מ-SQLite (פוזיציות, מרג'ין, מזומן, שיא, תקופות צינון)
-  1. סריקת רב-בורסות (OKX + Hyperliquid + Binance) -> נרות + L2 Book + Funding + חדשות גלובליות
-  1.5. חישוב Funding שוטף, עדכון Trailing Stop וביצוע יציאות (TP / SL / Liq / Time / News Exit)
-  2. תיעדוף מועמדי כניסה (A+ -> A -> B) ומינוף דינמי עד ×50 (Isolated Margin)
+  1. סריקת רב-בורסות (OKX + Hyperliquid + Binance) + משיכה מקבילית (ThreadPoolExecutor) של נרות + L2 Book
+  1.5. הגנת נר-כניסה (מניעת עצירה מתנועה שקדמה לרגע הכניסה), חישוב Funding שוטף, Trailing Stop ויציאות
+  2. תיעדוף מועמדי כניסה (A+ -> A -> B) בכפוף ל-halt.json ומינוף דינמי עד ×50 (Isolated Margin)
 """
 from __future__ import annotations
 
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..config import Config
+from ..data.news import refresh_news_to_store
 from ..data.store import Store
 from ..notify import Notifier
+from ..runtime import read_halt
 from .broker import PaperPerpBroker
 from .exchange import MultiPerpExchange
 from .models import PerpBook, PerpCandle, PerpFill, PerpInstrument, PerpOrder, PerpPosition, PerpSignal, utcnow
-from .risk import PerpRiskManager
+from .risk import PerpRiskManager, calc_liquidation_price
 from .signals import ProMultiRegimeEngine, assess_perps_news
 
 log = logging.getLogger(__name__)
@@ -117,9 +120,49 @@ class PerpEngine:
             self._news_articles = []
             return
         try:
-            self._news_articles = [dict(r) for r in self.store.recent_news(hours=12.0, limit=140)]
+            arts = [dict(r) for r in self.store.recent_news(hours=12.0, limit=140)]
+            if (
+                self.cfg.news.enabled
+                and os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1"
+                and (not arts or (time.time() - max(int(a.get("ts") or 0) for a in arts)) > self.cfg.news.refresh_interval_sec)
+            ):
+                refresh_news_to_store(self.store, markets=[], max_market_queries=0)
+                arts = [dict(r) for r in self.store.recent_news(hours=12.0, limit=140)]
+            self._news_articles = arts
         except Exception:
             self._news_articles = []
+
+    def monitor_open_positions(self) -> PerpCycleStats:
+        """ניטור מהיר (Sub-second) רק לפוזיציות פתוחות — לעצירת SL/TP/Trailing בין מחזורים."""
+        stats = PerpCycleStats()
+        if not self.positions:
+            return stats
+        self._load_news()
+        try:
+            uni = self.exchange.scan()
+            imap = {i.symbol: i for i in uni}
+        except Exception:
+            imap = {}
+
+        for sym in list(self.positions.keys()):
+            pos = self.positions[sym]
+            inst = imap.get(sym) or PerpInstrument(
+                symbol=sym, exchange=pos.exchange,
+                exchange_symbol=f"{sym}-USDT-SWAP" if pos.exchange == "okx" else sym,
+                max_leverage=pos.leverage, mark_price=self._last_marks.get(sym, pos.entry_price),
+            )
+            bk = self.exchange.get_book(inst, levels=8)
+            mark = (bk.mid if bk and bk.mid else inst.mark_price)
+            self._last_marks[sym] = mark
+            self._process_position(pos, inst, None, bk, mark, stats)
+
+        used_margin = sum(p.margin_used for p in self.positions.values())
+        tot_notional = sum(p.notional for p in self.positions.values())
+        avg_lev = (tot_notional / used_margin) if used_margin > 0 else 0.0
+        self.store.snapshot_perp_equity(
+            self.pcfg.mode, self._equity(), self.cash, used_margin, tot_notional, len(self.positions), avg_lev
+        )
+        return stats
 
     def run_once(self) -> PerpCycleStats:
         stats = PerpCycleStats()
@@ -136,36 +179,41 @@ class PerpEngine:
         stats.scanned = len(instruments)
         inst_map = {i.symbol: i for i in instruments}
 
-        # שליפת BTC כסמן מאקרו ל-HTF Bias
-        btc_inst = inst_map.get("BTC")
-        btc_candles: list[PerpCandle] = []
-        if btc_inst is not None:
-            btc_candles = self.exchange.get_candles(
-                btc_inst, interval=self.pcfg.signal.timeframe, lookback=self.pcfg.signal.lookback_candles
-            )
+        # משיכה מקבילית של נרות + L2 Book לכל החוזים (מקצר מחזור מ-~10 שנ' ל-~1.8 שנ')
+        tf = self.pcfg.signal.timeframe
+        lb = self.pcfg.signal.lookback_candles
+
+        def _fetch_one(inst: PerpInstrument) -> tuple[str, list[PerpCandle], PerpBook | None]:
+            cs = self.exchange.get_candles(inst, interval=tf, lookback=lb)
+            bk = self.exchange.get_book(inst)
+            return inst.symbol, cs, bk
+
+        fetched: dict[str, tuple[list[PerpCandle], PerpBook | None]] = {}
+        if instruments:
+            workers = min(8, len(instruments))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                for sym, cs, bk in pool.map(_fetch_one, instruments):
+                    fetched[sym] = (cs, bk)
+
+        btc_candles: list[PerpCandle] = fetched.get("BTC", ([], None))[0]
+        if not btc_candles and "BTC" not in fetched:
+            btc_stub = PerpInstrument(symbol="BTC", exchange="okx", exchange_symbol="BTC-USDT-SWAP", max_leverage=50.0, mark_price=1.0)
+            btc_candles = self.exchange.get_candles(btc_stub, interval=tf, lookback=lb)
 
         intel_rows: list[dict[str, Any]] = []
         pending_entries: list[tuple[PerpInstrument, PerpSignal, PerpBook | None, dict[str, Any]]] = []
 
         for inst in instruments:
             try:
-                candles = (
-                    btc_candles
-                    if inst.symbol == "BTC" and btc_candles
-                    else self.exchange.get_candles(
-                        inst, interval=self.pcfg.signal.timeframe, lookback=self.pcfg.signal.lookback_candles
-                    )
-                )
-                book = self.exchange.get_book(inst)
+                candles, book = fetched.get(inst.symbol, ([], None))
                 if candles:
                     self.store.insert_perp_candles(
-                        inst.symbol, inst.exchange, self.pcfg.signal.timeframe,
+                        inst.symbol, inst.exchange, tf,
                         [(c.ts, c.open, c.high, c.low, c.close, c.volume) for c in candles[-120:]],
                     )
                 mark = (book.mid if book and book.mid else (candles[-1].close if candles else inst.mark_price))
                 self._last_marks[inst.symbol] = mark
 
-                # עדכון פוזיציה פתוחה על המטבע + Funding + יציאות
                 if inst.symbol in self.positions:
                     self._process_position(
                         self.positions[inst.symbol], inst, candles[-1] if candles else None, book, mark, stats
@@ -240,13 +288,15 @@ class PerpEngine:
                 self._last_marks[sym] = mk_px
                 self._process_position(pos, inst_stub, None, bk, mk_px, stats)
 
-        # בדיקת Kill Switch גלובלי לפני כניסות חדשות
+        # בדיקת Kill Switch גלובלי ועצירת חירום (halt.json) לפני כניסות חדשות
         self.risk.check_global_kill(self._equity(), self.realized_pnl_today)
-
-        # מעבר 2: דירוג כניסות לפי איכות [A+/A/B], ציון ומינוף בטוח
-        pending_entries.sort(key=lambda item: (-float(item[1].score), -float(item[0].volume_24h_usd)))
-        for inst, sig, book, row in pending_entries:
-            self._handle_entry(inst, sig, book, row, stats)
+        halted = read_halt()
+        if halted:
+            stats.skip(f"עצירת חירום פעילה ({halted.reason})")
+        else:
+            pending_entries.sort(key=lambda item: (-float(item[1].score), -float(item[0].volume_24h_usd)))
+            for inst, sig, book, row in pending_entries:
+                self._handle_entry(inst, sig, book, row, stats)
 
         if intel_rows:
             self.store.upsert_perp_intel(intel_rows)
@@ -277,7 +327,6 @@ class PerpEngine:
     ) -> None:
         now = utcnow()
         now_ts = int(now.timestamp())
-        # חישוב Funding מצטבר על כל שעה מלאה שחלפה
         elapsed_h = max(0.0, (now_ts - pos.last_funding_ts) / 3600.0)
         if elapsed_h >= 1.0 and inst.funding_1h != 0.0:
             hours = int(elapsed_h)
@@ -287,11 +336,15 @@ class PerpEngine:
             pos.last_funding_ts += hours * 3600
             stats.funding_net += f_pnl
 
-        hi = last_candle.high if last_candle else mark
-        lo = last_candle.low if last_candle else mark
+        # הגנת נר-כניסה: אם הפוזיציה נפתחה בתוך הנר השעתי האחרון, High/Low שלו יכולים לכלול תנועת טרום-כניסה!
+        if last_candle is not None and int(pos.opened_at.timestamp()) < last_candle.ts:
+            hi = last_candle.high
+            lo = last_candle.low
+        else:
+            hi = mark
+            lo = mark
         exit_reason = self.risk.evaluate_exit_and_trail(pos, mark_price=mark, high_price=hi, low_price=lo, now=now)
 
-        # הגנת חדשות שובר-שוק (Macro/Crypto Shock Exit)
         if exit_reason is None and self.pcfg.use_news_filter and self._news_articles:
             ni = assess_perps_news(pos.symbol, self._news_articles, window_hours=4.0)
             if (
@@ -308,7 +361,6 @@ class PerpEngine:
                 exit_reason = f"יציאת חירום חדשות לשורט ({ni['max_impact']:.2f}): {ni['headline'][:36]}"
 
         if exit_reason is None:
-            # שמירת עדכון Trailing Stop ו-Funding ל-DB
             self.store.upsert_perp_position(pos, self.pcfg.mode)
             return
 
@@ -334,7 +386,10 @@ class PerpEngine:
             symbol=pos.symbol, exchange=pos.exchange, side=pos.side, action="CLOSE",
             price=mark, size=pos.size, leverage=pos.leverage, reduce_only=True, reason=exit_reason,
         )
-        fill = self.broker.execute(order, book=book, taker_fee_bps=inst.taker_fee_bps, ct_val=inst.contract_val)
+        fill = self.broker.execute(
+            order, book=book, taker_fee_bps=inst.taker_fee_bps,
+            ct_val=inst.contract_val, lot_size=inst.lot_size, tick_size=inst.tick_size,
+        )
         if fill is None:
             return
 
@@ -383,7 +438,10 @@ class PerpEngine:
             action="OPEN", price=sig.price, size=dec.size, leverage=dec.leverage,
             reduce_only=False, reason=f"{sig.tier} {sig.strategy} | {sig.reason}",
         )
-        fill = self.broker.execute(order, book=book, taker_fee_bps=inst.taker_fee_bps, ct_val=inst.contract_val)
+        fill = self.broker.execute(
+            order, book=book, taker_fee_bps=inst.taker_fee_bps,
+            ct_val=inst.contract_val, lot_size=inst.lot_size, tick_size=inst.tick_size,
+        )
         if fill is None:
             stats.skip("מילוי Perps נכשל")
             return
@@ -392,7 +450,6 @@ class PerpEngine:
         fill.margin_delta = -margin_used
         self.cash -= margin_used + fill.fee
 
-        from .risk import calc_liquidation_price
         liq_px = calc_liquidation_price(sig.direction, fill.price, dec.leverage, inst.mmr or self.pcfg.risk.default_mmr)
         pos = PerpPosition(
             symbol=inst.symbol, exchange=inst.exchange, side=sig.direction,  # type: ignore[arg-type]

@@ -716,7 +716,10 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
             <button class="btn btn-ghost btn-xs" onclick="loadPerpChart(SELECTED_PERP_SYM, true)">משוך חי</button>
           </div>
           <div class="card-body">
-            <div class="chart-wrap"><canvas id="perps-price-canvas" class="plot"></canvas></div>
+            <div class="chart-wrap">
+              <canvas id="perps-price-canvas" class="plot"></canvas>
+              <div id="perps-price-tip" class="tooltip"></div>
+            </div>
           </div>
         </div>
 
@@ -986,6 +989,9 @@ function renderPerps() {{
   if (wlEl) wlEl.innerHTML = filt.length ? filt.map(r => {{
     const act = r.symbol === SELECTED_PERP_SYM;
     const regCls = r.regime === 'TREND_UP' ? 'badge-ok' : (r.regime === 'TREND_DOWN' ? 'badge-err' : 'badge-info');
+    const okxF = r.okx_funding_1h !== null && r.okx_funding_1h !== undefined ? (Number(r.okx_funding_1h)*100).toFixed(4)+'%' : null;
+    const hlF = r.hl_funding_1h !== null && r.hl_funding_1h !== undefined ? (Number(r.hl_funding_1h)*100).toFixed(4)+'%' : null;
+    const fundTxt = (okxF && hlF) ? `OKX ${{okxF}} | HL ${{hlF}}` : `Fund ${{r.funding_1h ? (Number(r.funding_1h)*100).toFixed(4)+'%' : '0%'}}`;
     return `<div class="wl-item ${{act ? 'active' : ''}}" onclick="loadPerpChart('${{esc(r.symbol)}}', true)">
       <div class="wl-top">
         <div class="wl-q">${{esc(r.symbol)}} <span style="color:var(--text-3);font-weight:400">(${{esc((r.exchange || '').toUpperCase())}})</span></div>
@@ -996,7 +1002,7 @@ function renderPerps() {{
         <span class="num">ADX ${{fmtNum(r.adx, 1)}}</span>
         <span class="num">Z ${{fmtSign(r.z_score, 2)}}</span>
         <span class="num">RSI ${{fmtNum(r.rsi, 0)}}</span>
-        <span class="num">Fund ${{r.funding_1h ? (Number(r.funding_1h)*100).toFixed(4)+'%' : '0%'}}</span>
+        <span class="num">${{fundTxt}}</span>
       </div>
     </div>`;
   }}).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">טרם בוצעה סריקת PERPS — לחץ "מחזור PERPS עכשיו"</div>';
@@ -1055,13 +1061,14 @@ function drawPerpEqChart() {{
   ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
 }}
 
+let PERP_HOVER = null;
 function drawPerpPriceChart() {{
   const canvas = document.getElementById('perps-price-canvas');
   if (!canvas) return;
   const {{ ctx, w, h }} = prepCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
   const ch = CURRENT_PERP_CHART || {{}};
-  const cs = ch.candles || [];
+  const cs = (ch.candles || []).slice(-100);
   const tEl = document.getElementById('perps-chart-title');
   const sEl = document.getElementById('perps-chart-sub');
   if (tEl) tEl.textContent = `${{ch.symbol || SELECTED_PERP_SYM}} Perpetual (${{ch.timeframe || '1h'}})`;
@@ -1073,9 +1080,9 @@ function drawPerpPriceChart() {{
     ctx.fillText('אין עדיין נרות לחוזה זה — לחץ "משוך חי"', w / 2, h / 2);
     return;
   }}
-  const vals = cs.map(c => Number(c.close));
   const ov = ch.overlays || {{}};
-  const all = [...vals];
+  const all = [];
+  cs.forEach(c => {{ all.push(Number(c.high || c.close)); all.push(Number(c.low || c.close)); }});
   if (ov.stop) all.push(Number(ov.stop));
   if (ov.target) all.push(Number(ov.target));
   if (ov.liq) all.push(Number(ov.liq));
@@ -1083,10 +1090,10 @@ function drawPerpPriceChart() {{
   const pad = Math.max((maxV - minV) * 0.12, maxV * 0.002);
   const lo = minV - pad, hi = maxV + pad;
   const pxL = 14, pxR = 66, pyT = 14, pyB = 20, gw = w - pxL - pxR, gh = h - pyT - pyB;
-  const X = i => pxL + (i / (vals.length - 1)) * gw;
+  const X = i => pxL + ((i + 0.5) / cs.length) * gw;
   const Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.fillStyle = '#64748b'; ctx.font = '10px monospace';
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.fillStyle = '#64748b'; ctx.font = '10px monospace'; ctx.textAlign = 'left';
   for (let i = 0; i <= 4; i++) {{
     const y = pyT + gh * (i / 4);
     ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
@@ -1108,9 +1115,36 @@ function drawPerpPriceChart() {{
     hLn(ov.stop, '#f59e0b', 'SL ' + Number(ov.stop).toFixed(4));
     hLn(ov.liq, '#ef4444', 'LIQ ' + Number(ov.liq).toFixed(4));
   }}
-  ctx.beginPath();
-  vals.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
-  ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2; ctx.stroke();
+
+  const cw = Math.max(2, Math.min(9, (gw / cs.length) * 0.64));
+  cs.forEach((c, i) => {{
+    const x = X(i);
+    const o = Number(c.open || c.close), hiC = Number(c.high || c.close), loC = Number(c.low || c.close), cl = Number(c.close);
+    const up = cl >= o;
+    const col = up ? '#10b981' : '#ef4444';
+    ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, Y(hiC)); ctx.lineTo(x, Y(loC)); ctx.stroke();
+    const yTop = Y(Math.max(o, cl)), yBot = Y(Math.min(o, cl));
+    ctx.fillStyle = col;
+    ctx.fillRect(x - cw / 2, yTop, cw, Math.max(1.5, yBot - yTop));
+  }});
+
+  const tip = document.getElementById('perps-price-tip');
+  if (PERP_HOVER !== null && PERP_HOVER >= 0 && PERP_HOVER < cs.length) {{
+    const c = cs[PERP_HOVER];
+    const hx = X(PERP_HOVER), hy = Y(Number(c.close));
+    ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pxL, hy); ctx.lineTo(w - pxR, hy); ctx.stroke();
+    ctx.restore();
+    const d = c.close > 100 ? 2 : 4;
+    if (tip) {{
+      tip.style.display = 'block';
+      tip.innerHTML = `<span class="num">${{fmtDateTime(c.ts)}}</span> | O <span class="num">${{Number(c.open).toFixed(d)}}</span> H <span class="num">${{Number(c.high).toFixed(d)}}</span> L <span class="num">${{Number(c.low).toFixed(d)}}</span> C <strong class="num">${{Number(c.close).toFixed(d)}}</strong>`;
+    }}
+  }} else if (tip) {{
+    tip.style.display = 'none';
+  }}
 }}
 
 function renderHeader() {{
@@ -1812,6 +1846,18 @@ function drawRsiChart() {{
       drawPriceChart();
     }});
     prC.addEventListener('mouseleave', () => {{ PRICE_HOVER = null; drawPriceChart(); }});
+  }}
+  const ppC = document.getElementById('perps-price-canvas');
+  if (ppC) {{
+    ppC.addEventListener('mousemove', (ev) => {{
+      const cs = ((CURRENT_PERP_CHART && CURRENT_PERP_CHART.candles) || []).slice(-100);
+      if (cs.length < 2) return;
+      const rect = ppC.getBoundingClientRect();
+      const rel = (ev.clientX - rect.left - 14) / Math.max(rect.width - 80, 1);
+      PERP_HOVER = Math.max(0, Math.min(cs.length - 1, Math.round(rel * (cs.length - 1))));
+      drawPerpPriceChart();
+    }});
+    ppC.addEventListener('mouseleave', () => {{ PERP_HOVER = null; drawPerpPriceChart(); }});
   }}
 }})();
 

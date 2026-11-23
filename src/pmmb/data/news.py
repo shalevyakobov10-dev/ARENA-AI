@@ -27,10 +27,11 @@ _DEFAULT_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("politics", "US & World Elections Politics", "election OR prime minister OR president OR senate OR parliament"),
     ("geopolitics", "Geopolitics & Diplomacy", "ceasefire OR sanctions OR NATO OR Taiwan OR Ukraine"),
     ("markets", "Polymarket & Markets", "Polymarket OR IPO OR antitrust OR SEC"),
+    ("crypto", "Crypto & Perps Macro", "Bitcoin OR Ethereum OR Solana OR crypto liquidation OR FOMC OR Spot ETF"),
     ("sports", "Sports Injuries & Breaking", "NBA OR NFL OR UFC injured OR suspended OR trade"),
 )
 
-# 19 רשתות חדשות מוסדיות מכל העולם — נמשכות במקביל (~0.5 שנ'), ללא מגבלות 429
+# 21 רשתות חדשות מוסדיות מכל העולם — נמשכות במקביל (~0.5 שנ'), ללא מגבלות 429
 _WIRE_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("geopolitics", "BBC World", "https://feeds.bbci.co.uk/news/world/rss.xml"),
     ("macro", "BBC Business", "https://feeds.bbci.co.uk/news/business/rss.xml"),
@@ -43,6 +44,8 @@ _WIRE_FEEDS: tuple[tuple[str, str, str], ...] = (
     ("politics", "NPR News", "https://feeds.npr.org/1001/rss.xml"),
     ("markets", "MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"),
     ("crypto", "CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+    ("crypto", "Cointelegraph", "https://cointelegraph.com/rss"),
+    ("crypto", "CryptoSlate", "https://cryptoslate.com/feed/"),
     ("geopolitics", "NYT World", "https://rss.nytimes.com/services/xml/rss/nyt/World.xml"),
     ("macro", "NYT Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml"),
     ("geopolitics", "Guardian World", "https://www.theguardian.com/world/rss"),

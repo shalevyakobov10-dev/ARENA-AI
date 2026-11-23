@@ -73,16 +73,20 @@ class TelegramController:
         if cmd in ("/start", "/help"):
             return (
                 "🤖 <b>PMMB — פקודות מהטלפון</b>\n"
-                "/status — בריאות, הון ו-PnL היום\n"
+                "/status — בריאות, הון ו-PnL היום (Polymarket + PERPS)\n"
                 "/positions — פוזיציות פתוחות וסטופים\n"
+                "/perps — מצב מפורט של זרוע חוזים תמידיים (×50)\n"
                 "/guards — מרווח הגנות (סטופ יומי / DD)\n"
                 "/readiness — מוכנות למעבר ל-live\n"
-                "/halt [סיבה] — עצירת חירום מיידית\n"
+                "/halt [סיבה] — עצירת חירום מיידית (עוצר שתי הזרועות)\n"
                 "/resume — ביטול עצירה ידנית"
             )
 
         if cmd == "/status":
             st = build_status(self.cfg)
+            from .data.store import Store
+            from .status import build_perps_status
+
             h = st["health"]
             b = st["bankroll"]
             t = st["today"]
@@ -92,13 +96,50 @@ class TelegramController:
             cash = b.get("cash") or 0.0
             exp = b.get("exposure") or 0.0
             unr = b.get("unrealized_pnl") or 0.0
-            return (
+            msg = (
                 f"{icon} <b>PMMB [{st['mode']}]</b> — {h['reason']}\n"
                 f"מחזור #{hb.get('cycle', 0)} · הון <b>{eq:.2f}</b> (מזומן {cash:.2f} · חשיפה {exp:.2f})\n"
                 f"פתוחות: {b.get('open_positions', 0)} · לא ממומש: {unr:+.2f}\n"
                 f"היום: {t.get('fills', 0)} מילויים · PnL {t.get('realized_pnl', 0):+.2f} · "
                 f"עמלות {t.get('fees', 0):.2f}"
             )
+            if self.cfg.perps.enabled:
+                store = Store(self.cfg.data.db_path)
+                try:
+                    ps = build_perps_status(self.cfg, store)
+                    msg += (
+                        f"\n\n⚡ <b>PERPS [{ps['mode'].upper()}]</b> · הון <b>{ps['equity']:.2f}</b> | "
+                        f"מרג'ין {ps['margin_used']:.1f} (×{ps['avg_leverage']:.1f}) | "
+                        f"פוזיציות {len(ps['positions'])} | PnL {ps['overall_pnl']:+.2f}"
+                    )
+                finally:
+                    store.close()
+            return msg
+
+        if cmd == "/perps":
+            from .data.store import Store
+            from .status import build_perps_status
+
+            store = Store(self.cfg.data.db_path)
+            try:
+                ps = build_perps_status(self.cfg, store)
+            finally:
+                store.close()
+            lines = [
+                f"⚡ <b>זרוע PERPS [{ps['mode'].upper()}] (עד ×{ps['max_leverage']:.0f})</b>",
+                f"הון: <b>{ps['equity']:.2f}</b> · מזומן {ps['cash']:.2f} · מרג'ין {ps['margin_used']:.2f} · מינוף ×{ps['avg_leverage']:.1f}",
+                f"סה\"כ ממומש: {ps['overall_pnl']:+.2f} · Funding: {ps['funding_net']:+.3f} · WR {ps['win_rate_pct']:.0f}%",
+            ]
+            if not ps["positions"]:
+                lines.append("📭 אין פוזיציות PERPS פתוחות כרגע.")
+            else:
+                for p in ps["positions"]:
+                    lines.append(
+                        f"• <b>{p['symbol']} {p['side']} ×{p['leverage']:.0f}</b> ({p['exchange'].upper()})\n"
+                        f"  כניסה {p['entry_price']:.4f} → {p['mark_price']:.4f} (ROE <b>{p['roe_pct']:+.1f}%</b> · {p['unrealized_pnl']:+.2f}$)\n"
+                        f"  SL {p['stop_price']:.4f} | TP {p['target_price']:.4f} | LIQ {p['liquidation_price']:.4f} ({p['liq_distance_pct']:.1f}%)"
+                    )
+            return "\n".join(lines)
 
         if cmd == "/positions":
             st = build_status(self.cfg)

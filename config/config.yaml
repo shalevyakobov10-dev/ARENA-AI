@@ -121,10 +121,10 @@ perps:
     - hyperliquid
     - binance
     preferred_exchange: auto
-    min_volume_24h_usd: 10000000.0
+    min_volume_24h_usd: 12000000.0
     min_open_interest_usd: 5000000.0
     max_spread_bps: 15.0
-    max_assets: 24
+    max_assets: 16
     cross_exchange_crypto_only: true
     symbols: []
     http_timeout: 10.0

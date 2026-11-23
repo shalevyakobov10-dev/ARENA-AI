@@ -288,3 +288,75 @@ def reconcile_live(
         store.event("reconcile", f"סונכרנו {rep.fixes_applied} פערים ב-live",
                     level="WARNING")
     return rep
+
+
+# ------------------------------------------------------------------ Perps reconciliation
+def reconcile_perps(
+    store: Store,
+    *,
+    mode: str = "paper",
+    starting_cash: float = 1000.0,
+    fix: bool = False,
+) -> ReconcileReport:
+    """מאמת שלמות חשבונאית של זרוע החוזים התמידיים (perp_positions <-> perp_fills <-> perp_equity)."""
+    rep = ReconcileReport(mode=f"perps:{mode}")
+    st = store.load_perp_portfolio_state(mode, starting_cash)
+    rep.local_cash = st["cash"]
+    positions = st["positions"]
+    rep.checked_positions = len(positions)
+
+    # 1. בדיקת fills נטו מול perp_positions
+    rows = list(store._conn.execute(
+        """SELECT symbol,
+                  SUM(CASE WHEN action='OPEN' THEN size ELSE -size END) AS net_size
+           FROM perp_fills WHERE mode=? GROUP BY symbol""",
+        (mode,),
+    ).fetchall())
+    ledger = {str(r["symbol"]): float(r["net_size"] or 0.0) for r in rows}
+    pos_map = {p.symbol: p for p in positions}
+
+    for sym, p in pos_map.items():
+        if p.size <= 1e-8 or p.margin_used <= 0:
+            d = Discrepancy("perp_zero_open", sym, "פוזיציית Perps פתוחה עם גודל או מרג'ין 0")
+            if fix:
+                store.close_perp_position(sym, "reconcile: גודל אפס", 0.0)
+                d.fixed = True
+                rep.fixes_applied += 1
+            rep.discrepancies.append(d)
+        elif sym in ledger and abs(ledger[sym] - p.size) > max(1e-4, p.size * 0.02):
+            d = Discrepancy("perp_ledger_mismatch", sym, f"DB={p.size:.6f} מול fills={ledger[sym]:.6f}")
+            if fix:
+                if ledger[sym] <= 1e-6:
+                    store.close_perp_position(sym, "reconcile: נסגר לפי fills", 0.0)
+                else:
+                    p.size = round(ledger[sym], 6)
+                    store.upsert_perp_position(p, mode)
+                d.fixed = True
+                rep.fixes_applied += 1
+            rep.discrepancies.append(d)
+
+    # 2. בדיקת עקביות מזומן ב-perp_equity מול ספר החשבונות
+    eq_row = store._conn.execute(
+        "SELECT cash FROM perp_equity WHERE mode=? ORDER BY ts DESC LIMIT 1", (mode,)
+    ).fetchone()
+    if eq_row is not None:
+        snap_cash = float(eq_row["cash"])
+        if abs(snap_cash - st["cash"]) > 1.0:
+            d = Discrepancy(
+                "perp_cash_drift", "perps-cash",
+                f"snapshot אחרון={snap_cash:.2f} לעומת ledger={st['cash']:.2f}",
+            )
+            if fix:
+                used_m = sum(p.margin_used for p in positions)
+                tot_n = sum(p.notional for p in positions)
+                avg_l = (tot_n / used_m) if used_m > 0 else 0.0
+                store.snapshot_perp_equity(
+                    mode, round(st["cash"] + used_m, 4), st["cash"], used_m, tot_n, len(positions), avg_l
+                )
+                d.fixed = True
+                rep.fixes_applied += 1
+            rep.discrepancies.append(d)
+
+    if rep.fixes_applied:
+        store.event("perp_reconcile", f"סונכרנו {rep.fixes_applied} פערים ב-PERPS")
+    return rep

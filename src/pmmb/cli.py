@@ -672,11 +672,12 @@ def cmd_news(args, cfg: Config) -> int:
 
 
 def cmd_reconcile(args, cfg: Config) -> int:
-    """סנכרון ה-DB מול מציאות החשבון/הבורסה."""
-    from .reconcile import reconcile_live, reconcile_paper
+    """סנכרון ה-DB מול מציאות החשבון/הבורסה (Polymarket + PERPS)."""
+    from .reconcile import reconcile_live, reconcile_paper, reconcile_perps
 
     mode = args.mode or cfg.execution.mode
     store = Store(cfg.data.db_path)
+    perp_rep = None
     try:
         if mode == "live":
             from .execution.live import LiveBroker, LiveTradingDisabled
@@ -697,14 +698,21 @@ def cmd_reconcile(args, cfg: Config) -> int:
             rep = reconcile_paper(
                 store, starting_cash=cfg.execution.starting_cash, fix=args.fix,
             )
+        if cfg.perps.enabled:
+            perp_rep = reconcile_perps(
+                store, mode=cfg.perps.mode, starting_cash=cfg.perps.risk.starting_cash, fix=args.fix
+            )
     finally:
         store.close()
 
     print()
     print(rep.to_markdown())
-    if rep.clean or (args.fix and all(d.fixed for d in rep.discrepancies)):
-        return 0
-    return 4
+    if perp_rep is not None:
+        print()
+        print(perp_rep.to_markdown())
+    ok_main = rep.clean or (args.fix and all(d.fixed for d in rep.discrepancies))
+    ok_perp = perp_rep is None or perp_rep.clean or (args.fix and all(d.fixed for d in perp_rep.discrepancies))
+    return 0 if (ok_main and ok_perp) else 4
 
 
 def cmd_backup(args, cfg: Config) -> int:

@@ -66,6 +66,7 @@ def test_perps_config_defaults():
     assert cfg.perps.risk.sl_atr_mult == 1.5
     assert cfg.perps.risk.tp_atr_mult == 2.6
     assert cfg.perps.risk.max_positions_per_direction == 4
+    assert cfg.perps.exchange.max_assets == 16
     assert "okx" in cfg.perps.exchange.enabled_exchanges
     assert "hyperliquid" in cfg.perps.exchange.enabled_exchanges
 
@@ -251,6 +252,82 @@ def test_perps_server_api_endpoints(tmp_path):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_perps_global_halt_and_entry_candle_protection(tmp_path, monkeypatch):
+    from pmmb.runtime import clear_halt, write_halt
+
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("PMMB_DISABLE_LIVE_NEWS", "1")
+    cfg = Config.load()
+    cfg.data.db_path = str(tmp_path / "halt.db")
+    cfg.perps.mode = "paper"
+
+    cs = _mk_candles(140, base=100.0, mode="mr_long")
+    ex = _FakePerpExchange(cs)
+
+    write_halt("בדיקת חירום", source="test", state_dir=tmp_path / "state")
+    try:
+        eng = PerpEngine(cfg, exchange=ex)
+        st = eng.run_once()
+        assert st.entries == 0
+        assert len(eng.positions) == 0
+        eng.close()
+    finally:
+        clear_halt(state_dir=tmp_path / "state")
+
+    # כניסה רגילה, ואז בנר פתוח חדש עם wick עמוק (70) אבל מחיר נוכחי תקין (97) -> הפוזיציה שורדת!
+    eng2 = PerpEngine(cfg, exchange=ex)
+    st2 = eng2.run_once()
+    assert st2.entries == 1
+    pos = eng2.positions["BTC"]
+    # מקבע את זמן הפתיחה בתוך חלון הנר האחרון (כמו במציאות!) עם wick של 70.0 שהיה לפני הכניסה
+    future_ts = int(pos.opened_at.timestamp()) - 300
+    cs[-1] = PerpCandle(ts=future_ts, open=97.0, high=101.0, low=70.0, close=pos.entry_price, volume=1000.0)
+    st3 = eng2.run_once()
+    assert st3.exits == 0
+    assert "BTC" in eng2.positions
+    eng2.close()
+
+
+def test_reconcile_perps_telegram_and_round_step(tmp_path):
+    from pmmb.perps.broker import round_step
+    from pmmb.reconcile import reconcile_perps
+    from pmmb.telegram_bot import TelegramController
+
+    assert round_step(1.23999, 0.01) == 1.23
+    assert round_step(0.0567, 0.001) == 0.056
+
+    cfg = Config.load()
+    cfg.data.db_path = str(tmp_path / "rec.db")
+    cfg.perps.mode = "paper"
+
+    cs = _mk_candles(140, base=100.0, mode="mr_long")
+    eng = PerpEngine(cfg, exchange=_FakePerpExchange(cs))
+    eng.run_once()
+    eng.close()
+
+    store = Store(cfg.data.db_path)
+    try:
+        rep = reconcile_perps(store, mode="paper", starting_cash=1000.0, fix=False)
+        assert rep.clean
+        # כופה פער במזומן ה-snapshot ובודק תיקון אוטומטי
+        store._conn.execute("UPDATE perp_equity SET cash = 500.0")
+        store._conn.commit()
+        rep_bad = reconcile_perps(store, mode="paper", starting_cash=1000.0, fix=False)
+        assert not rep_bad.clean
+        rep_fix = reconcile_perps(store, mode="paper", starting_cash=1000.0, fix=True)
+        assert rep_fix.fixes_applied >= 1
+        assert reconcile_perps(store, mode="paper", starting_cash=1000.0, fix=False).clean
+    finally:
+        store.close()
+
+    tg = TelegramController(cfg, token="t", chat_id="1", state_dir=tmp_path / "st")
+    out_p = tg.handle_text("/perps")
+    assert "PERPS" in out_p
+    assert "BTC" in out_p
+    out_s = tg.handle_text("/status")
+    assert "PERPS" in out_s
 
 
 def test_perp_backtest_walkforward_and_learning(tmp_path):
