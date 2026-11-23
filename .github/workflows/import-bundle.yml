@@ -1,0 +1,52 @@
+name: Import Polymarket bot bundle
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "polymarket-momentum-bot.bundle.txt"
+      - ".github/workflows/import-bundle.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: import-polymarket-bundle
+  cancel-in-progress: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Restore original Git history and project files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -s polymarket-momentum-bot.bundle.txt
+          tr -d '\r\n' < polymarket-momentum-bot.bundle.txt | base64 --decode > /tmp/polymarket-momentum-bot.bundle
+          git bundle verify /tmp/polymarket-momentum-bot.bundle
+          git clone --bare /tmp/polymarket-momentum-bot.bundle /tmp/source.git
+          git --git-dir=/tmp/source.git show-ref --verify --quiet refs/heads/main
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch /tmp/source.git refs/heads/main
+          git merge --allow-unrelated-histories --no-ff --no-edit \
+            -m "Import original Polymarket momentum bot project and history" FETCH_HEAD
+
+          git push origin HEAD:refs/heads/main
+
+      - name: Report imported revision
+        run: |
+          echo "Imported project commit: $(git rev-parse HEAD)"
+          echo "Project files: $(git ls-tree -r --name-only HEAD | wc -l)"
