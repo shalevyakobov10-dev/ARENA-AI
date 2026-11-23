@@ -28,7 +28,7 @@ signal:
   engine: meanrev
   meanrev:
     lookback_candles: 24
-    z_entry: 1.8
+    z_entry: 1.65
     z_max: 6.5
     reversion_ratio: 0.55
     max_room_pct: 0.6
@@ -37,6 +37,7 @@ signal:
     rsi_max: 40.0
     max_spread_to_edge: 0.75
     confluence_boost: true
+    trend_guard: false
   candle_fidelity_min: 60
   lookback_candles: 144
   ema_fast: 9
@@ -56,11 +57,11 @@ signal:
     time_stop_hours: 48
     exit_on_flip: false
 risk:
-  risk_per_trade_pct: 0.02
-  kelly_fraction: 0.65
+  risk_per_trade_pct: 0.03
+  kelly_fraction: 0.8
   max_position_pct: 0.1
-  max_total_exposure_pct: 0.4
-  max_open_positions: 5
+  max_total_exposure_pct: 0.55
+  max_open_positions: 7
   max_positions_per_event: 1
   max_positions_per_sector: 2
   max_daily_loss_pct: 0.05
@@ -105,7 +106,7 @@ learning:
 perps:
   enabled: true
   mode: paper
-  interval_sec: 120.0
+  interval_sec: 60.0
   slippage_bps: 3.5
   taker_fee_bps: 3.5
   maker_fee_bps: 1.0
@@ -146,9 +147,9 @@ perps:
     max_leverage: 50.0
     dynamic_leverage: true
     liquidation_buffer_mult: 2.2
-    risk_per_trade_pct: 0.015
+    risk_per_trade_pct: 0.028
     max_margin_per_position_pct: 0.25
-    max_total_margin_pct: 0.45
+    max_total_margin_pct: 0.58
     max_open_positions: 4
     max_positions_per_direction: 4
     sl_atr_mult: 1.5
@@ -158,13 +159,13 @@ perps:
     trailing_dist_atr: 0.95
     time_stop_hours: 36.0
     cooldown_bars: 6
-    max_daily_loss_pct: 0.05
-    max_drawdown_pct: 0.15
+    max_daily_loss_pct: 0.08
+    max_drawdown_pct: 0.24
     default_mmr: 0.005
 autopilot:
   enabled: true
-  trade_interval_sec: 180
-  stream_interval_sec: 60
+  trade_interval_sec: 120
+  stream_interval_sec: 45
   reconcile_every_cycles: 5
   auto_fix_paper: true
   backup_interval_sec: 14400

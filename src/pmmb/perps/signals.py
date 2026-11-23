@@ -307,6 +307,37 @@ class ProMultiRegimeEngine:
                         score += 0.08
                     reason = f"היפוך מתיחת יתר למעלה (z={z:.2f}, RSI={rsi:.0f}, fund={fr*100:+.4f}%/h)"
 
+        # 3) אסטרטגיית Trend Breakout (תופסת ראלי/קריסות חזקות שלא חוזרות ל-EMA20)
+        if direction == "FLAT" and adx >= 30.0 and er >= 0.38 and 0.003 <= atr_pct <= 0.042:
+            hi16 = max(c.high for c in candles[-17:-1])
+            lo16 = min(c.low for c in candles[-17:-1])
+            avg_vol = sum(c.volume for c in candles[-21:-1]) / 20.0
+            vol_ok = avg_vol <= 0 or last.volume >= avg_vol * 1.10
+            if vol_ok:
+                if (
+                    e20 > e50
+                    and pdi > mdi
+                    and px > hi16
+                    and last.close > last.open
+                    and 52.0 <= rsi <= 70.0
+                    and btc_bull
+                ):
+                    direction, strategy = "LONG", "breakout"
+                    score = min(0.84, 0.62 + (adx - 30.0) / 50.0 + er * 0.18)
+                    reason = f"פריצת מגמה עולה (ADX={adx:.1f}, ER={er:.2f}, RSI={rsi:.0f})"
+                elif (
+                    sc.allow_short
+                    and e20 < e50
+                    and mdi > pdi
+                    and px < lo16
+                    and last.close < last.open
+                    and 30.0 <= rsi <= 48.0
+                    and btc_bear
+                ):
+                    direction, strategy = "SHORT", "breakout"
+                    score = min(0.84, 0.62 + (adx - 30.0) / 50.0 + er * 0.18)
+                    reason = f"פריצת מגמה יורדת (ADX={adx:.1f}, ER={er:.2f}, RSI={rsi:.0f})"
+
         # שילוב זרימת L2 Orderbook וחדשות גלובליות
         if direction != "FLAT":
             if imb is not None:

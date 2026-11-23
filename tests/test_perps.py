@@ -140,6 +140,38 @@ def test_signal_engine_meanrev_and_news_block():
     assert "חדשות" in sig_blocked.reason
 
 
+def test_signal_engine_breakout():
+    pc = PerpsConfig()
+    eng = ProMultiRegimeEngine(pc)
+    t0 = 1_760_000_000
+    candles: list[PerpCandle] = []
+    px = 100.0
+    # 130 נרות מגמה עולה, 9 נרות התכנסות מתונה (RSI מתקרר ל-~60), ואז נר פריצת שיא עם נפח כפול
+    for i in range(139):
+        if i < 130:
+            px = 100.0 + i * 0.50 + (0.25 if i % 3 != 0 else -0.35)
+        else:
+            px = px + (0.18 if i % 2 == 0 else -0.22)
+        o, c = px - 0.12, px + (0.15 if i % 2 == 0 else -0.10)
+        h, l = max(o, c) + 0.25, min(o, c) - 0.20
+        candles.append(PerpCandle(ts=t0 + i * 3600, open=o, high=h, low=l, close=c, volume=1000.0))
+    prev_hi = max(c.high for c in candles[-16:])
+    o_last = prev_hi - 0.10
+    c_last = prev_hi + 0.85
+    candles.append(PerpCandle(ts=t0 + 139 * 3600, open=o_last, high=c_last + 0.10, low=o_last - 0.05, close=c_last, volume=2200.0))
+
+    inst = PerpInstrument(
+        symbol="SOL", exchange="okx", exchange_symbol="SOL-USDT-SWAP",
+        max_leverage=50.0, mark_price=c_last,
+    )
+    sig = eng.evaluate(inst, candles)
+    assert sig.direction == "LONG", f"unexpected flat: {sig.reason} features={sig.features}"
+    assert sig.strategy == "breakout"
+    assert sig.score >= pc.signal.min_score
+    assert sig.stop_price is not None and sig.stop_price < c_last
+    assert sig.take_profit_price is not None and sig.take_profit_price > c_last
+
+
 def test_live_broker_guards(monkeypatch):
     pc = PerpsConfig(mode="paper")
     try:
