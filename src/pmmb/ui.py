@@ -1,12 +1,11 @@
 """
-PMMB Command Center — מסוף מסחר מוסדי ולמידה עצמית בסגנון Apple Liquid Glass (RTL).
+PMMB Command Center — ממשק מסחר ולמידה בסגנון Apple macOS Sequoia / Stocks (RTL).
 
-תכנון מסוף מקצועי:
-  - עיצוב Apple Silicon / macOS Sequoia Dark Pro: שכבות זכוכית שקופות, Segmented Pills, כרטיסי Bento מעוגלים,
-    וחיבור לצבעי מערכת Apple (#0A84FF, #30D158, #FF453A, #FF9F0A, #BF5AF2).
-  - 5 סביבות עבודה: סקירה ומסחר | ⚡ חוזים (PERPS ×50) | שווקים וגרפים | חדשות ולמידה | תפעול אוטונומי.
-  - למידה מתמשכת דו-זרועית בזמן אמת: הערכת אותות חיים Polymarket + PERPS + למידת אמינות חדשות (News Alpha).
-  - 100% self-contained: אפס URLs חיצוניים, עובד מלא גם כקובץ סטטי.
+תכנון ממוקד:
+  - בהירות, מרווח ופשטות בסגנון Apple HIG: כל מה שצריך במסך ברור אחד, בלי רעש ובלי כפילות.
+  - 5 סביבות עבודה: סקירה ומסחר | חוזים (PERPS ×50) | שווקים וגרפים | חדשות ולמידה | תפעול אוטונומי.
+  - כולל Spotlight (⌘K / Ctrl+K), תיק מאוחד חי, גרפי נרות OHLC, תיזת סוחר אנושית ומעבדת What-If.
+  - 100% self-contained: אפס URLs חיצוניים ואפס אימוג'ים קרטוניים.
 """
 from __future__ import annotations
 
@@ -23,320 +22,314 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>PMMB Command Center — Apple Pro Edition</title>
+<title>PMMB Command Center</title>
 <style>
   :root {{
     --bg: #000000;
-    --surface: rgba(28, 28, 30, 0.72);
-    --surface-solid: #1c1c1e;
-    --surface-2: rgba(44, 44, 46, 0.78);
-    --surface-3: rgba(58, 58, 60, 0.85);
+    --surface: rgba(28, 28, 30, 0.68);
+    --surface-elev: rgba(38, 38, 42, 0.78);
+    --surface-subtle: rgba(255, 255, 255, 0.035);
     --border: rgba(255, 255, 255, 0.085);
     --border-strong: rgba(255, 255, 255, 0.16);
     --text: #f5f5f7;
     --text-2: #aeaeb2;
     --text-3: #8e8e93;
     --accent: #0a84ff;
-    --accent-soft: rgba(10, 132, 255, 0.16);
+    --accent-soft: rgba(10, 132, 255, 0.15);
     --green: #30d158;
-    --green-soft: rgba(48, 209, 88, 0.16);
+    --green-soft: rgba(48, 209, 88, 0.15);
     --red: #ff453a;
-    --red-soft: rgba(255, 69, 58, 0.16);
+    --red-soft: rgba(255, 69, 58, 0.15);
     --amber: #ff9f0a;
-    --amber-soft: rgba(255, 159, 10, 0.16);
+    --amber-soft: rgba(255, 159, 10, 0.15);
     --purple: #bf5af2;
     --radius: 20px;
-    --radius-sm: 13px;
+    --radius-sm: 12px;
     --ease: cubic-bezier(0.22, 1, 0.36, 1);
   }}
   * {{ box-sizing: border-box; }}
   html, body {{
     margin: 0; padding: 0; color: var(--text); min-height: 100vh;
     background:
-      radial-gradient(ellipse 75% 50% at 18% -10%, rgba(10, 132, 255, 0.15), transparent 65%),
-      radial-gradient(ellipse 65% 45% at 86% 6%, rgba(94, 92, 230, 0.12), transparent 60%),
-      radial-gradient(ellipse 55% 40% at 50% 105%, rgba(48, 209, 88, 0.06), transparent 60%),
+      radial-gradient(ellipse 70% 45% at 15% -8%, rgba(10, 132, 255, 0.13), transparent 65%),
+      radial-gradient(ellipse 55% 40% at 85% 4%, rgba(94, 92, 230, 0.09), transparent 60%),
       #000000;
     background-attachment: fixed;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
     font-size: 13.5px; line-height: 1.5; -webkit-font-smoothing: antialiased;
-    letter-spacing: -0.006em;
+    letter-spacing: -0.008em;
   }}
   .num {{ font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: embed; display: inline-block; }}
   .mono {{ font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }}
 
-  /* --- Apple Frosted Topbar & Dynamic Pulse Ribbon --- */
+  /* --- Apple Unified Toolbar --- */
   .topbar {{
     position: sticky; top: 0; z-index: 40;
-    background: rgba(18, 18, 20, 0.72);
+    background: rgba(14, 14, 16, 0.72);
     backdrop-filter: saturate(190%) blur(28px);
     -webkit-backdrop-filter: saturate(190%) blur(28px);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.075);
   }}
   .topbar-inner {{
-    max-width: 1520px; margin: 0 auto; padding: 0 24px;
-    height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 14px;
+    max-width: 1380px; margin: 0 auto; padding: 0 24px;
+    height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
   }}
-  .brand {{ display: flex; align-items: center; gap: 12px; }}
+  .brand {{ display: flex; align-items: center; gap: 11px; flex-shrink: 0; }}
   .brand-mark {{
-    width: 36px; height: 36px; border-radius: 11px;
-    background: linear-gradient(155deg, rgba(255,255,255,0.16) 0%, rgba(10,132,255,0.22) 100%);
+    width: 34px; height: 34px; border-radius: 10px;
+    background: linear-gradient(155deg, rgba(255,255,255,0.16) 0%, rgba(10,132,255,0.24) 100%);
     border: 1px solid rgba(255,255,255,0.18);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22), 0 4px 16px rgba(10,132,255,0.22);
-    display: grid; place-items: center; color: #f5f5f7;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.22);
+    display: grid; place-items: center; color: #ffffff;
   }}
-  .brand-title {{ font-weight: 600; font-size: 15px; letter-spacing: -0.02em; }}
+  .brand-title {{ font-weight: 600; font-size: 14.5px; letter-spacing: -0.02em; }}
   .brand-sub {{ font-size: 11px; color: var(--text-3); }}
 
-  /* --- iOS / macOS Segmented Navigation Control --- */
+  /* --- Segmented Navigation Control --- */
   .nav-tabs {{
-    display: flex; align-items: center; gap: 3px;
-    background: rgba(118, 118, 128, 0.22);
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    padding: 4px; border-radius: 999px;
-    backdrop-filter: blur(12px);
+    display: flex; align-items: center; gap: 2px;
+    background: rgba(118, 118, 128, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 3px; border-radius: 999px;
   }}
   .nav-tab {{
     background: transparent; border: none; color: var(--text-2);
-    padding: 6px 15px; border-radius: 999px; cursor: pointer;
+    padding: 6px 14px; border-radius: 999px; cursor: pointer;
     font-size: 12.5px; font-weight: 500; transition: all 0.2s var(--ease);
-    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
   }}
   .nav-tab:hover {{ color: var(--text); }}
   .nav-tab.active {{
     background: rgba(255, 255, 255, 0.16); color: #ffffff; font-weight: 600;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.22);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.22);
   }}
 
-  .top-actions {{ display: flex; align-items: center; gap: 8px; }}
-  .status-pill {{
-    display: inline-flex; align-items: center; gap: 7px;
-    padding: 6px 13px; border-radius: 999px; font-size: 11.5px; font-weight: 500;
-    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); color: var(--text-2);
+  .top-actions {{ display: flex; align-items: center; gap: 8px; flex-shrink: 0; }}
+  .ap-pill {{
+    display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+    padding: 6px 13px; border-radius: 999px; font-size: 12px; font-weight: 500;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.11); color: var(--text);
+    transition: all 0.18s var(--ease);
   }}
+  .ap-pill:hover {{ background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.22); }}
+  .ap-pill:active {{ transform: scale(0.97); }}
   .dot {{ width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); flex-shrink: 0; }}
   .dot.ok {{ background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }}
   .dot.warn {{ background: var(--amber); box-shadow: 0 0 0 3px var(--amber-soft); }}
   .dot.err {{ background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }}
 
-  .pulse-ribbon {{
-    background: rgba(12, 12, 14, 0.55); border-bottom: 1px solid rgba(255,255,255,0.06);
-  }}
-  .pulse-inner {{
-    max-width: 1520px; margin: 0 auto; padding: 6px 24px;
-    display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
-    font-size: 11.5px; color: var(--text-3);
-  }}
-  .pulse-group {{ display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }}
-  .pulse-item {{ display: inline-flex; align-items: center; gap: 6px; }}
-  .pulse-item strong {{ color: var(--text-2); font-weight: 500; }}
-
   /* --- Apple Pill Controls --- */
   .btn {{
-    background: rgba(255, 255, 255, 0.09); color: var(--text);
-    border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 999px;
-    padding: 7px 15px; font-size: 12.5px; font-weight: 500;
+    background: rgba(255, 255, 255, 0.08); color: var(--text);
+    border: 1px solid rgba(255, 255, 255, 0.13); border-radius: 999px;
+    padding: 6px 14px; font-size: 12.5px; font-weight: 500;
     cursor: pointer; transition: all 0.18s var(--ease);
-    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
   }}
-  .btn:hover {{ background: rgba(255, 255, 255, 0.15); border-color: rgba(255,255,255,0.25); }}
+  .btn:hover {{ background: rgba(255, 255, 255, 0.14); border-color: rgba(255,255,255,0.24); }}
   .btn:active {{ transform: scale(0.96); }}
-  .btn:disabled {{ opacity: 0.45; cursor: not-allowed; }}
+  .btn-icon {{ width: 32px; height: 32px; padding: 0; border-radius: 50%; }}
   .btn-primary {{
-    background: var(--accent); border-color: rgba(255,255,255,0.18); color: #fff; font-weight: 600;
-    box-shadow: 0 4px 16px rgba(10, 132, 255, 0.34);
+    background: var(--accent); border-color: rgba(255,255,255,0.2); color: #fff; font-weight: 600;
+    box-shadow: 0 4px 14px rgba(10, 132, 255, 0.32);
   }}
-  .btn-primary:hover {{ background: #1e8fff; border-color: rgba(255,255,255,0.28); }}
-  .btn-danger {{ background: var(--red-soft); border-color: rgba(255,69,58,0.38); color: #ff8a82; }}
-  .btn-danger:hover {{ background: rgba(255,69,58,0.26); }}
-  .btn-ghost {{ background: rgba(255,255,255,0.04); border-color: var(--border); color: var(--text-2); }}
-  .btn-ghost:hover {{ color: var(--text); background: rgba(255,255,255,0.1); }}
-  .btn-xs {{ padding: 4px 11px; font-size: 11px; border-radius: 999px; }}
-  .btn-xs.active {{ background: var(--accent-soft); border-color: rgba(10,132,255,0.48); color: #64b5ff; }}
+  .btn-primary:hover {{ background: #2190ff; }}
+  .btn-danger {{ background: var(--red-soft); border-color: rgba(255,69,58,0.35); color: #ff8a82; }}
+  .btn-danger:hover {{ background: rgba(255,69,58,0.25); }}
+  .btn-ghost {{ background: rgba(255,255,255,0.035); border-color: var(--border); color: var(--text-2); }}
+  .btn-ghost:hover {{ color: var(--text); background: rgba(255,255,255,0.09); }}
+  .btn-xs {{ padding: 4px 11px; font-size: 11px; }}
+  .btn-xs.active {{ background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.22); color: #fff; font-weight: 600; }}
 
   .input {{
-    background: rgba(118, 118, 128, 0.18); color: var(--text);
-    border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
-    padding: 8px 13px; font-size: 12.5px; outline: none; width: 100%;
+    background: rgba(118, 118, 128, 0.16); color: var(--text);
+    border: 1px solid rgba(255,255,255,0.09); border-radius: 12px;
+    padding: 8px 12px; font-size: 12.5px; outline: none; width: 100%;
     transition: border-color 0.18s ease, background 0.18s ease;
   }}
-  .input:focus {{ border-color: var(--accent); background: rgba(118, 118, 128, 0.26); }}
+  .input:focus {{ border-color: var(--accent); background: rgba(118, 118, 128, 0.24); }}
 
-  /* --- Bento Layout & Liquid Glass Cards --- */
-  .wrap {{ max-width: 1520px; margin: 0 auto; padding: 20px 24px 56px; }}
-
+  /* --- Spacious Apple Layout --- */
+  .wrap {{ max-width: 1380px; margin: 0 auto; padding: 24px 24px 64px; }}
   .banner {{
-    padding: 12px 18px; border-radius: 16px; margin-bottom: 16px;
-    font-size: 12.5px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
-    backdrop-filter: blur(18px);
+    padding: 13px 18px; border-radius: 16px; margin-bottom: 18px;
+    font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }}
   .banner.err {{ background: var(--red-soft); border: 1px solid rgba(255,69,58,0.38); color: #ffd2cf; }}
 
-  .kpi-row {{
-    display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px;
+  /* --- Unified Hero Card --- */
+  .hero {{
+    background: linear-gradient(140deg, rgba(32,32,36,0.78) 0%, rgba(20,24,34,0.72) 100%);
+    backdrop-filter: saturate(180%) blur(28px); -webkit-backdrop-filter: saturate(180%) blur(28px);
+    border: 1px solid rgba(255,255,255,0.11);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 14px 40px rgba(0,0,0,0.45);
+    border-radius: 24px; padding: 22px 26px; margin-bottom: 18px;
   }}
-  .kpi {{
-    background: var(--surface);
-    backdrop-filter: saturate(180%) blur(24px);
-    -webkit-backdrop-filter: saturate(180%) blur(24px);
-    border: 1px solid var(--border);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 8px 28px rgba(0,0,0,0.4);
-    border-radius: var(--radius); padding: 16px 18px; position: relative;
-    transition: transform 0.22s var(--ease), border-color 0.22s ease;
+  .hero-top {{
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; flex-wrap: wrap;
+    padding-bottom: 18px; border-bottom: 1px solid rgba(255,255,255,0.075);
   }}
-  .kpi:hover {{ transform: translateY(-2px); border-color: var(--border-strong); }}
-  .kpi-label {{ font-size: 11.5px; color: var(--text-3); margin-bottom: 6px; font-weight: 500; }}
-  .kpi-val {{ font-size: 24px; font-weight: 700; color: #ffffff; letter-spacing: -0.03em; }}
-  .kpi-sub {{ font-size: 11.5px; color: var(--text-2); margin-top: 5px; }}
+  .hero-nav {{ font-size: 34px; font-weight: 700; letter-spacing: -0.035em; color: #ffffff; line-height: 1.1; }}
+  .hero-alloc {{ height: 6px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; display: flex; min-width: 260px; margin-top: 8px; }}
+  .hero-stats {{
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; padding-top: 16px;
+  }}
+  .stat-cell-lbl {{ font-size: 11px; color: var(--text-3); margin-bottom: 2px; }}
+  .stat-cell-val {{ font-size: 17px; font-weight: 600; color: var(--text); letter-spacing: -0.02em; }}
 
-  .grid-2 {{ display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; margin-bottom: 16px; }}
-  .grid-even {{ display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }}
-  .desk-grid {{ display: grid; grid-template-columns: 365px minmax(0, 1fr); gap: 16px; align-items: start; }}
+  /* --- Compact Metric Strip (Perps & Learning) --- */
+  .metric-strip {{
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px;
+  }}
+  .metric-tile {{
+    background: var(--surface); backdrop-filter: saturate(180%) blur(24px);
+    border: 1px solid var(--border); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+    border-radius: 18px; padding: 15px 18px;
+  }}
+  .metric-lbl {{ font-size: 11px; color: var(--text-3); font-weight: 500; }}
+  .metric-val {{ font-size: 21px; font-weight: 700; color: #ffffff; letter-spacing: -0.025em; margin-top: 4px; }}
+  .metric-sub {{ font-size: 11px; color: var(--text-2); margin-top: 3px; }}
+
+  .grid-2 {{ display: grid; grid-template-columns: 1.5fr 1fr; gap: 18px; margin-bottom: 18px; }}
+  .grid-even {{ display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }}
+  .desk-grid {{ display: grid; grid-template-columns: 330px minmax(0, 1fr); gap: 18px; align-items: start; }}
 
   .card {{
     background: var(--surface);
     backdrop-filter: saturate(180%) blur(24px);
     -webkit-backdrop-filter: saturate(180%) blur(24px);
     border: 1px solid var(--border);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 10px 32px rgba(0,0,0,0.42);
-    border-radius: var(--radius); overflow: hidden; margin-bottom: 16px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 10px 32px rgba(0,0,0,0.4);
+    border-radius: var(--radius); overflow: hidden; margin-bottom: 18px;
   }}
   .grid-2 .card, .grid-even .card, .desk-grid .card {{ margin-bottom: 0; }}
   .card-head {{
-    padding: 13px 18px; border-bottom: 1px solid rgba(255,255,255,0.07);
+    padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.065);
     display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
-    background: rgba(255,255,255,0.015);
   }}
-  .card-title {{ font-size: 13.5px; font-weight: 600; color: #ffffff; letter-spacing: -0.01em; }}
+  .card-title {{ font-size: 14px; font-weight: 600; color: #ffffff; letter-spacing: -0.012em; }}
   .card-meta {{ font-size: 11.5px; color: var(--text-3); }}
-  .card-body {{ padding: 16px 18px; }}
+  .card-body {{ padding: 18px 20px; }}
   .card-body.flush {{ padding: 0; }}
 
-  /* --- Tables & Meters --- */
+  /* --- Inner Segmented Pill --- */
+  .seg-sm {{
+    display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px;
+    background: rgba(118,118,128,0.18); border: 1px solid rgba(255,255,255,0.07);
+  }}
+  .seg-sm button {{
+    background: transparent; border: none; color: var(--text-3);
+    padding: 4px 11px; border-radius: 999px; font-size: 11.5px; font-weight: 500; cursor: pointer;
+    transition: all 0.16s ease;
+  }}
+  .seg-sm button.active {{ background: rgba(255,255,255,0.15); color: #fff; font-weight: 600; }}
+
+  /* --- Clean Tables & Meters --- */
   .table-wrap {{ overflow-x: auto; }}
   table {{ width: 100%; border-collapse: collapse; font-size: 12.5px; }}
   th {{
-    text-align: right; padding: 10px 15px; font-weight: 500; font-size: 11px;
-    color: var(--text-3); border-bottom: 1px solid rgba(255,255,255,0.07);
-    background: rgba(255,255,255,0.02); white-space: nowrap;
+    text-align: right; padding: 10px 16px; font-weight: 500; font-size: 11px;
+    color: var(--text-3); border-bottom: 1px solid rgba(255,255,255,0.065);
+    background: rgba(255,255,255,0.018); white-space: nowrap;
   }}
-  td {{ padding: 10px 15px; border-bottom: 1px solid rgba(255,255,255,0.055); color: var(--text-2); vertical-align: middle; }}
+  td {{ padding: 11px 16px; border-bottom: 1px solid rgba(255,255,255,0.05); color: var(--text-2); vertical-align: middle; }}
   tr:last-child td {{ border-bottom: none; }}
   tr.clickable {{ cursor: pointer; transition: background 0.14s ease; }}
-  tr.clickable:hover td {{ background: rgba(255,255,255,0.045); }}
-  .q-cell {{ color: var(--text); font-weight: 500; }}
+  tr.clickable:hover td {{ background: rgba(255,255,255,0.04); }}
 
-  .range-meter {{ display: flex; align-items: center; gap: 8px; min-width: 160px; }}
-  .range-track {{
-    flex: 1; height: 5px; border-radius: 99px; background: rgba(255,255,255,0.1);
-    position: relative; overflow: visible;
-  }}
+  .range-meter {{ display: flex; align-items: center; gap: 8px; min-width: 140px; }}
+  .range-track {{ flex: 1; height: 4px; border-radius: 99px; background: rgba(255,255,255,0.1); position: relative; }}
   .range-fill {{ position: absolute; top: 0; height: 100%; border-radius: 99px; background: var(--accent); }}
   .range-pin {{
-    position: absolute; top: -3px; width: 4px; height: 11px; border-radius: 99px; background: #fff;
-    transform: translateX(-50%); box-shadow: 0 0 8px rgba(255,255,255,0.8);
+    position: absolute; top: -3px; width: 4px; height: 10px; border-radius: 99px; background: #fff;
+    transform: translateX(-50%); box-shadow: 0 0 6px rgba(255,255,255,0.75);
   }}
 
-  /* --- Watchlist --- */
-  .wl-scroll {{ max-height: 670px; overflow-y: auto; }}
-  .wl-item {{
-    padding: 11px 16px; border-bottom: 1px solid rgba(255,255,255,0.06); cursor: pointer;
-    transition: background 0.15s ease;
-  }}
-  .wl-item:hover {{ background: rgba(255,255,255,0.04); }}
+  /* --- Airy 2-Line Watchlist --- */
+  .wl-scroll {{ max-height: 620px; overflow-y: auto; }}
+  .wl-item {{ padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.055); cursor: pointer; transition: background 0.14s; }}
+  .wl-item:hover {{ background: rgba(255,255,255,0.035); }}
   .wl-item.active {{ background: rgba(10,132,255,0.14); border-right: 3px solid var(--accent); }}
-  .wl-top {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-bottom: 5px; }}
-  .wl-q {{ font-size: 12.5px; font-weight: 500; color: var(--text); line-height: 1.35; }}
-  .wl-sub {{ display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--text-3); gap: 8px; }}
+  .wl-top {{ display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 4px; }}
+  .wl-q {{ font-size: 13px; font-weight: 500; color: var(--text); line-height: 1.35; }}
+  .wl-sub {{ display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; color: var(--text-3); gap: 8px; }}
 
-  /* --- Order Book Depth Ladder --- */
   .ob-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }}
-  .ob-row {{
-    position: relative; display: flex; justify-content: space-between;
-    padding: 5px 9px; font-size: 11.5px; border-radius: 8px; margin-bottom: 3px; overflow: hidden;
-  }}
+  .ob-row {{ position: relative; display: flex; justify-content: space-between; padding: 5px 9px; font-size: 11.5px; border-radius: 8px; margin-bottom: 3px; overflow: hidden; }}
   .ob-bar {{ position: absolute; top: 0; bottom: 0; opacity: 0.18; pointer-events: none; }}
   .ob-bid .ob-bar {{ right: 0; background: var(--green); }}
   .ob-ask .ob-bar {{ left: 0; background: var(--red); }}
 
-  /* --- Apple Badges & Progress --- */
   .badge {{
     display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px;
     font-size: 10.5px; font-weight: 600; border: 1px solid transparent; white-space: nowrap;
   }}
-  .badge-ok {{ background: var(--green-soft); color: #67f589; border-color: rgba(48,209,88,0.28); }}
-  .badge-warn {{ background: var(--amber-soft); color: #ffc15a; border-color: rgba(255,159,10,0.28); }}
-  .badge-err {{ background: var(--red-soft); color: #ff857d; border-color: rgba(255,69,58,0.28); }}
-  .badge-info {{ background: var(--accent-soft); color: #66b4ff; border-color: rgba(10,132,255,0.28); }}
-  .badge-mute {{ background: rgba(255,255,255,0.06); color: var(--text-2); border-color: rgba(255,255,255,0.09); }}
+  .badge-ok {{ background: var(--green-soft); color: #67f589; border-color: rgba(48,209,88,0.26); }}
+  .badge-warn {{ background: var(--amber-soft); color: #ffc15a; border-color: rgba(255,159,10,0.26); }}
+  .badge-err {{ background: var(--red-soft); color: #ff857d; border-color: rgba(255,69,58,0.26); }}
+  .badge-info {{ background: var(--accent-soft); color: #66b4ff; border-color: rgba(10,132,255,0.26); }}
+  .badge-mute {{ background: rgba(255,255,255,0.06); color: var(--text-2); border-color: rgba(255,255,255,0.08); }}
 
-  .bar-row {{ margin-bottom: 12px; }}
+  .bar-row {{ margin-bottom: 14px; }}
   .bar-row:last-child {{ margin-bottom: 0; }}
-  .bar-top {{ display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px; color: var(--text-2); }}
-  .bar-track {{ height: 6px; border-radius: 99px; background: rgba(255,255,255,0.09); overflow: hidden; }}
-  .bar-fill {{ height: 100%; border-radius: 99px; background: var(--accent); transition: width 0.4s var(--ease); }}
+  .bar-top {{ display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; color: var(--text-2); }}
+  .bar-track {{ height: 5px; border-radius: 99px; background: rgba(255,255,255,0.09); overflow: hidden; }}
+  .bar-fill {{ height: 100%; border-radius: 99px; background: var(--accent); transition: width 0.35s var(--ease); }}
 
-  /* --- Chart Canvases & Frosted Tooltips --- */
-  .chart-wrap {{ position: relative; width: 100%; height: 295px; }}
-  .rsi-wrap {{ position: relative; width: 100%; height: 82px; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 4px; }}
-  .eq-wrap {{ position: relative; width: 100%; height: 185px; }}
+  /* --- Canvases & Tooltips --- */
+  .chart-wrap {{ position: relative; width: 100%; height: 285px; }}
+  .rsi-wrap {{ position: relative; width: 100%; height: 78px; margin-top: 6px; border-top: 1px solid var(--border); padding-top: 4px; }}
+  .eq-wrap {{ position: relative; width: 100%; height: 205px; }}
   canvas.plot {{ width: 100%; height: 100%; display: block; cursor: crosshair; }}
   .tooltip {{
     position: absolute; top: 8px; right: 12px; pointer-events: none;
-    background: rgba(28, 28, 30, 0.88); border: 1px solid rgba(255,255,255,0.16);
-    border-radius: 11px; padding: 6px 11px; font-size: 11px; color: #ffffff;
+    background: rgba(28, 28, 30, 0.9); border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 10px; padding: 6px 11px; font-size: 11px; color: #ffffff;
     display: none; backdrop-filter: blur(18px); z-index: 10;
-    box-shadow: 0 6px 20px rgba(0,0,0,0.45);
   }}
 
-  /* --- News & Decision Tape --- */
+  /* --- Apple Reader & Grouped Lists --- */
   .filter-pills {{ display: flex; gap: 6px; flex-wrap: wrap; }}
   .pill-btn {{
     background: rgba(255,255,255,0.04); color: var(--text-2); border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 999px; padding: 4px 12px; font-size: 11px; cursor: pointer;
-    transition: all 0.16s var(--ease);
+    border-radius: 999px; padding: 4px 12px; font-size: 11.5px; cursor: pointer; transition: all 0.15s;
   }}
   .pill-btn:hover {{ background: rgba(255,255,255,0.09); color: var(--text); }}
   .pill-btn.active {{ background: rgba(255,255,255,0.16); color: #ffffff; border-color: rgba(255,255,255,0.22); font-weight: 600; }}
 
   .news-item {{
-    padding: 12px 18px; border-bottom: 1px solid rgba(255,255,255,0.06);
-    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
-    transition: background 0.14s ease;
+    padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,0.055);
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 14px;
   }}
-  .news-item:hover {{ background: rgba(255,255,255,0.025); }}
   .news-item:last-child {{ border-bottom: none; }}
-  .news-title {{ color: var(--text); font-size: 12.5px; font-weight: 500; line-height: 1.45; }}
+  .news-title {{ color: var(--text); font-size: 13px; font-weight: 500; line-height: 1.45; }}
   .news-meta {{ font-size: 11px; color: var(--text-3); margin-top: 4px; display: flex; gap: 10px; flex-wrap: wrap; }}
 
   .tape-item {{
-    padding: 9px 16px; border-bottom: 1px solid rgba(255,255,255,0.055);
+    padding: 10px 18px; border-bottom: 1px solid rgba(255,255,255,0.05);
     display: flex; align-items: baseline; gap: 10px; font-size: 12px;
   }}
   .tape-item:last-child {{ border-bottom: none; }}
 
-  .kv-list {{ display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; }}
+  .kv-list {{ display: grid; grid-template-columns: 1fr 1fr; gap: 4px 22px; }}
   .kv-item {{
     display: flex; justify-content: space-between; align-items: center;
-    padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 12px;
+    padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.055); font-size: 12.5px;
   }}
+  .kv-item:last-child {{ border-bottom: none; }}
   .kv-k {{ color: var(--text-3); }}
   .kv-v {{ color: var(--text); font-weight: 500; }}
 
-  /* --- Apple Unified Hero Strip, Range Sliders & Spotlight Search (⌘K) --- */
-  .hero-strip {{
-    background: linear-gradient(135deg, rgba(28,28,32,0.86) 0%, rgba(18,22,32,0.78) 100%);
-    backdrop-filter: saturate(180%) blur(28px); -webkit-backdrop-filter: saturate(180%) blur(28px);
-    border: 1px solid rgba(255,255,255,0.12);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 12px 36px rgba(0,0,0,0.45);
-    border-radius: 22px; padding: 18px 22px; margin-bottom: 16px;
-    display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  .thesis-summary {{
+    padding: 10px 14px; border-radius: 12px; background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07); color: var(--text); font-size: 12.5px; margin-bottom: 12px;
   }}
-  .hero-alloc {{ height: 7px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; display: flex; min-width: 240px; margin-top: 8px; }}
-  .slider-row {{ display: flex; flex-direction: column; gap: 5px; }}
+
+  /* --- Apple Range Sliders & Spotlight Search (⌘K) --- */
+  .slider-row {{ display: flex; flex-direction: column; gap: 6px; }}
   .slider-row input[type=range] {{
-    -webkit-appearance: none; appearance: none; width: 100%; height: 5px; border-radius: 99px;
-    background: rgba(255,255,255,0.14); outline: none;
+    -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 99px;
+    background: rgba(255,255,255,0.16); outline: none;
   }}
   .slider-row input[type=range]::-webkit-slider-thumb {{
     -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
@@ -344,11 +337,11 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   }}
   .spot-overlay {{
     position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,0.62);
-    backdrop-filter: blur(10px); display: none; align-items: flex-start; justify-content: center; padding-top: 11vh;
+    backdrop-filter: blur(12px); display: none; align-items: flex-start; justify-content: center; padding-top: 11vh;
   }}
   .spot-overlay.open {{ display: flex; }}
   .spot-box {{
-    width: min(640px, 92vw); background: rgba(28,28,30,0.92); backdrop-filter: saturate(190%) blur(32px);
+    width: min(620px, 92vw); background: rgba(28,28,30,0.92); backdrop-filter: saturate(190%) blur(32px);
     border: 1px solid rgba(255,255,255,0.18); border-radius: 20px; overflow: hidden;
     box-shadow: 0 28px 80px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.15);
   }}
@@ -365,10 +358,10 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
   .toast {{
     position: fixed; bottom: 22px; left: 22px; z-index: 60;
-    background: rgba(28, 28, 30, 0.88); backdrop-filter: saturate(180%) blur(24px);
+    background: rgba(28, 28, 30, 0.9); backdrop-filter: saturate(180%) blur(24px);
     border: 1px solid rgba(255,255,255,0.18); color: #ffffff;
     padding: 12px 18px; border-radius: 14px; font-size: 12.5px; font-weight: 500;
-    box-shadow: 0 16px 40px rgba(0,0,0,0.55); display: none; max-width: 440px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.55); display: none; max-width: 420px;
   }}
   .tab-pane {{ display: none; }}
   .tab-pane.active {{ display: block; }}
@@ -376,17 +369,17 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .pos {{ color: var(--green); }}
   .neg {{ color: var(--red); }}
 
-  @media (max-width: 1180px) {{
+  @media (max-width: 1120px) {{
     .desk-grid {{ grid-template-columns: 1fr; }}
-    .wl-scroll {{ max-height: 300px; }}
+    .wl-scroll {{ max-height: 290px; }}
   }}
-  @media (max-width: 1020px) {{
-    .kpi-row {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+  @media (max-width: 960px) {{
+    .hero-stats, .metric-strip {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
     .grid-2, .grid-even {{ grid-template-columns: 1fr; }}
     .topbar-inner {{ height: auto; padding: 10px 14px; flex-wrap: wrap; }}
   }}
   @media (max-width: 640px) {{
-    .wrap {{ padding: 12px 12px 36px; }}
+    .wrap {{ padding: 14px 12px 40px; }}
     .kv-list, .ob-grid {{ grid-template-columns: 1fr; }}
     .nav-tabs {{ width: 100%; overflow-x: auto; }}
   }}
@@ -398,7 +391,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   <div class="topbar-inner">
     <div class="brand">
       <div class="brand-mark" aria-hidden="true">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
         </svg>
       </div>
@@ -411,7 +404,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
     <nav class="nav-tabs" aria-label="ניווט ראשי">
       <button class="nav-tab active" data-tab="overview">סקירה ומסחר</button>
       <button class="nav-tab" data-tab="perps">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
         חוזים (PERPS ×50)
       </button>
       <button class="nav-tab" data-tab="markets">שווקים וגרפים</button>
@@ -420,17 +413,18 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
     </nav>
 
     <div class="top-actions">
-      <button class="btn btn-ghost" onclick="openSpotlight()" title="חיפוש מהיר Spotlight (⌘K)">חיפוש <span class="mono" style="font-size:10px;opacity:0.7">⌘K</span></button>
-      <div class="status-pill" id="live-pill">
+      <button class="btn btn-ghost" onclick="openSpotlight()" title="חיפוש ופקודות (⌘K)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <span class="mono" style="font-size:10.5px;opacity:0.75">⌘K</span>
+      </button>
+      <button class="ap-pill" id="btn-toggle-ap" onclick="toggleAutopilot()" title="לחץ להפעלה או השהיה">
         <span class="dot" id="live-dot"></span>
         <span id="live-label">מצב</span>
-      </div>
-      <button class="btn btn-primary" id="btn-toggle-ap" onclick="toggleAutopilot()">הפעל אוטופיילוט</button>
-      <button class="btn btn-ghost" onclick="refreshAll()" title="רענון מיידי">רענן</button>
+      </button>
+      <button class="btn btn-ghost btn-icon" onclick="refreshAll()" title="רענון מיידי" aria-label="רענן">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+      </button>
     </div>
-  </div>
-  <div class="pulse-ribbon">
-    <div class="pulse-inner" id="pulse-ribbon"></div>
   </div>
 </header>
 
@@ -442,14 +436,19 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
   <!-- ========== TAB 1: סקירה ומסחר ========== -->
   <section id="tab-overview" class="tab-pane active">
-    <div id="combined-hero" class="hero-strip"></div>
-    <div class="kpi-row" id="kpi-row"></div>
+    <div id="combined-hero" class="hero"></div>
 
     <div class="grid-2">
       <div class="card">
         <div class="card-head">
           <span class="card-title">עקומת הון חיה</span>
-          <span class="card-meta" id="eq-meta">—</span>
+          <div style="display:flex;align-items:center;gap:10px">
+            <span class="card-meta" id="eq-meta">—</span>
+            <div class="seg-sm">
+              <button class="active" id="eq-sw-poly" onclick="setEqArm('poly', this)">Polymarket</button>
+              <button id="eq-sw-perps" onclick="setEqArm('perps', this)">PERPS ×50</button>
+            </div>
+          </div>
         </div>
         <div class="card-body">
           <div class="eq-wrap">
@@ -458,10 +457,11 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
           </div>
         </div>
       </div>
+
       <div class="card">
         <div class="card-head">
-          <span class="card-title">בקרת סיכון ומרווחי הון</span>
-          <span class="card-meta" id="risk-meta">Mean Reversion + RSI + Spread/Edge</span>
+          <span class="card-title">שומרי סיכון (דו-זרועי)</span>
+          <span class="card-meta" id="risk-meta">מוגן אוטומטית</span>
         </div>
         <div class="card-body" id="risk-bars"></div>
       </div>
@@ -469,21 +469,19 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
     <div class="card">
       <div class="card-head">
-        <span class="card-title">פוזיציות פתוחות</span>
-        <span class="card-meta">סרגל SL ↔ Entry ↔ TP · לחיצה פותחת את דסק השוק</span>
+        <span class="card-title">פוזיציות חיות עכשיו</span>
+        <span class="card-meta" id="all-pos-meta">לחיצה על שורה פותחת את גרף הנכס</span>
       </div>
       <div class="card-body flush">
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>שוק</th>
-                <th>כמות</th>
-                <th>כניסה</th>
-                <th>נוכחי</th>
-                <th>מיקום בין SL ל-TP</th>
-                <th>רווח/הפסד</th>
-                <th>גיל</th>
+                <th>נכס / זרוע</th>
+                <th>גודל ופוזיציה</th>
+                <th>כניסה ← נוכחי</th>
+                <th>מד הגנה ויעד</th>
+                <th>רווח / הפסד</th>
               </tr>
             </thead>
             <tbody id="pos-tbody"></tbody>
@@ -492,302 +490,56 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
       </div>
     </div>
 
-    <div class="grid-even">
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">זרם החלטות ואירועי מערכת (Live Tape)</span>
-          <span class="card-meta" id="tape-meta">—</span>
-        </div>
-        <div class="card-body flush" id="decision-tape"></div>
-      </div>
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">עסקאות סגורות אחרונות</span>
-          <span class="card-meta" id="trades-meta">—</span>
-        </div>
-        <div class="card-body flush">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>מועד</th><th>שוק</th><th>כמות</th><th>מחיר</th><th>PnL</th><th>סיבה</th></tr></thead>
-              <tbody id="trades-tbody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ========== TAB 2: שווקים וגרפים (Split Desk) ========== -->
-  <section id="tab-markets" class="tab-pane">
-    <div class="desk-grid">
-      <!-- ימין: רדאר ורשימת מעקב אינטראקטיבית -->
-      <div class="card">
-        <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <span class="card-title">רדאר מודיעין שווקים חי</span>
-            <span class="card-meta" id="wl-count">—</span>
-          </div>
-          <input type="text" id="wl-search" class="input" placeholder="חיפוש שוק או סקטור..." oninput="renderMarketsIntel()">
-          <div class="filter-pills" id="intel-filters">
-            <button class="pill-btn active" onclick="setIntelFilter('ALL', this)">הכל</button>
-            <button class="pill-btn" onclick="setIntelFilter('OPEN', this)">פתוחות</button>
-            <button class="pill-btn" onclick="setIntelFilter('NEAR', this)">מתחממים</button>
-            <button class="pill-btn" onclick="setIntelFilter('APLUS', this)">A+/A</button>
-            <button class="pill-btn" onclick="setIntelFilter('CATALYST_BLOCK', this)">נחסמו</button>
-          </div>
-        </div>
-        <div class="wl-scroll" id="wl-list"></div>
-      </div>
-
-      <!-- שמאל: גרף Trading Desk + ספר פקודות + תיזת בוט -->
-      <div style="display:flex;flex-direction:column;gap:14px">
-        <div class="card">
-          <div class="card-head">
-            <div>
-              <div class="card-title" id="desk-title">בחר שוק מהרדאר</div>
-              <div class="card-meta" id="desk-sub">—</div>
-            </div>
-            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-              <button class="btn btn-xs" onclick="setRange(12, this)">12H</button>
-              <button class="btn btn-xs" onclick="setRange(24, this)">24H</button>
-              <button class="btn btn-xs" onclick="setRange(72, this)">72H</button>
-              <button class="btn btn-xs active" onclick="setRange(9999, this)">ALL</button>
-              <button class="btn btn-ghost btn-xs" onclick="loadChart(SELECTED_TOKEN, true)">משוך חי</button>
-            </div>
-          </div>
-          <div class="card-body">
-            <div class="chart-wrap">
-              <canvas id="price-canvas" class="plot"></canvas>
-              <div id="price-tip" class="tooltip"></div>
-            </div>
-            <div class="rsi-wrap">
-              <canvas id="rsi-canvas" class="plot"></canvas>
-            </div>
-          </div>
-        </div>
-
-        <div class="grid-even">
-          <div class="card">
-            <div class="card-head">
-              <span class="card-title">תיזת הסוחר המקצועי לשוק</span>
-              <span class="card-meta" id="thesis-badge">—</span>
-            </div>
-            <div class="card-body" id="desk-thesis"></div>
-          </div>
-          <div class="card">
-            <div class="card-head">
-              <span class="card-title">עומק ספר פקודות (Order Book)</span>
-              <span class="card-meta" id="ob-meta">—</span>
-            </div>
-            <div class="card-body" id="desk-ob"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ========== TAB 3: חדשות ולמידה ========== -->
-  <section id="tab-intel" class="tab-pane">
-    <div class="kpi-row" id="news-pulse-kpis"></div>
-
-    <div class="grid-even">
-      <div class="card">
-        <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-            <span class="card-title">פיד חדשות מוסדי ולמידה מתמדת (22+ רשתות עולמיות)</span>
-            <button class="btn btn-ghost btn-xs" onclick="postAction('/api/news-refresh', {{}})">רענן פיד גלובלי</button>
-          </div>
-          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="news-search" class="input" style="max-width:210px" placeholder="חיפוש בכותרת, אזור או רשת..." oninput="renderNews()">
-            <div class="filter-pills">
-              <button class="pill-btn active" onclick="setNewsFilter('ALL', this)">הכל</button>
-              <button class="pill-btn" onclick="setNewsFilter('CATALYST', this)">חריגות</button>
-              <button class="pill-btn" onclick="setNewsFilter('MATCHED', this)">קשור לשוק</button>
-              <button class="pill-btn" onclick="setNewsFilter('crypto', this)">קריפטו ומאקרו</button>
-              <button class="pill-btn" onclick="setNewsFilter('REG:אסיה', this)">אסיה</button>
-              <button class="pill-btn" onclick="setNewsFilter('REG:מזרח תיכון', this)">מזרח תיכון</button>
-              <button class="pill-btn" onclick="setNewsFilter('REG:אמריקה ושווקים', this)">אמריקה</button>
-              <button class="pill-btn" onclick="setNewsFilter('REG:אירופה', this)">אירופה</button>
-              <button class="pill-btn" onclick="setNewsFilter('sports', this)">ספורט</button>
-            </div>
-          </div>
-        </div>
-        <div class="card-body flush" style="max-height:680px;overflow-y:auto">
-          <div id="news-list"></div>
-        </div>
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:16px">
-        <div class="card">
-          <div class="card-head">
-            <span class="card-title">מנוע למידה מתמשכת (מסחר + חדשות 24/7)</span>
-            <button class="btn btn-ghost btn-xs" onclick="postAction('/api/learn', {{apply:true}})">הרץ למידה עכשיו</button>
-          </div>
-          <div class="card-body" id="learn-insights"></div>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <span class="card-title">למידת השפעת חדשות על מחירים (News Alpha)</span>
-            <span class="card-meta" id="news-alpha-meta">מדידת 1ש׳ / 4ש׳ / 12ש׳</span>
-          </div>
-          <div class="card-body flush">
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>מקור חדשות</th><th>כתבות</th><th>אימפקט</th><th>דיוק כיווני</th><th>תזוזה ±%</th></tr></thead>
-                <tbody id="news-alpha-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <span class="card-title">דיוק אותות בזמן אמת (Polymarket + PERPS ×50)</span>
-            <span class="card-meta" id="learn-total">—</span>
-          </div>
-          <div class="card-body flush">
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>טווח Z / משטר</th><th>דגימות</th><th>הצלחה</th><th>תשואה ממוצעת</th></tr></thead>
-                <tbody id="learn-z-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <span class="card-title">היסטוריית מחזורי כיול OOS</span>
-            <span class="card-meta">4 שערי בטיחות</span>
-          </div>
-          <div class="card-body flush">
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>מועד</th><th>בסיס</th><th>מועמד</th><th>התמדה</th><th>עודכן</th></tr></thead>
-                <tbody id="learn-runs-tbody"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ========== TAB 4: תפעול אוטונומי ========== -->
-  <section id="tab-system" class="tab-pane">
     <div class="card">
       <div class="card-head">
-        <span class="card-title">בקרה ושליטה מהירה</span>
-        <span class="card-meta">הבוט מתפעל הכל אוטומטית ברקע — כאן ניתן לבצע פעולה יזומה</span>
-      </div>
-      <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-        <button class="btn btn-primary" onclick="postAction('/api/autopilot/maintain', {{}})">תחזוקה מלאה עכשיו</button>
-        <button class="btn" onclick="postAction('/api/paper-cycle', {{}})">מחזור מסחר בודד</button>
-        <button class="btn" onclick="postAction('/api/backup', {{}})">גיבוי מיידי</button>
-        <button class="btn" onclick="postAction('/api/reconcile', {{fix:true}})">אימות DB</button>
-        <button class="btn btn-danger" style="margin-right:auto" onclick="postAction('/api/halt', {{reason:'עצירה מהממשק'}})">עצירת חירום</button>
-      </div>
-    </div>
-
-    <div class="grid-even">
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">יומן טייס אוטומטי (Autopilot)</span>
-          <span class="card-meta" id="ap-meta">—</span>
-        </div>
-        <div class="card-body flush">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>מועד</th><th>משימה</th><th>סטטוס</th><th>פירוט</th></tr></thead>
-              <tbody id="ap-tbody"></tbody>
-            </table>
-          </div>
+        <span class="card-title">יומן פעילות ועסקאות</span>
+        <div class="seg-sm">
+          <button class="active" onclick="setActView('trades', this)">עסקאות סגורות</button>
+          <button onclick="setActView('tape', this)">זרם החלטות חי</button>
         </div>
       </div>
-
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">מוכנות למעבר ל-Live</span>
-          <span class="card-meta" id="ready-summary">—</span>
-        </div>
-        <div class="card-body flush">
-          <div class="table-wrap">
-            <table>
-              <thead><tr><th>בדיקה</th><th>סטטוס</th><th>פירוט</th></tr></thead>
-              <tbody id="ready-tbody"></tbody>
-            </table>
-          </div>
+      <div class="card-body flush" id="act-trades-pane">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>מועד</th><th>נכס / זרוע</th><th>סוג</th><th>רווח / הפסד</th><th>סיבה</th></tr></thead>
+            <tbody id="trades-tbody"></tbody>
+          </table>
         </div>
       </div>
-    </div>
-
-    <div class="grid-even">
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">ביצועי אסטרטגיה (פורטפוליו Backtest &amp; Walk-Forward)</span>
-          <span class="card-meta">מדדי יחוס אמפיריים</span>
-        </div>
-        <div class="card-body" id="analytics-box"></div>
-      </div>
-
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">תצורת מסחר מוסדית פעילה</span>
-          <span class="card-meta" id="cfg-mode">paper</span>
-        </div>
-        <div class="card-body" id="cfg-box"></div>
+      <div class="card-body flush" id="act-tape-pane" style="display:none">
+        <div id="decision-tape"></div>
       </div>
     </div>
   </section>
 
   <!-- ========== TAB PERPS: חוזים תמידיים עד ×50 ========== -->
   <section id="tab-perps" class="tab-pane">
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px">
       <div>
-        <div style="font-size:15px;font-weight:700">זרוע חוזים תמידיים (PERPS · Isolated Margin עד ×50)</div>
-        <div style="font-size:12px;color:var(--text-3)" id="perps-sub-hdr">OKX + Hyperliquid + Binance · Multi-Regime + Funding + Global Macro</div>
+        <div style="font-size:17px;font-weight:700;letter-spacing:-0.02em">חוזים תמידיים (PERPS ×50)</div>
+        <div style="font-size:12px;color:var(--text-3)" id="perps-sub-hdr">OKX + Hyperliquid · Isolated Margin</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary" onclick="postAction('/api/perps/cycle', {{}})">מחזור PERPS עכשיו</button>
         <button class="btn" onclick="postAction('/api/perps/learn', {{}})">כיול Walk-Forward</button>
-        <button class="btn btn-ghost" id="btn-perps-toggle" onclick="postAction('/api/perps/toggle', {{}})">השהה PERPS</button>
+        <button class="btn btn-ghost" id="btn-perps-toggle" onclick="postAction('/api/perps/toggle', {{}})">השהה</button>
       </div>
     </div>
 
-    <div class="kpi-row" id="perps-kpi-row"></div>
-
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">עקומת הון PERPS</span>
-          <span class="card-meta" id="perps-eq-meta">—</span>
-        </div>
-        <div class="card-body">
-          <div class="eq-wrap"><canvas id="perps-eq-canvas" class="plot"></canvas></div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-head">
-          <span class="card-title">הגנות מרג׳ין וליקווידציה (עד ×50)</span>
-          <span class="card-meta" id="perps-guard-meta">Isolated Margin</span>
-        </div>
-        <div class="card-body" id="perps-guards-box"></div>
-      </div>
-    </div>
+    <div class="metric-strip" id="perps-kpi-row"></div>
 
     <div class="card">
       <div class="card-head">
         <span class="card-title">פוזיציות PERPS פתוחות</span>
-        <span class="card-meta">לחיצה על שורה טוענת את גרף החוזה וקווי SL / TP / LIQ</span>
+        <span class="card-meta">לחיצה טוענת את גרף החוזה וקווי SL / TP / LIQ</span>
       </div>
       <div class="card-body flush">
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>חוזה / בורסה</th><th>כיוון</th><th>מינוף</th><th>מרג׳ין</th><th>נומינלי</th>
-                <th>כניסה</th><th>נוכחי</th><th>SL / TP</th><th>ליקווידציה (LIQ)</th><th>ROE / PnL</th>
+                <th>חוזה</th><th>כיוון ומינוף</th><th>מרג׳ין (נומינלי)</th>
+                <th>כניסה ← נוכחי</th><th>הגנה / יעד / LIQ</th><th>רווח / הפסד</th>
               </tr>
             </thead>
             <tbody id="perps-pos-tbody"></tbody>
@@ -800,15 +552,15 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
       <div class="card">
         <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
           <div style="display:flex;justify-content:space-between;align-items:center">
-            <span class="card-title">רדאר חוזים רב-בורסות</span>
+            <span class="card-title">רדאר חוזים</span>
             <span class="card-meta" id="perps-intel-cnt">—</span>
           </div>
-          <input type="text" id="perps-search" class="input" placeholder="חיפוש מטבע (BTC, ETH, SOL...)" oninput="renderPerps()">
+          <input type="text" id="perps-search" class="input" placeholder="חיפוש חוזה (BTC, ETH, SOL...)" oninput="renderPerps()">
         </div>
         <div class="wl-scroll" id="perps-wl"></div>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;flex-direction:column;gap:16px">
         <div class="card">
           <div class="card-head">
             <div>
@@ -827,43 +579,30 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
         <div class="card">
           <div class="card-head">
-            <span class="card-title">תיזת הסוחר וניתוח מיקרו-מבנה (PERPS)</span>
+            <span class="card-title">תיזת הסוחר לחוזה</span>
             <span class="card-meta" id="perps-thesis-badge">—</span>
           </div>
           <div class="card-body" id="perps-thesis-box"></div>
         </div>
 
-        <div class="grid-even">
-          <div class="card">
-            <div class="card-head"><span class="card-title">עסקאות PERPS סגורות</span><span class="card-meta" id="perps-tr-cnt">—</span></div>
-            <div class="card-body flush">
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>מועד</th><th>חוזה</th><th>כיוון</th><th>מינוף</th><th>PnL</th><th>סיבה</th></tr></thead>
-                  <tbody id="perps-trades-tbody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head"><span class="card-title">למידה עצמית OOS (PERPS)</span></div>
-            <div class="card-body flush">
-              <div class="table-wrap">
-                <table>
-                  <thead><tr><th>מועד</th><th>Baseline</th><th>מועמד</th><th>עקביות</th><th>סטטוס</th></tr></thead>
-                  <tbody id="perps-learn-tbody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <div class="card">
           <div class="card-head">
-            <span class="card-title">מעבדת סימולציית מינוף וסיכון (What-If Strategy Lab)</span>
-            <button class="btn btn-primary btn-xs" onclick="runPerpsSimulation()">הרץ סימולציה על נתוני DB</button>
+            <span class="card-title">היסטוריה ומעבדת אסטרטגיה</span>
+            <div class="seg-sm">
+              <button class="active" onclick="setPerpSubView('history', this)">עסקאות וכיול</button>
+              <button onclick="setPerpSubView('sim', this)">סימולציית What-If</button>
+            </div>
           </div>
-          <div class="card-body">
+          <div id="perp-sub-history" class="card-body flush">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>מועד</th><th>חוזה</th><th>כיוון / מינוף</th><th>PnL</th><th>סיבה</th></tr></thead>
+                <tbody id="perps-trades-tbody"></tbody>
+              </table>
+            </div>
+            <div style="border-top:1px solid var(--border);padding:12px 16px;font-size:11.5px;color:var(--text-3)" id="perps-learn-summary">—</div>
+          </div>
+          <div id="perp-sub-sim" class="card-body" style="display:none">
             <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:14px">
               <div class="slider-row">
                 <div style="display:flex;justify-content:space-between;font-size:11.5px"><span style="color:var(--text-3)">תקרת מינוף</span><strong class="num" id="sim-lev-val">50x</strong></div>
@@ -882,9 +621,213 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
                 <input type="range" id="sim-trl" min="0.8" max="2.2" step="0.1" value="1.4" oninput="document.getElementById('sim-trl-val').textContent=Number(this.value).toFixed(1)">
               </div>
             </div>
-            <div id="perps-sim-res" style="font-size:12px;color:var(--text-3)">כוון את המינוף ופרמטרי ה-ATR ולחץ "הרץ סימולציה" לבדיקה מיידית על נתוני אמת מה-DB.</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+              <div id="perps-sim-res" style="font-size:12px;color:var(--text-3)">כוון פרמטרים ולחץ להרצה מיידית על נתוני ה-DB.</div>
+              <button class="btn btn-primary btn-xs" onclick="runPerpsSimulation()">הרץ סימולציה</button>
+            </div>
           </div>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== TAB 2: שווקים וגרפים ========== -->
+  <section id="tab-markets" class="tab-pane">
+    <div class="desk-grid">
+      <div class="card">
+        <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="card-title">רדאר מודיעין שווקים חי</span>
+            <span class="card-meta" id="wl-count">—</span>
+          </div>
+          <input type="text" id="wl-search" class="input" placeholder="חיפוש שוק או סקטור..." oninput="renderMarketsIntel()">
+          <div class="filter-pills" id="intel-filters">
+            <button class="pill-btn active" onclick="setIntelFilter('ALL', this)">הכל</button>
+            <button class="pill-btn" onclick="setIntelFilter('OPEN', this)">פתוחות</button>
+            <button class="pill-btn" onclick="setIntelFilter('NEAR', this)">מתחממים</button>
+            <button class="pill-btn" onclick="setIntelFilter('APLUS', this)">A+/A</button>
+          </div>
+        </div>
+        <div class="wl-scroll" id="wl-list"></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title" id="desk-title">בחר שוק מהרדאר</div>
+              <div class="card-meta" id="desk-sub">—</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+              <button class="btn btn-xs" onclick="setRange(24, this)">24H</button>
+              <button class="btn btn-xs" onclick="setRange(72, this)">72H</button>
+              <button class="btn btn-xs active" onclick="setRange(9999, this)">ALL</button>
+              <button class="btn btn-ghost btn-xs" onclick="loadChart(SELECTED_TOKEN, true)">משוך חי</button>
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap">
+              <canvas id="price-canvas" class="plot"></canvas>
+              <div id="price-tip" class="tooltip"></div>
+            </div>
+            <div class="rsi-wrap"><canvas id="rsi-canvas" class="plot"></canvas></div>
+          </div>
+        </div>
+
+        <div class="grid-even">
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">תיזת הסוחר</span>
+              <span class="card-meta" id="thesis-badge">—</span>
+            </div>
+            <div class="card-body" id="desk-thesis"></div>
+          </div>
+          <div class="card">
+            <div class="card-head">
+              <span class="card-title">עומק ספר פקודות</span>
+              <span class="card-meta" id="ob-meta">—</span>
+            </div>
+            <div class="card-body" id="desk-ob"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== TAB 3: חדשות ולמידה ========== -->
+  <section id="tab-intel" class="tab-pane">
+    <div class="metric-strip" id="news-pulse-kpis"></div>
+
+    <div class="grid-even">
+      <div class="card">
+        <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <span class="card-title">פיד חדשות חי (22+ רשתות)</span>
+            <button class="btn btn-ghost btn-xs" onclick="postAction('/api/news-refresh', {{}})">רענן פיד</button>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <input type="text" id="news-search" class="input" style="max-width:190px" placeholder="חיפוש בכותרת או רשת..." oninput="renderNews()">
+            <div class="filter-pills">
+              <button class="pill-btn active" onclick="setNewsFilter('ALL', this)">הכל</button>
+              <button class="pill-btn" onclick="setNewsFilter('CATALYST', this)">משפיעות</button>
+              <button class="pill-btn" onclick="setNewsFilter('MATCHED', this)">קשור לשווקים</button>
+              <button class="pill-btn" onclick="setNewsFilter('crypto', this)">קריפטו ומאקרו</button>
+            </div>
+          </div>
+        </div>
+        <div class="card-body flush" style="max-height:600px;overflow-y:auto">
+          <div id="news-list"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">מנוע למידה מתמשכת (24/7)</span>
+            <button class="btn btn-ghost btn-xs" onclick="postAction('/api/learn', {{apply:true}})">הרץ למידה עכשיו</button>
+          </div>
+          <div class="card-body" id="learn-insights"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title" id="learn-tab-title">נתוני למידה מאומתים</span>
+            <div class="seg-sm">
+              <button class="active" onclick="setLearnTab('news', this)">News Alpha</button>
+              <button onclick="setLearnTab('signals', this)">דיוק אותות</button>
+              <button onclick="setLearnTab('runs', this)">כיולי OOS</button>
+            </div>
+          </div>
+          <div id="learn-pane-news" class="card-body flush">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>מקור חדשות</th><th>כתבות</th><th>דיוק כיווני</th><th>תזוזה ±%</th></tr></thead>
+                <tbody id="news-alpha-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="learn-pane-signals" class="card-body flush" style="display:none">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>זרוע / טווח</th><th>דגימות</th><th>הצלחה</th><th>תשואה ממוצעת</th></tr></thead>
+                <tbody id="learn-z-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="learn-pane-runs" class="card-body flush" style="display:none">
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>מועד</th><th>בסיס</th><th>מועמד</th><th>התמדה</th><th>סטטוס</th></tr></thead>
+                <tbody id="learn-runs-tbody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== TAB 4: תפעול אוטונומי (macOS Settings Style) ========== -->
+  <section id="tab-system" class="tab-pane">
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">שליטה ומצב המערכת</span>
+        <span class="card-meta">הבוט מתפעל הכל אוטומטית ברקע</span>
+      </div>
+      <div class="card-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-primary" onclick="postAction('/api/autopilot/maintain', {{}})">תחזוקה מלאה עכשיו</button>
+        <button class="btn" onclick="postAction('/api/paper-cycle', {{}})">מחזור ניסיון בודד</button>
+        <button class="btn" onclick="postAction('/api/backup', {{}})">גיבוי מיידי</button>
+        <button class="btn" onclick="postAction('/api/reconcile', {{fix:true}})">אימות DB</button>
+        <button class="btn btn-danger" style="margin-right:auto" onclick="postAction('/api/halt', {{reason:'עצירה מהממשק'}})">עצירת חירום</button>
+      </div>
+    </div>
+
+    <div class="grid-even">
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">מוכנות למסחר חי (Live)</span>
+          <span class="card-meta" id="ready-summary">—</span>
+        </div>
+        <div class="card-body flush">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>בדיקה</th><th>סטטוס</th><th>פירוט</th></tr></thead>
+              <tbody id="ready-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">יומן טייס אוטומטי</span>
+          <span class="card-meta" id="ap-meta">—</span>
+        </div>
+        <div class="card-body flush">
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>מועד</th><th>משימה</th><th>סטטוס</th><th>פירוט</th></tr></thead>
+              <tbody id="ap-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-even">
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">ביצועי אסטרטגיה מאומתים (Walk-Forward)</span>
+        </div>
+        <div class="card-body" id="analytics-box"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">תצורת מסחר פעילה</span>
+          <span class="card-meta" id="cfg-mode">paper</span>
+        </div>
+        <div class="card-body" id="cfg-box"></div>
       </div>
     </div>
   </section>
@@ -892,7 +835,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
 <div id="spot-overlay" class="spot-overlay" onclick="if(event.target===this) closeSpotlight()">
   <div class="spot-box">
-    <input type="text" id="spot-input" class="spot-input" placeholder="חפש שוק, חוזה PERPS, כתבה או פקודת מערכת (ESC לסגירה)..." oninput="renderSpotlight()">
+    <input type="text" id="spot-input" class="spot-input" placeholder="חפש שוק, חוזה PERPS או פקודת מערכת (ESC לסגירה)..." oninput="renderSpotlight()">
     <div id="spot-list" class="spot-list"></div>
   </div>
 </div>
@@ -903,6 +846,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 const INITIAL = {payload};
 let STATE = INITIAL;
 let ACTIVE_TAB = 'overview';
+let EQ_ARM = 'poly';
 let INTEL_FILTER = 'ALL';
 let NEWS_FILTER = 'ALL';
 let CHART_RANGE = 9999;
@@ -919,10 +863,7 @@ const fmtSign = (v, d = 2) => {{
   const n = Number(v);
   return (n >= 0 ? '+' : '') + n.toFixed(d);
 }};
-const fmtTime = (ts) => {{
-  if (!ts) return '—';
-  return new Date(Number(ts) * 1000).toLocaleTimeString('he-IL', {{hour:'2-digit', minute:'2-digit'}});
-}};
+const fmtTime = (ts) => ts ? new Date(Number(ts) * 1000).toLocaleTimeString('he-IL', {{hour:'2-digit', minute:'2-digit'}}) : '—';
 const fmtDateTime = (ts) => {{
   if (!ts) return '—';
   const d = new Date(Number(ts) * 1000);
@@ -932,31 +873,56 @@ const fmtDateTime = (ts) => {{
 function showToast(msg, isErr = false) {{
   const el = document.getElementById('toast');
   el.textContent = msg;
-  el.style.borderColor = isErr ? 'rgba(239,68,68,0.55)' : 'rgba(59,130,246,0.5)';
+  el.style.borderColor = isErr ? 'rgba(255,69,58,0.55)' : 'rgba(10,132,255,0.5)';
   el.style.display = 'block';
   clearTimeout(window.__toastTimer);
-  window.__toastTimer = setTimeout(() => {{ el.style.display = 'none'; }}, 4000);
+  window.__toastTimer = setTimeout(() => {{ el.style.display = 'none'; }}, 3800);
+}}
+
+function switchTab(tabId) {{
+  ACTIVE_TAB = tabId;
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tabId));
+  if (tabId === 'markets') {{ drawPriceChart(); drawRsiChart(); }}
+  if (tabId === 'overview') drawEquityChart();
+  if (tabId === 'perps') drawPerpPriceChart();
 }}
 
 document.querySelectorAll('.nav-tab').forEach(btn => {{
-  btn.addEventListener('click', () => {{
-    ACTIVE_TAB = btn.dataset.tab;
-    document.querySelectorAll('.nav-tab').forEach(b => b.classList.toggle('active', b === btn));
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + ACTIVE_TAB));
-    if (ACTIVE_TAB === 'markets') {{ drawPriceChart(); drawRsiChart(); }}
-    if (ACTIVE_TAB === 'overview') drawEquityChart();
-    if (ACTIVE_TAB === 'perps') {{ drawPerpEqChart(); drawPerpPriceChart(); }}
-  }});
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
 }});
 
 function switchToMarket(tokenId) {{
   if (!tokenId) return;
   SELECTED_TOKEN = tokenId;
-  ACTIVE_TAB = 'markets';
-  document.querySelectorAll('.nav-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === 'markets'));
-  document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-markets'));
+  switchTab('markets');
   renderMarketsIntel();
   loadChart(tokenId, true);
+}}
+
+function setEqArm(arm, btn) {{
+  EQ_ARM = arm;
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+  drawEquityChart();
+}}
+
+function setActView(view, btn) {{
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+  document.getElementById('act-trades-pane').style.display = view === 'trades' ? 'block' : 'none';
+  document.getElementById('act-tape-pane').style.display = view === 'tape' ? 'block' : 'none';
+}}
+
+function setPerpSubView(view, btn) {{
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+  document.getElementById('perp-sub-history').style.display = view === 'history' ? 'block' : 'none';
+  document.getElementById('perp-sub-sim').style.display = view === 'sim' ? 'block' : 'none';
+}}
+
+function setLearnTab(tab, btn) {{
+  btn.parentElement.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+  document.getElementById('learn-pane-news').style.display = tab === 'news' ? 'block' : 'none';
+  document.getElementById('learn-pane-signals').style.display = tab === 'signals' ? 'block' : 'none';
+  document.getElementById('learn-pane-runs').style.display = tab === 'runs' ? 'block' : 'none';
 }}
 
 function setIntelFilter(val, btn) {{
@@ -985,9 +951,7 @@ async function postAction(path, body) {{
   }}
   try {{
     const res = await fetch(path, {{
-      method: 'POST',
-      headers: {{'Content-Type': 'application/json'}},
-      body: JSON.stringify(body || {{}})
+      method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(body || {{}})
     }});
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'בקשה נכשלה');
@@ -1019,19 +983,27 @@ async function loadChart(tokenId, live = false) {{
   if (!tokenId) return;
   SELECTED_TOKEN = tokenId;
   renderMarketsIntel();
-  if (!LIVE_ORIGIN) {{
-    renderDeskPanels();
-    drawPriceChart();
-    drawRsiChart();
-    return;
-  }}
+  if (!LIVE_ORIGIN) {{ renderDeskPanels(); drawPriceChart(); drawRsiChart(); return; }}
   try {{
     const res = await fetch('/api/chart?token=' + encodeURIComponent(tokenId) + (live ? '&live=1' : ''));
     if (res.ok) {{
       CURRENT_CHART = await res.json();
-      renderDeskPanels();
-      drawPriceChart();
-      drawRsiChart();
+      renderDeskPanels(); drawPriceChart(); drawRsiChart();
+    }}
+  }} catch (e) {{}}
+}}
+
+async function loadPerpChart(sym, live = false) {{
+  if (!sym) return;
+  SELECTED_PERP_SYM = sym;
+  renderPerps();
+  if (!LIVE_ORIGIN) {{ drawPerpPriceChart(); renderPerpThesis(); return; }}
+  try {{
+    const res = await fetch('/api/perps/chart?symbol=' + encodeURIComponent(sym) + (live ? '&live=1' : ''));
+    if (res.ok) {{
+      CURRENT_PERP_CHART = await res.json();
+      drawPerpPriceChart();
+      renderPerpThesis();
     }}
   }} catch (e) {{}}
 }}
@@ -1043,7 +1015,6 @@ function renderAll() {{
   renderMarketsIntel();
   renderDeskPanels();
   drawEquityChart();
-  drawPerpEqChart();
   drawPerpPriceChart();
   drawPriceChart();
   drawRsiChart();
@@ -1052,19 +1023,205 @@ function renderAll() {{
   renderSystem();
 }}
 
-async function loadPerpChart(sym, live = false) {{
-  if (!sym) return;
-  SELECTED_PERP_SYM = sym;
-  renderPerps();
-  if (!LIVE_ORIGIN) {{ drawPerpPriceChart(); return; }}
-  try {{
-    const res = await fetch('/api/perps/chart?symbol=' + encodeURIComponent(sym) + (live ? '&live=1' : ''));
-    if (res.ok) {{
-      CURRENT_PERP_CHART = await res.json();
-      drawPerpPriceChart();
-      renderPerpThesis();
-    }}
-  }} catch (e) {{}}
+function renderHeader() {{
+  const tr = STATE.trader || {{}};
+  const h = STATE.health || {{}};
+  const hb = STATE.heartbeat || {{}};
+  const cfg = STATE.config || {{}};
+  const mode = (cfg.execution && cfg.execution.mode) || 'paper';
+  const running = Boolean(tr.running);
+  const halted = Boolean(STATE.halt || (hb && hb.halted));
+
+  const dot = document.getElementById('live-dot');
+  const lbl = document.getElementById('live-label');
+  if (halted) {{
+    dot.className = 'dot err'; lbl.textContent = 'עצירה פעילה';
+  }} else if (running && h.healthy) {{
+    dot.className = 'dot ok'; lbl.textContent = 'אוטופיילוט פעיל';
+  }} else if (h.healthy) {{
+    dot.className = 'dot warn'; lbl.textContent = 'האזנה בלבד';
+  }} else {{
+    dot.className = 'dot err'; lbl.textContent = 'מושהה — הפעל';
+  }}
+
+  const cyc = tr.cycles || hb.cycle || 0;
+  const tel = STATE.telemetry || {{}};
+  document.getElementById('sub-status').textContent =
+    `${{mode.toUpperCase()}} · מחזור #${{cyc}} · ${{(tel.intel || 0)}} שווקים`;
+
+  const hbBanner = document.getElementById('halt-banner');
+  if (halted) {{
+    const reason = (STATE.halt && STATE.halt.reason) || (hb && hb.halt_reason) || 'עצירת סיכון פעילה';
+    document.getElementById('halt-text').textContent = 'עצירת מסחר פעילה: ' + reason;
+    hbBanner.style.display = 'flex';
+  }} else {{
+    hbBanner.style.display = 'none';
+  }}
+}}
+
+function renderOverview() {{
+  const bank = STATE.bankroll || {{}};
+  const today = STATE.today || {{}};
+  const overall = STATE.overall || {{}};
+  const soak = STATE.soak || {{days: 0, target_days: 7}};
+  const comb = STATE.combined || {{}};
+  const ps = STATE.perps || {{}};
+  const eq = Number(bank.equity || 0);
+  const perpEq = Number(ps.equity || 0);
+  const cEq = Number(comb.equity || (eq + perpEq));
+  const cPoly = Number(comb.poly_equity || eq);
+  const cPerp = Number(comb.perps_equity || perpEq);
+  const cRet = Number(comb.return_pct || 0);
+  const polyPct = cEq > 0 ? (cPoly / cEq * 100) : 50;
+  const perpPct = Math.max(0, 100 - polyPct);
+  const todayNet = Number(today.realized_pnl || 0) + Number(ps.today_pnl || 0);
+  const openAll = Number(comb.open_positions || ((bank.open_positions || 0) + (ps.positions || []).length));
+  const closedAll = Number(comb.closed_trades || ((overall.exits || 0) + (ps.closed_trades || 0)));
+
+  const heroEl = document.getElementById('combined-hero');
+  if (heroEl) {{
+    heroEl.innerHTML = `
+      <div class="hero-top">
+        <div>
+          <div style="font-size:12px;color:var(--text-3);font-weight:500">שווי תיק מאוחד</div>
+          <div style="display:flex;align-items:baseline;gap:12px;margin-top:6px">
+            <span class="hero-nav num">$${{fmtNum(cEq, 2)}}</span>
+            <span class="badge ${{cRet >= 0 ? 'badge-ok' : 'badge-err'}} num">${{fmtSign(cRet, 2)}}%</span>
+          </div>
+        </div>
+        <div style="min-width:280px">
+          <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-2);gap:14px">
+            <span>Polymarket <strong class="num" style="color:var(--accent)">$${{fmtNum(cPoly, 2)}}</strong></span>
+            <span>PERPS ×50 <strong class="num" style="color:var(--green)">$${{fmtNum(cPerp, 2)}}</strong></span>
+          </div>
+          <div class="hero-alloc">
+            <div style="width:${{polyPct.toFixed(1)}}%;background:var(--accent)"></div>
+            <div style="width:${{perpPct.toFixed(1)}}%;background:var(--green)"></div>
+          </div>
+        </div>
+      </div>
+      <div class="hero-stats">
+        <div>
+          <div class="stat-cell-lbl">רווח / הפסד היום</div>
+          <div class="stat-cell-val num ${{todayNet >= 0 ? 'pos' : 'neg'}}">${{fmtSign(todayNet, 2)}}</div>
+        </div>
+        <div>
+          <div class="stat-cell-lbl">פוזיציות חיות</div>
+          <div class="stat-cell-val num">${{openAll}}</div>
+        </div>
+        <div>
+          <div class="stat-cell-lbl">עסקאות שנסגרו</div>
+          <div class="stat-cell-val num">${{closedAll}}</div>
+        </div>
+        <div>
+          <div class="stat-cell-lbl">צבירת Soak</div>
+          <div class="stat-cell-val num">${{soak.days || 0}}/${{soak.target_days || 7}} ימים</div>
+        </div>
+      </div>`;
+  }}
+
+  const g = STATE.guards || {{}};
+  const pg = ps.guards || {{}};
+  const bars = [
+    {{ lbl: 'מגבלת הפסד יומי (Poly)', txt: `${{fmtNum(g.daily_loss_used || 0)}} / ${{fmtNum(g.daily_loss_limit || 50)}}`, pct: Math.min(100, Math.max(0, Number(g.daily_loss_used || 0) / Math.max(1, Number(g.daily_loss_limit || 1)) * 100)), color: 'var(--green)' }},
+    {{ lbl: 'Drawdown Polymarket', txt: `${{fmtNum(g.drawdown_pct || 0, 1)}}% / ${{fmtNum(g.drawdown_limit_pct || 20, 0)}}%`, pct: Math.min(100, Number(g.drawdown_pct || 0) / Math.max(1, Number(g.drawdown_limit_pct || 20)) * 100), color: 'var(--accent)' }},
+    {{ lbl: 'ניצול Margin (PERPS ×50)', txt: `${{fmtNum(pg.used_margin_pct || 0, 1)}}% / ${{pg.max_margin_pct || 65}}%`, pct: Math.min(100, Number(pg.used_margin_pct || 0) / Math.max(1, Number(pg.max_margin_pct || 65)) * 100), color: 'var(--accent)' }},
+    {{ lbl: 'Drawdown PERPS', txt: `${{fmtNum(ps.drawdown_pct || 0, 1)}}% / ${{pg.dd_limit_pct || 18}}%`, pct: Math.min(100, Number(ps.drawdown_pct || 0) / Math.max(1, Number(pg.dd_limit_pct || 18)) * 100), color: 'var(--amber)' }},
+  ];
+  document.getElementById('risk-bars').innerHTML = bars.map(b => `
+    <div class="bar-row">
+      <div class="bar-top"><span>${{esc(b.lbl)}}</span><span class="num">${{esc(b.txt)}}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${{b.pct.toFixed(1)}}%;background:${{b.color}}"></div></div>
+    </div>`).join('');
+
+  // טבלה מאוחדת נקייה של כל הפוזיציות החיות (PERPS + Polymarket)
+  const polyPos = (STATE.positions || []).map(p => {{
+    const sl = Number(p.stop_price || 0), tp = Number(p.target_price || 0);
+    const mk = Number(p.mark_price ?? p.avg_price ?? 0);
+    const span = Math.max(tp - sl, 0.01);
+    const pctPos = Math.max(0, Math.min(100, ((mk - sl) / span) * 100));
+    const u = p.unrealized_pnl;
+    return {{
+      click: `switchToMarket('${{esc(p.token_id)}}')`,
+      title: (p.question || p.token_id).slice(0, 48),
+      arm: '<span class="badge badge-info">Polymarket</span>',
+      sizeTxt: `${{fmtNum(p.size, 1)}} יח׳`,
+      pxTxt: `${{fmtNum(p.avg_price, 3)}} ← ${{p.mark_price != null ? fmtNum(p.mark_price, 3) : '—'}}`,
+      loLbl: sl ? sl.toFixed(2) : '—',
+      hiLbl: tp ? tp.toFixed(2) : '—',
+      pct: pctPos,
+      u: u,
+      uTxt: u != null ? `${{fmtSign(u)}} (${{fmtSign(p.unrealized_pct, 1)}}%)` : '—',
+    }};
+  }});
+  const perpPos = (ps.positions || []).map(p => {{
+    const sl = Number(p.stop_price || 0), tp = Number(p.target_price || 0), mk = Number(p.mark_price || p.entry_price || 0);
+    const lo = Math.min(sl, tp), hi = Math.max(sl, tp);
+    const span = Math.max(hi - lo, 0.0001);
+    const pctPos = Math.max(0, Math.min(100, ((mk - lo) / span) * 100));
+    const u = Number(p.unrealized_pnl || 0);
+    const d = mk > 100 ? 2 : 4;
+    return {{
+      click: `switchTab('perps'); loadPerpChart('${{esc(p.symbol)}}', true)`,
+      title: `${{p.symbol}} (${{(p.exchange || '').toUpperCase()}})`,
+      arm: `<span class="badge ${{p.side === 'LONG' ? 'badge-ok' : 'badge-err'}}">${{p.side}} ×${{Number(p.leverage).toFixed(0)}}</span>`,
+      sizeTxt: `$${{fmtNum(p.margin_used, 1)}} מרג׳ין`,
+      pxTxt: `${{fmtNum(p.entry_price, d)}} ← ${{fmtNum(mk, d)}}`,
+      loLbl: p.side === 'LONG' ? sl.toFixed(d) : tp.toFixed(d),
+      hiLbl: p.side === 'LONG' ? tp.toFixed(d) : sl.toFixed(d),
+      pct: pctPos,
+      u: u,
+      uTxt: `${{fmtSign(u)}} (${{fmtSign(p.roe_pct, 1)}}%)`,
+    }};
+  }});
+  const allPos = [...perpPos, ...polyPos];
+  const metaP = document.getElementById('all-pos-meta');
+  if (metaP) metaP.textContent = `${{allPos.length}} פוזיציות פעילות · לחיצה פותחת גרף`;
+  document.getElementById('pos-tbody').innerHTML = allPos.length ? allPos.map(r => `
+    <tr class="clickable" onclick="${{r.click}}">
+      <td style="color:var(--text);font-weight:500">${{esc(r.title)}} <span style="margin-right:6px">${{r.arm}}</span></td>
+      <td class="num">${{esc(r.sizeTxt)}}</td>
+      <td class="num">${{esc(r.pxTxt)}}</td>
+      <td>
+        <div class="range-meter">
+          <span class="num" style="font-size:10px;color:var(--text-3)">${{r.loLbl}}</span>
+          <div class="range-track"><div class="range-pin" style="left:${{r.pct.toFixed(1)}}%"></div></div>
+          <span class="num" style="font-size:10px;color:var(--text-3)">${{r.hiLbl}}</span>
+        </div>
+      </td>
+      <td class="num ${{(r.u || 0) >= 0 ? 'pos' : 'neg'}}">${{esc(r.uTxt)}}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:22px">אין פוזיציות פתוחות כרגע</td></tr>';
+
+  // עסקאות סגורות מאוחדות
+  const trPoly = (STATE.recent_trades || []).slice(0, 6).map(t => ({{
+    ts: t.ts, name: (t.question || '').slice(0, 36), tag: 'Polymarket', rz: Number(t.realized || 0), reason: t.reason || '',
+  }}));
+  const trPerp = (ps.recent_trades || []).slice(0, 6).map(t => ({{
+    ts: t.ts, name: `${{t.symbol}} ×${{Number(t.leverage || 1).toFixed(0)}}`, tag: 'PERPS', rz: Number(t.realized || 0), reason: t.reason || '',
+  }}));
+  const trAll = [...trPerp, ...trPoly].sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0)).slice(0, 8);
+  document.getElementById('trades-tbody').innerHTML = trAll.length ? trAll.map(t => `
+    <tr>
+      <td class="num" style="color:var(--text-3)">${{fmtDateTime(t.ts)}}</td>
+      <td style="color:var(--text)">${{esc(t.name)}}</td>
+      <td><span class="badge badge-mute">${{esc(t.tag)}}</span></td>
+      <td class="num ${{t.rz >= 0 ? 'pos' : 'neg'}}">${{fmtSign(t.rz)}}</td>
+      <td style="color:var(--text-3)">${{esc(t.reason.slice(0, 26))}}</td>
+    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:18px">אין עסקאות סגורות עדיין</td></tr>';
+
+  // זרם החלטות
+  const evs = (STATE.events || []).slice(0, 5);
+  const sigS = (STATE.signals || []).filter(s => s.direction !== 'FLAT').slice(0, 5);
+  const tape = [
+    ...sigS.map(s => ({{ ts: s.ts, cls: 'badge-ok', kind: s.direction, msg: `${{(s.question || '').slice(0, 42)}} — ${{s.reason || ''}}`, tok: s.token_id }})),
+    ...evs.map(e => ({{ ts: e.ts, cls: e.level === 'ERROR' ? 'badge-err' : 'badge-info', kind: e.kind || 'מערכת', msg: e.msg || '', tok: '' }})),
+  ].sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0)).slice(0, 8);
+  document.getElementById('decision-tape').innerHTML = tape.length ? tape.map(it => `
+    <div class="tape-item" ${{it.tok ? `style="cursor:pointer" onclick="switchToMarket('${{esc(it.tok)}}')"` : ''}}>
+      <span class="num" style="color:var(--text-3)">${{fmtTime(it.ts)}}</span>
+      <span class="badge ${{it.cls}}">${{esc(it.kind)}}</span>
+      <span style="color:var(--text-2)">${{esc(it.msg)}}</span>
+    </div>`).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">זרם ההחלטות יתעדכן במחזור הבא</div>';
 }}
 
 function renderPerps() {{
@@ -1072,112 +1229,77 @@ function renderPerps() {{
   const tr = STATE.trader || {{}};
   const enabled = ps.enabled !== false;
   const btnT = document.getElementById('btn-perps-toggle');
-  if (btnT) btnT.textContent = enabled ? 'השהה PERPS' : 'הפעל PERPS';
+  if (btnT) btnT.textContent = enabled ? 'השהה' : 'הפעל';
   const hdrSub = document.getElementById('perps-sub-hdr');
-  if (hdrSub) {{
-    hdrSub.textContent = `${{(ps.exchanges || ['okx','hyperliquid']).join(' + ').toUpperCase()}} · מצב ${{(ps.mode || 'paper').toUpperCase()}} · ${{(ps.timeframe || '1h')}} · מקס׳ ×${{ps.max_leverage || 50}} · מחזורים: ${{tr.perps_cycles || 0}}`;
-  }}
+  if (hdrSub) hdrSub.textContent = `${{(ps.exchanges || ['okx','hyperliquid']).join(' + ').toUpperCase()}} · ${{(ps.mode || 'paper').toUpperCase()}} · מקס׳ ×${{ps.max_leverage || 50}} · מחזורים: ${{tr.perps_cycles || 0}}`;
 
   const eq = Number(ps.equity || 1000);
-  const cash = Number(ps.cash || 0);
-  const mrg = Number(ps.margin_used || 0);
-  const notl = Number(ps.notional || 0);
-  const unr = Number(ps.unrealized_pnl || 0);
   const ov = Number(ps.overall_pnl || 0);
+  const g = ps.guards || {{}};
   const pkpis = [
-    {{ l: 'הון PERPS (USDC)', v: fmtNum(eq), s: `לא ממומש: ${{fmtSign(unr)}} · DD ${{fmtNum(ps.drawdown_pct || 0, 1)}}%`, c: '' }},
-    {{ l: 'מרג׳ין ומינוף חי', v: `×${{fmtNum(ps.avg_leverage || 0, 1)}}`, s: `מרג׳ין ${{fmtNum(mrg)}} | נומינלי $${{Math.round(notl).toLocaleString()}}`, c: '' }},
-    {{ l: 'מזומן פנוי', v: fmtNum(cash), s: `פוזיציות: ${{(ps.positions || []).length}} | מינוף שיא ×${{fmtNum(ps.max_leverage_open || 0, 0)}}`, c: '' }},
+    {{ l: 'הון PERPS (USDC)', v: fmtNum(eq), s: `מזומן פנוי $${{fmtNum(ps.cash || 0)}} · DD ${{fmtNum(ps.drawdown_pct || 0, 1)}}%`, c: '' }},
+    {{ l: 'מינוף ממוצע ומרג׳ין', v: `×${{fmtNum(ps.avg_leverage || 0, 1)}}`, s: `$${{fmtNum(ps.margin_used || 0)}} מרג׳ין · ניצול ${{fmtNum(g.used_margin_pct || 0, 1)}}%`, c: '' }},
     {{ l: 'PnL + Funding', v: fmtSign(ov), s: `היום ${{fmtSign(ps.today_pnl || 0)}} · Funding ${{fmtSign(ps.funding_net || 0, 3)}}`, c: ov >= 0 ? 'pos' : 'neg' }},
-    {{ l: 'WR / Profit Factor', v: `${{fmtNum(ps.win_rate_pct || 0, 0)}}%`, s: `${{ps.closed_trades || 0}} עסקאות · PF ${{fmtNum(ps.profit_factor || 0, 2)}}`, c: '' }},
+    {{ l: 'דיוק / Profit Factor', v: `${{fmtNum(ps.win_rate_pct || 0, 0)}}%`, s: `${{ps.closed_trades || 0}} עסקאות · PF ${{fmtNum(ps.profit_factor || 0, 2)}}`, c: '' }},
   ];
   const kpiEl = document.getElementById('perps-kpi-row');
-  if (kpiEl) kpiEl.innerHTML = pkpis.map(k => `<div class="kpi"><div class="kpi-label">${{esc(k.l)}}</div><div class="kpi-val num ${{k.c}}">${{esc(k.v)}}</div><div class="kpi-sub">${{esc(k.s)}}</div></div>`).join('');
-
-  const g = ps.guards || {{}};
-  const gBox = document.getElementById('perps-guards-box');
-  if (gBox) {{
-    const gBars = [
-      {{ lbl: 'ניצול Margin מהתיק', txt: `${{fmtNum(g.used_margin_pct || 0, 1)}}% / ${{g.max_margin_pct || 65}}%`, pct: Math.min(100, Number(g.used_margin_pct || 0) / Math.max(1, Number(g.max_margin_pct || 65)) * 100), col: 'var(--accent)' }},
-      {{ lbl: 'Drawdown מוגבל', txt: `${{fmtNum(ps.drawdown_pct || 0, 1)}}% / ${{g.dd_limit_pct || 18}}%`, pct: Math.min(100, Number(ps.drawdown_pct || 0) / Math.max(1, Number(g.dd_limit_pct || 18)) * 100), col: 'var(--amber)' }},
-      {{ lbl: 'מגן ליקווידציה (Buffer)', txt: `×${{g.liq_buffer_mult || 2.2}} ATR · SL ${{g.sl_atr_mult || 1.7}} / TP ${{g.tp_atr_mult || 3.0}}`, pct: 70, col: 'var(--green)' }},
-    ];
-    gBox.innerHTML = gBars.map(b => `<div class="bar-row"><div class="bar-top"><span>${{esc(b.lbl)}}</span><span class="num">${{esc(b.txt)}}</span></div><div class="bar-track"><div class="bar-fill" style="width:${{b.pct.toFixed(1)}}%;background:${{b.col}}"></div></div></div>`).join('');
-  }}
+  if (kpiEl) kpiEl.innerHTML = pkpis.map(k => `<div class="metric-tile"><div class="metric-lbl">${{esc(k.l)}}</div><div class="metric-val num ${{k.c}}">${{esc(k.v)}}</div><div class="metric-sub">${{esc(k.s)}}</div></div>`).join('');
 
   const pos = ps.positions || [];
   const posEl = document.getElementById('perps-pos-tbody');
   if (posEl) posEl.innerHTML = pos.length ? pos.map(p => {{
-    const u = Number(p.unrealized_pnl || 0);
-    const roe = Number(p.roe_pct || 0);
-    const sideCls = p.side === 'LONG' ? 'badge-ok' : 'badge-err';
-    const liqD = Number(p.liq_distance_pct || 0);
+    const u = Number(p.unrealized_pnl || 0), roe = Number(p.roe_pct || 0), liqD = Number(p.liq_distance_pct || 0);
+    const d = Number(p.entry_price || 0) > 100 ? 2 : 4;
     return `<tr class="clickable" onclick="loadPerpChart('${{esc(p.symbol)}}', true)">
-      <td style="color:var(--text);font-weight:600">${{esc(p.symbol)}} <span class="badge badge-mute">${{esc((p.exchange || '').toUpperCase())}}</span></td>
-      <td><span class="badge ${{sideCls}}">${{esc(p.side)}}</span></td>
-      <td class="num"><span class="badge badge-warn">×${{Number(p.leverage).toFixed(0)}}</span></td>
-      <td class="num">$${{fmtNum(p.margin_used, 2)}}</td>
-      <td class="num">$${{Math.round(p.notional).toLocaleString()}}</td>
-      <td class="num">${{fmtNum(p.entry_price, 4)}}</td>
-      <td class="num">${{fmtNum(p.mark_price, 4)}}</td>
-      <td class="num" style="color:var(--text-3)">${{fmtNum(p.stop_price, 4)}} / ${{fmtNum(p.target_price, 4)}}</td>
-      <td class="num" style="color:${{liqD < 4 ? 'var(--red)' : 'var(--amber)'}}">${{fmtNum(p.liquidation_price, 4)}} (${{liqD.toFixed(1)}}%)</td>
+      <td style="color:var(--text);font-weight:600">${{esc(p.symbol)}} <span style="color:var(--text-3);font-weight:400">${{esc((p.exchange || '').toUpperCase())}}</span></td>
+      <td><span class="badge ${{p.side === 'LONG' ? 'badge-ok' : 'badge-err'}}">${{esc(p.side)}} ×${{Number(p.leverage).toFixed(0)}}</span></td>
+      <td class="num">$${{fmtNum(p.margin_used, 2)}} <span style="color:var(--text-3)">($${{Math.round(p.notional).toLocaleString()}})</span></td>
+      <td class="num">${{fmtNum(p.entry_price, d)}} ← ${{fmtNum(p.mark_price, d)}}</td>
+      <td class="num"><span style="color:var(--text-3)">${{fmtNum(p.stop_price, d)}} / ${{fmtNum(p.target_price, d)}}</span> · <span style="color:${{liqD < 4 ? 'var(--red)' : 'var(--amber)'}}">LIQ ${{fmtNum(p.liquidation_price, d)}}</span></td>
       <td class="num ${{u >= 0 ? 'pos' : 'neg'}}">${{fmtSign(roe, 1)}}% (${{fmtSign(u, 2)}})</td>
     </tr>`;
-  }}).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--text-3);padding:18px">אין פוזיציות PERPS פתוחות כרגע</td></tr>';
+  }}).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:18px">אין פוזיציות PERPS פתוחות כרגע</td></tr>';
 
   const intel = ps.intel || [];
   const q = (document.getElementById('perps-search')?.value || '').trim().toLowerCase();
   const filt = intel.filter(r => !q || String(r.symbol || '').toLowerCase().includes(q));
   const icEl = document.getElementById('perps-intel-cnt');
-  if (icEl) icEl.textContent = `${{filt.length}} חוזים חיים`;
+  if (icEl) icEl.textContent = `${{filt.length}} חוזים`;
   const wlEl = document.getElementById('perps-wl');
   if (wlEl) wlEl.innerHTML = filt.length ? filt.map(r => {{
-    const act = r.symbol === SELECTED_PERP_SYM;
     const regCls = r.regime === 'TREND_UP' ? 'badge-ok' : (r.regime === 'TREND_DOWN' ? 'badge-err' : 'badge-info');
-    const okxF = r.okx_funding_1h !== null && r.okx_funding_1h !== undefined ? (Number(r.okx_funding_1h)*100).toFixed(4)+'%' : null;
-    const hlF = r.hl_funding_1h !== null && r.hl_funding_1h !== undefined ? (Number(r.hl_funding_1h)*100).toFixed(4)+'%' : null;
-    const fundTxt = (okxF && hlF) ? `OKX ${{okxF}} | HL ${{hlF}}` : `Fund ${{r.funding_1h ? (Number(r.funding_1h)*100).toFixed(4)+'%' : '0%'}}`;
-    return `<div class="wl-item ${{act ? 'active' : ''}}" onclick="loadPerpChart('${{esc(r.symbol)}}', true)">
+    return `<div class="wl-item ${{r.symbol === SELECTED_PERP_SYM ? 'active' : ''}}" onclick="loadPerpChart('${{esc(r.symbol)}}', true)">
       <div class="wl-top">
-        <div class="wl-q">${{esc(r.symbol)}} <span style="color:var(--text-3);font-weight:400">(${{esc((r.exchange || '').toUpperCase())}})</span></div>
+        <div class="wl-q">${{esc(r.symbol)}} <span style="font-size:11px;color:var(--text-3)">${{esc((r.exchange || '').toUpperCase())}}</span></div>
         <span class="badge ${{regCls}}">${{esc(r.regime || 'RANGE')}} · ×${{Number(r.rec_leverage || 10).toFixed(0)}}</span>
       </div>
       <div class="wl-sub">
         <span class="num" style="color:var(--text)">$${{fmtNum(r.price, r.price > 100 ? 2 : 4)}}</span>
-        <span class="num">ADX ${{fmtNum(r.adx, 1)}}</span>
-        <span class="num">Z ${{fmtSign(r.z_score, 2)}}</span>
-        <span class="num">RSI ${{fmtNum(r.rsi, 0)}}</span>
-        <span class="num">${{fundTxt}}</span>
+        <span class="num">Z ${{fmtSign(r.z_score, 2)}} · ADX ${{fmtNum(r.adx, 0)}}</span>
       </div>
     </div>`;
-  }}).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">טרם בוצעה סריקת PERPS — לחץ "מחזור PERPS עכשיו"</div>';
+  }}).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">לחץ "מחזור PERPS עכשיו" לטעינת החוזים</div>';
 
   const trs = ps.recent_trades || [];
-  const tcEl = document.getElementById('perps-tr-cnt');
-  if (tcEl) tcEl.textContent = `${{trs.length}} אחרונות`;
   const tbEl = document.getElementById('perps-trades-tbody');
-  if (tbEl) tbEl.innerHTML = trs.length ? trs.slice(0, 12).map(t => {{
+  if (tbEl) tbEl.innerHTML = trs.length ? trs.slice(0, 8).map(t => {{
     const rz = Number(t.realized || 0);
     return `<tr>
       <td class="num" style="color:var(--text-3)">${{fmtDateTime(t.ts)}}</td>
       <td style="color:var(--text)">${{esc(t.symbol)}}</td>
-      <td>${{esc(t.side)}}</td>
-      <td class="num">×${{Number(t.leverage || 1).toFixed(0)}}</td>
+      <td>${{esc(t.side)}} ×${{Number(t.leverage || 1).toFixed(0)}}</td>
       <td class="num ${{rz >= 0 ? 'pos' : 'neg'}}">${{fmtSign(rz, 2)}}</td>
       <td style="color:var(--text-3)">${{esc((t.reason || '').slice(0, 26))}}</td>
     </tr>`;
-  }}).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:16px">אין עסקאות סגורות עדיין</td></tr>';
+  }}).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:16px">אין עסקאות סגורות עדיין</td></tr>';
 
   const lr = ps.learning_runs || [];
-  const lrEl = document.getElementById('perps-learn-tbody');
-  if (lrEl) lrEl.innerHTML = lr.length ? lr.slice(0, 8).map(r => `<tr>
-    <td class="num" style="color:var(--text-3)">${{fmtDateTime(r.ts)}}</td>
-    <td class="num">${{fmtSign(r.baseline_oos, 2)}}%</td>
-    <td class="num">${{fmtSign(r.candidate_oos, 2)}}%</td>
-    <td class="num">${{(Number(r.consistency || 0)*100).toFixed(0)}}%</td>
-    <td>${{r.applied ? '<span class="badge badge-ok">קודם</span>' : '<span class="badge badge-mute">נשמר</span>'}}</td>
-  </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:16px">טרם בוצע כיול OOS ל-PERPS</td></tr>';
+  const lsEl = document.getElementById('perps-learn-summary');
+  if (lsEl) {{
+    lsEl.textContent = lr.length
+      ? `כיול OOS אחרון (${{fmtDateTime(lr[0].ts)}}): בסיס ${{fmtSign(lr[0].baseline_oos, 2)}}% ← מועמד ${{fmtSign(lr[0].candidate_oos, 2)}}% (עקביות ${{(Number(lr[0].consistency || 0)*100).toFixed(0)}}%)`
+      : 'כיול Walk-Forward OOS מתבצע אוטומטית כל 30 דקות.';
+  }}
 
   renderPerpThesis();
 }}
@@ -1190,7 +1312,7 @@ function renderPerpThesis() {{
   const ps = STATE.perps || {{}};
   const row = (ch.intel && ch.intel.symbol) ? ch.intel : ((ps.intel || []).find(x => x.symbol === SELECTED_PERP_SYM) || null);
   if (!row) {{
-    box.innerHTML = '<div style="color:var(--text-3);font-size:12px">בחר חוזה מהרדאר לצפייה בניתוח המשטר, ספר הפקודות וה-Funding.</div>';
+    box.innerHTML = '<div style="color:var(--text-3);font-size:12px">בחר חוזה מהרדאר לצפייה בניתוח המשטר, הספר וה-Funding.</div>';
     if (bdg) bdg.textContent = '—';
     return;
   }}
@@ -1198,18 +1320,17 @@ function renderPerpThesis() {{
     const t = row.setup_tier || 'B';
     bdg.innerHTML = `<span class="badge ${{t === 'A+' ? 'badge-ok' : (t === 'A' ? 'badge-info' : 'badge-mute')}}">Setup ${{esc(t)}} · ${{esc(row.regime || 'RANGE')}}</span>`;
   }}
-  const fSpread = (row.okx_funding_1h !== null && row.okx_funding_1h !== undefined && row.hl_funding_1h !== null && row.hl_funding_1h !== undefined)
+  const fSpread = (row.okx_funding_1h != null && row.hl_funding_1h != null)
     ? ((Number(row.okx_funding_1h) - Number(row.hl_funding_1h)) * 100).toFixed(4) + '%' : '—';
   const items = [
-    ['אסטרטגיה וציון איכות', `${{row.strategy || 'meanrev'}} · Score ${{fmtNum(row.score, 2)}}`],
     ['ADX(14) / Efficiency Ratio', `${{fmtNum(row.adx, 1)}} / ${{fmtNum(row.er, 2)}}`],
     ['RSI(14) / Z-Score', `${{fmtNum(row.rsi, 1)}} / ${{fmtSign(row.z_score, 2)}}`],
-    ['ATR % / ספרד (bps)', `${{fmtNum(row.atr_pct, 2)}}% / ${{fmtNum(row.spread_bps, 2)}} bps`],
-    ['עומק L2 (Bid / Ask)', `$${{Math.round(row.bid_depth_usd || 0).toLocaleString()}} / $${{Math.round(row.ask_depth_usd || 0).toLocaleString()}} (Imb ${{fmtSign(row.imbalance, 2)}})`],
+    ['עומק L2 (Bid / Ask)', `$${{Math.round(row.bid_depth_usd || 0).toLocaleString()}} / $${{Math.round(row.ask_depth_usd || 0).toLocaleString()}}`],
     ['פער Funding (OKX - HL)', fSpread],
-    ['מינוף מומלץ / סיבה', `×${{Number(row.rec_leverage || 10).toFixed(0)}} · ${{row.reason || row.status || '—'}}`],
   ];
-  box.innerHTML = `<div class="kv-list">${{items.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}</div>`;
+  box.innerHTML = `
+    <div class="thesis-summary">${{esc(row.reason || 'במעקב — ממתין לסטאפ איכותי')}} · מינוף מומלץ <strong class="num">×${{Number(row.rec_leverage || 10).toFixed(0)}}</strong></div>
+    <div class="kv-list">${{items.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}</div>`;
 }}
 
 async function runPerpsSimulation() {{
@@ -1235,371 +1356,16 @@ async function runPerpsSimulation() {{
     if (!r) {{ outEl.textContent = data.message || 'אין נתונים'; return; }}
     const cls = Number(r.return_pct) >= 0 ? 'pos' : 'neg';
     outEl.innerHTML = `
-      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.09)">
+      <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">
         <span>חוזים: <strong class="num">${{r.assets}}</strong></span>
         <span>תשואה: <strong class="num ${{cls}}">${{fmtSign(r.return_pct, 2)}}%</strong></span>
-        <span>עסקאות: <strong class="num">${{r.trades}}</strong> (WR <strong class="num">${{fmtNum(r.win_rate_pct, 1)}}%</strong>)</span>
-        <span>PF: <strong class="num">${{fmtNum(r.profit_factor, 2)}}</strong></span>
-        <span>Max DD: <strong class="num">${{fmtNum(r.max_drawdown_pct, 1)}}%</strong></span>
-        <span>מינוף ממוצע/שיא: <strong class="num">×${{fmtNum(r.avg_leverage, 1)}} / ×${{fmtNum(r.max_leverage, 0)}}</strong></span>
+        <span>עסקאות: <strong class="num">${{r.trades}}</strong> (WR <strong class="num">${{fmtNum(r.win_rate_pct, 0)}}%</strong>)</span>
+        <span>PF <strong class="num">${{fmtNum(r.profit_factor, 2)}}</strong></span>
         <span>ליקווידציות: <strong class="num ${{r.liquidations === 0 ? 'pos' : 'neg'}}">${{r.liquidations}}</strong></span>
       </div>`;
   }} catch (e) {{
     if (outEl) outEl.innerHTML = `<span style="color:var(--red)">${{esc(e.message)}}</span>`;
   }}
-}}
-
-function drawPerpEqChart() {{
-  const canvas = document.getElementById('perps-eq-canvas');
-  if (!canvas) return;
-  const {{ ctx, w, h }} = prepCanvas(canvas);
-  ctx.clearRect(0, 0, w, h);
-  const raw = ((STATE.perps && STATE.perps.equity_curve) || []).filter(p => typeof p.equity === 'number');
-  if (raw.length < 2) {{
-    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('עקומת הון PERPS תיבנה אוטומטית מהמחזור הבא...', w / 2, h / 2);
-    return;
-  }}
-  const pts = raw.map(p => p.equity);
-  const minV = Math.min(...pts), maxV = Math.max(...pts);
-  const pad = Math.max((maxV - minV) * 0.14, 1);
-  const lo = minV - pad, hi = maxV + pad;
-  const pxL = 12, pxR = 54, pyT = 12, pyB = 20, gw = w - pxL - pxR, gh = h - pyT - pyB;
-  const up = pts[pts.length - 1] >= pts[0];
-  const stroke = up ? '#30d158' : '#ff453a';
-  const meta = document.getElementById('perps-eq-meta');
-  if (meta) meta.textContent = `${{pts[0].toFixed(2)}} -> ${{pts[pts.length-1].toFixed(2)}} (${{fmtSign(pts[pts.length-1]-pts[0])}})`;
-  const X = i => pxL + (i / (pts.length - 1)) * gw;
-  const Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
-  ctx.fillStyle = '#8e8e93'; ctx.font = '11px SF Mono, ui-monospace, monospace'; ctx.textAlign = 'left';
-  for (let i = 0; i <= 3; i++) {{
-    const y = pyT + gh * (i / 3);
-    const val = hi - (hi - lo) * (i / 3);
-    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
-    ctx.fillText(val.toFixed(1), w - pxR + 6, y + 4);
-  }}
-  const grad = ctx.createLinearGradient(0, pyT, 0, pyT + gh);
-  grad.addColorStop(0, up ? 'rgba(48,209,88,0.25)' : 'rgba(255,69,58,0.25)');
-  grad.addColorStop(1, 'rgba(48,209,88,0.0)');
-  ctx.beginPath();
-  pts.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
-  ctx.strokeStyle = stroke; ctx.lineWidth = 2.2; ctx.stroke();
-  ctx.lineTo(X(pts.length - 1), pyT + gh);
-  ctx.lineTo(X(0), pyT + gh);
-  ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
-}}
-
-let PERP_HOVER = null;
-function drawPerpPriceChart() {{
-  const canvas = document.getElementById('perps-price-canvas');
-  if (!canvas) return;
-  const {{ ctx, w, h }} = prepCanvas(canvas);
-  ctx.clearRect(0, 0, w, h);
-  const ch = CURRENT_PERP_CHART || {{}};
-  const cs = (ch.candles || []).slice(-100);
-  const tEl = document.getElementById('perps-chart-title');
-  const sEl = document.getElementById('perps-chart-sub');
-  if (tEl) tEl.textContent = `${{ch.symbol || SELECTED_PERP_SYM}} Perpetual (${{ch.timeframe || '1h'}})`;
-  if (sEl && ch.intel && ch.intel.symbol) {{
-    sEl.textContent = `${{(ch.intel.exchange || '').toUpperCase()}} · ${{ch.intel.regime || ''}} · ADX ${{fmtNum(ch.intel.adx, 1)}} · Z ${{fmtSign(ch.intel.z_score, 2)}} · מינוף מומלץ ×${{Number(ch.intel.rec_leverage || 10).toFixed(0)}}`;
-  }}
-  if (cs.length < 2) {{
-    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('אין עדיין נרות לחוזה זה — לחץ "משוך חי"', w / 2, h / 2);
-    return;
-  }}
-  const ov = ch.overlays || {{}};
-  const all = [];
-  cs.forEach(c => {{ all.push(Number(c.high || c.close)); all.push(Number(c.low || c.close)); }});
-  if (ov.stop) all.push(Number(ov.stop));
-  if (ov.target) all.push(Number(ov.target));
-  if (ov.liq) all.push(Number(ov.liq));
-  const minV = Math.min(...all), maxV = Math.max(...all);
-  const pad = Math.max((maxV - minV) * 0.12, maxV * 0.002);
-  const lo = minV - pad, hi = maxV + pad;
-  const pxL = 14, pxR = 66, pyT = 14, pyB = 20, gw = w - pxL - pxR, gh = h - pyT - pyB;
-  const X = i => pxL + ((i + 0.5) / cs.length) * gw;
-  const Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.fillStyle = '#64748b'; ctx.font = '10px monospace'; ctx.textAlign = 'left';
-  for (let i = 0; i <= 4; i++) {{
-    const y = pyT + gh * (i / 4);
-    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
-    const v = hi - (hi - lo) * (i / 4);
-    ctx.fillText(v > 100 ? v.toFixed(1) : v.toFixed(4), w - pxR + 6, y + 3);
-  }}
-  const hLn = (v, col, lbl) => {{
-    if (!v) return;
-    const y = Y(Number(v));
-    if (y < pyT || y > pyT + gh) return;
-    ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = col;
-    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
-    ctx.fillStyle = col; ctx.fillText(lbl, pxL + 6, y - 4);
-    ctx.restore();
-  }};
-  if (ov.entry) {{
-    hLn(ov.target, '#30d158', 'TP ' + Number(ov.target).toFixed(4));
-    hLn(ov.entry, '#aeaeb2', 'ENTRY ×' + Number(ov.leverage || 1).toFixed(0));
-    hLn(ov.stop, '#ff9f0a', 'SL ' + Number(ov.stop).toFixed(4));
-    hLn(ov.liq, '#ff453a', 'LIQ ' + Number(ov.liq).toFixed(4));
-  }}
-
-  const cw = Math.max(2, Math.min(9, (gw / cs.length) * 0.64));
-  cs.forEach((c, i) => {{
-    const x = X(i);
-    const o = Number(c.open || c.close), hiC = Number(c.high || c.close), loC = Number(c.low || c.close), cl = Number(c.close);
-    const up = cl >= o;
-    const col = up ? '#30d158' : '#ff453a';
-    ctx.strokeStyle = col; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x, Y(hiC)); ctx.lineTo(x, Y(loC)); ctx.stroke();
-    const yTop = Y(Math.max(o, cl)), yBot = Y(Math.min(o, cl));
-    ctx.fillStyle = col;
-    ctx.fillRect(x - cw / 2, yTop, cw, Math.max(1.5, yBot - yTop));
-  }});
-
-  const tip = document.getElementById('perps-price-tip');
-  if (PERP_HOVER !== null && PERP_HOVER >= 0 && PERP_HOVER < cs.length) {{
-    const c = cs[PERP_HOVER];
-    const hx = X(PERP_HOVER), hy = Y(Number(c.close));
-    ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,255,255,0.28)';
-    ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(pxL, hy); ctx.lineTo(w - pxR, hy); ctx.stroke();
-    ctx.restore();
-    const d = c.close > 100 ? 2 : 4;
-    if (tip) {{
-      tip.style.display = 'block';
-      tip.innerHTML = `<span class="num">${{fmtDateTime(c.ts)}}</span> | O <span class="num">${{Number(c.open).toFixed(d)}}</span> H <span class="num">${{Number(c.high).toFixed(d)}}</span> L <span class="num">${{Number(c.low).toFixed(d)}}</span> C <strong class="num">${{Number(c.close).toFixed(d)}}</strong>`;
-    }}
-  }} else if (tip) {{
-    tip.style.display = 'none';
-  }}
-}}
-
-function renderHeader() {{
-  const tr = STATE.trader || {{}};
-  const h = STATE.health || {{}};
-  const hb = STATE.heartbeat || {{}};
-  const cfg = STATE.config || {{}};
-  const wp = STATE.world_pulse || {{}};
-  const mode = (cfg.execution && cfg.execution.mode) || 'paper';
-  const running = Boolean(tr.running);
-  const halted = Boolean(STATE.halt || (hb && hb.halted));
-
-  const dot = document.getElementById('live-dot');
-  const lbl = document.getElementById('live-label');
-  if (halted) {{
-    dot.className = 'dot err'; lbl.textContent = 'עצירה פעילה';
-  }} else if (running && h.healthy) {{
-    dot.className = 'dot ok'; lbl.textContent = 'אוטופיילוט פעיל';
-  }} else if (h.healthy) {{
-    dot.className = 'dot warn'; lbl.textContent = 'האזנה בלבד';
-  }} else {{
-    dot.className = 'dot err'; lbl.textContent = 'ממתין לדופק';
-  }}
-
-  const btnAp = document.getElementById('btn-toggle-ap');
-  if (btnAp) {{
-    btnAp.textContent = running ? 'השהה אוטופיילוט' : 'הפעל אוטופיילוט';
-    btnAp.className = running ? 'btn' : 'btn btn-primary';
-  }}
-
-  const cyc = tr.cycles || hb.cycle || 0;
-  const tel = STATE.telemetry || {{}};
-  document.getElementById('sub-status').textContent =
-    `${{mode.toUpperCase()}} · מחזור #${{cyc}} · ${{(tel.intel || 0)}} שווקים במעקב`;
-
-  const intel = STATE.market_intel || [];
-  const aPlus = intel.filter(x => x.setup_tier === 'A+' || x.setup_tier === 'A').length;
-  const nearCnt = intel.filter(x => x.status === 'NEAR').length;
-  const sent = Number(wp.avg_sentiment || 0);
-  const sentCls = sent >= 0.05 ? 'pos' : (sent <= -0.05 ? 'neg' : '');
-  document.getElementById('pulse-ribbon').innerHTML = `
-    <div class="pulse-group">
-      <div class="pulse-item"><span class="dot ${{running ? 'ok' : 'warn'}}"></span><strong>מצב רציף:</strong> <span>${{running ? 'סורק כל ' + Math.round((tr.interval_sec || 180)/60) + ' דק׳' : 'מושהה'}}</span></div>
-      <div class="pulse-item"><strong>פיד עולמי:</strong> <span>${{wp.sources || 0}} רשתות · ${{wp.total || tel.news || 0}} כתבות</span></div>
-      <div class="pulse-item"><strong>מצב מאקרו:</strong> <span class="${{sentCls}}">${{esc(wp.regime || 'מאוזן')}} (${{fmtSign(sent, 2)}})</span></div>
-      <div class="pulse-item"><strong>סטאפים A/A+:</strong> <span class="num">${{aPlus}}</span> · <strong>מתחממים:</strong> <span class="num">${{nearCnt}}</span></div>
-    </div>
-    <div class="pulse-group">
-      <div class="pulse-item"><strong>עדכון גרפים:</strong> <span>${{fmtTime(tr.last_stream_ts)}}</span></div>
-      <div class="pulse-item"><strong>אימות DB:</strong> <span>${{tr.last_reconcile_ts ? fmtTime(tr.last_reconcile_ts) : 'במחזור הבא'}}</span></div>
-      <div class="pulse-item"><strong>גיבוי אחרון:</strong> <span>${{tr.last_backup_ts ? fmtTime(tr.last_backup_ts) : 'אוטומטי'}}</span></div>
-    </div>`;
-
-  const hbBanner = document.getElementById('halt-banner');
-  if (halted) {{
-    const reason = (STATE.halt && STATE.halt.reason) || (hb && hb.halt_reason) || 'עצירת סיכון פעילה';
-    document.getElementById('halt-text').textContent = 'עצירת מסחר פעילה: ' + reason;
-    hbBanner.style.display = 'flex';
-  }} else {{
-    hbBanner.style.display = 'none';
-  }}
-}}
-
-function renderOverview() {{
-  const bank = STATE.bankroll || {{}};
-  const today = STATE.today || {{}};
-  const overall = STATE.overall || {{}};
-  const soak = STATE.soak || {{days: 0, target_days: 7}};
-  const comb = STATE.combined || {{}};
-  const ps = STATE.perps || {{}};
-
-  const eq = Number(bank.equity || 0);
-  const cash = Number(bank.cash || 0);
-  const exp = Number(bank.exposure || 0);
-  const expPct = eq > 0 ? (exp / eq * 100) : 0;
-  const unr = Number(bank.unrealized_pnl || 0);
-  const totPnl = Number(overall.realized_pnl || 0);
-  const wr = Number(overall.win_rate_pct || 0);
-  const pf = overall.profit_factor ? Number(overall.profit_factor).toFixed(2) : '—';
-
-  const heroEl = document.getElementById('combined-hero');
-  if (heroEl) {{
-    const cEq = Number(comb.equity || (eq + Number(ps.equity || 0)));
-    const cPoly = Number(comb.poly_equity || eq);
-    const cPerp = Number(comb.perps_equity || ps.equity || 0);
-    const cRet = Number(comb.return_pct || 0);
-    const polyPct = cEq > 0 ? (cPoly / cEq * 100) : 50;
-    const perpPct = Math.max(0, 100 - polyPct);
-    const openAll = Number(comb.open_positions || ((bank.open_positions || 0) + (ps.positions || []).length));
-    heroEl.innerHTML = `
-      <div>
-        <div style="font-size:11.5px;color:var(--text-3);font-weight:500">שווי תיק מאוחד (Polymarket + PERPS ×50)</div>
-        <div style="display:flex;align-items:baseline;gap:12px;margin-top:4px">
-          <span class="num" style="font-size:28px;font-weight:700;letter-spacing:-0.03em;color:#fff">$${{fmtNum(cEq, 2)}}</span>
-          <span class="badge ${{cRet >= 0 ? 'badge-ok' : 'badge-err'}} num">${{fmtSign(cRet, 2)}}%</span>
-          <span style="font-size:12px;color:var(--text-2)"><strong class="num">${{openAll}}</strong> פוזיציות פעילות · סה״כ עסקאות <strong class="num">${{comb.closed_trades || 0}}</strong></span>
-        </div>
-      </div>
-      <div style="min-width:290px">
-        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-2);gap:14px">
-          <span>Polymarket <strong class="num" style="color:var(--accent)">$${{fmtNum(cPoly, 2)}}</strong> (${{polyPct.toFixed(0)}}%)</span>
-          <span>PERPS ×50 <strong class="num" style="color:var(--green)">$${{fmtNum(cPerp, 2)}}</strong> (${{perpPct.toFixed(0)}}%)</span>
-        </div>
-        <div class="hero-alloc">
-          <div style="width:${{polyPct.toFixed(1)}}%;background:var(--accent)"></div>
-          <div style="width:${{perpPct.toFixed(1)}}%;background:var(--green)"></div>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-ghost btn-xs" onclick="document.querySelector('[data-tab=perps]').click()">דסק PERPS ×50</button>
-        <button class="btn btn-ghost btn-xs" onclick="document.querySelector('[data-tab=intel]').click()">חדשות ולמידה</button>
-      </div>`;
-  }}
-
-  const kpis = [
-    {{ label: 'הון נקי (USDC)', val: fmtNum(eq), sub: `לא ממומש: ${{fmtSign(unr)}}`, cls: '' }},
-    {{ label: 'מזומן זמין', val: fmtNum(cash), sub: `חשיפה בשוק: ${{fmtNum(exp)}} (${{expPct.toFixed(0)}}%)`, cls: '' }},
-    {{ label: 'PnL מצטבר', val: fmtSign(totPnl), sub: `היום: ${{fmtSign(today.realized_pnl || 0)}} · עמלות ${{fmtNum(overall.fees || 0)}}`, cls: totPnl >= 0 ? 'pos' : 'neg' }},
-    {{ label: 'שיעור הצלחה', val: `${{wr.toFixed(0)}}%`, sub: `${{overall.exits || 0}} סגורות · Profit Factor ${{pf}}`, cls: '' }},
-    {{ label: 'צבירת הוכחה (Soak)', val: `${{soak.days || 0}}/${{soak.target_days || 7}}`, sub: `פוזיציות פתוחות: ${{bank.open_positions || 0}}`, cls: '' }},
-  ];
-  document.getElementById('kpi-row').innerHTML = kpis.map(k => `
-    <div class="kpi">
-      <div class="kpi-label">${{esc(k.label)}}</div>
-      <div class="kpi-val num ${{k.cls}}">${{esc(k.val)}}</div>
-      <div class="kpi-sub">${{esc(k.sub)}}</div>
-    </div>`).join('');
-
-  // מדדי סיכון + DD Throttling
-  const g = STATE.guards || {{}};
-  const dlUsed = Number(g.daily_loss_used || 0);
-  const dlLim = Math.max(Number(g.daily_loss_limit || 1), 0.01);
-  const ddPct = Number(g.drawdown_pct || 0);
-  const ddLim = Math.max(Number(g.drawdown_limit_pct || 20), 0.01);
-  const ddThrPct = ((STATE.config && STATE.config.risk && STATE.config.risk.drawdown_throttle_pct) || 0.05) * 100;
-  const posOpen = Number(bank.open_positions || 0);
-  const posLim = Math.max(posOpen + Number(g.positions_room || 0), 1);
-  const maxExp = exp + Number(g.exposure_room || 0);
-
-  const bars = [
-    {{ lbl: 'מגבלת הפסד יומי', txt: `${{fmtNum(dlUsed)}} / ${{fmtNum(dlLim)}} USDC`, pct: Math.min(100, Math.max(0, dlUsed / dlLim * 100)), color: 'var(--green)' }},
-    {{ lbl: `Drawdown (Throttle ב-${{ddThrPct.toFixed(0)}}%)`, txt: `${{ddPct.toFixed(2)}}% / ${{ddLim.toFixed(0)}}%`, pct: Math.min(100, ddPct / ddLim * 100), color: ddPct >= ddThrPct ? 'var(--amber)' : 'var(--accent)' }},
-    {{ lbl: 'ניצול תקציב חשיפה', txt: `${{fmtNum(exp)}} / ${{fmtNum(maxExp)}} USDC`, pct: maxExp > 0 ? Math.min(100, exp / maxExp * 100) : 0, color: 'var(--accent)' }},
-    {{ lbl: 'פוזיציות פתוחות', txt: `${{posOpen}} / ${{posLim}}`, pct: Math.min(100, posOpen / posLim * 100), color: 'var(--accent)' }},
-  ];
-  document.getElementById('risk-bars').innerHTML = bars.map(b => `
-    <div class="bar-row">
-      <div class="bar-top"><span>${{esc(b.lbl)}}</span><span class="num">${{esc(b.txt)}}</span></div>
-      <div class="bar-track"><div class="bar-fill" style="width:${{b.pct.toFixed(1)}}%;background:${{b.color}}"></div></div>
-    </div>`).join('');
-
-  // פוזיציות פתוחות עם מד SL ↔ Entry ↔ TP
-  const pos = STATE.positions || [];
-  document.getElementById('pos-tbody').innerHTML = pos.length ? pos.map(p => {{
-    const u = p.unrealized_pnl;
-    const upct = p.unrealized_pct;
-    const uCls = (u || 0) >= 0 ? 'pos' : 'neg';
-    const sl = Number(p.stop_price || 0);
-    const tp = Number(p.target_price || 0);
-    const mk = Number(p.mark_price ?? p.avg_price ?? 0);
-    const span = Math.max(tp - sl, 0.01);
-    const pctPos = Math.max(0, Math.min(100, ((mk - sl) / span) * 100));
-    const entryPct = Math.max(0, Math.min(100, ((Number(p.avg_price || 0) - sl) / span) * 100));
-    const barCol = mk >= Number(p.avg_price || 0) ? 'var(--green)' : 'var(--amber)';
-
-    return `<tr class="clickable" onclick="switchToMarket('${{esc(p.token_id)}}')">
-      <td class="q-cell">${{esc((p.question || p.token_id).slice(0, 56))}}</td>
-      <td class="num">${{fmtNum(p.size, 1)}}</td>
-      <td class="num">${{fmtNum(p.avg_price, 3)}}</td>
-      <td class="num">${{p.mark_price !== null && p.mark_price !== undefined ? fmtNum(p.mark_price, 3) : '—'}}</td>
-      <td>
-        <div class="range-meter">
-          <span class="num" style="font-size:10.5px;color:var(--red)">${{sl ? sl.toFixed(2) : '—'}}</span>
-          <div class="range-track">
-            <div class="range-fill" style="left:${{Math.min(entryPct, pctPos).toFixed(1)}}%;width:${{Math.abs(pctPos - entryPct).toFixed(1)}}%;background:${{barCol}}"></div>
-            <div class="range-pin" style="left:${{pctPos.toFixed(1)}}%" title="מחיר נוכחי"></div>
-          </div>
-          <span class="num" style="font-size:10.5px;color:var(--green)">${{tp ? tp.toFixed(2) : '—'}}</span>
-        </div>
-      </td>
-      <td class="num ${{uCls}}">${{u !== null && u !== undefined ? `${{fmtSign(u)}} (${{fmtSign(upct, 1)}}%)` : '—'}}</td>
-      <td class="num">${{fmtNum(p.age_hours, 1)}}h</td>
-    </tr>`;
-  }}).join('') : '<tr><td colspan="7" style="text-align:center;color:var(--text-3);padding:20px">אין כרגע פוזיציות פתוחות</td></tr>';
-
-  // Live Execution & Decision Tape (שילוב סיגנלים חריגים + אירועי מערכת)
-  const evs = (STATE.events || []).slice(0, 6);
-  const sigS = (STATE.signals || []).filter(s => s.direction !== 'FLAT' || (s.z !== null && Math.abs(Number(s.z)) >= 1.5)).slice(0, 6);
-  const tapeItems = [
-    ...sigS.map(s => ({{
-      ts: s.ts,
-      cls: s.direction !== 'FLAT' ? 'badge-ok' : 'badge-warn',
-      kind: s.direction !== 'FLAT' ? `${{s.direction}} ${{s.setup_tier || ''}}` : `Z=${{fmtSign(s.z, 1)}}`,
-      msg: `${{(s.question || s.token_id || '').slice(0, 38)}} — ${{s.reason || ''}}`,
-      tok: s.token_id,
-    }})),
-    ...evs.map(e => ({{
-      ts: e.ts,
-      cls: e.level === 'ERROR' ? 'badge-err' : (e.level === 'WARNING' ? 'badge-warn' : 'badge-info'),
-      kind: e.kind || 'event',
-      msg: e.msg || '',
-      tok: '',
-    }})),
-  ].sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0)).slice(0, 10);
-  document.getElementById('tape-meta').textContent = `${{tapeItems.length}} החלטות ואירועים אחרונים`;
-  document.getElementById('decision-tape').innerHTML = tapeItems.length ? tapeItems.map(it => `
-    <div class="tape-item" ${{it.tok ? `style="cursor:pointer" onclick="switchToMarket('${{esc(it.tok)}}')"` : ''}}>
-      <span class="num" style="color:var(--text-3);flex-shrink:0">${{fmtTime(it.ts)}}</span>
-      <span class="badge ${{it.cls}}">${{esc(it.kind)}}</span>
-      <span style="color:var(--text-2)">${{esc(it.msg)}}</span>
-    </div>`).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">יופיעו החלטות ואירועים בזמן אמת</div>';
-
-  // עסקאות סגורות
-  const trs = (STATE.recent_trades || []).slice(0, 10);
-  document.getElementById('trades-meta').textContent = `${{trs.length}} אחרונות`;
-  document.getElementById('trades-tbody').innerHTML = trs.length ? trs.map(t => {{
-    const rz = Number(t.realized || 0);
-    return `<tr>
-      <td class="num" style="color:var(--text-3)">${{fmtDateTime(t.ts)}}</td>
-      <td style="color:var(--text)">${{esc((t.question || '').slice(0, 32))}}</td>
-      <td class="num">${{fmtNum(t.size, 1)}}</td>
-      <td class="num">${{fmtNum(t.price, 3)}}</td>
-      <td class="num ${{rz >= 0 ? 'pos' : 'neg'}}">${{fmtSign(rz)}}</td>
-      <td style="color:var(--text-3)">${{esc((t.reason || '').slice(0, 24))}}</td>
-    </tr>`;
-  }}).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:18px">אין עסקאות סגורות עדיין</td></tr>';
 }}
 
 function renderMarketsIntel() {{
@@ -1609,7 +1375,6 @@ function renderMarketsIntel() {{
     if (INTEL_FILTER === 'OPEN' && r.status !== 'OPEN') return false;
     if (INTEL_FILTER === 'NEAR' && r.status !== 'NEAR' && r.status !== 'CANDIDATE') return false;
     if (INTEL_FILTER === 'APLUS' && r.setup_tier !== 'A+' && r.setup_tier !== 'A') return false;
-    if (INTEL_FILTER === 'CATALYST_BLOCK' && r.status !== 'CATALYST_BLOCK') return false;
     if (qSearch && !((r.question || '').toLowerCase().includes(qSearch) || (r.sector || '').toLowerCase().includes(qSearch))) return false;
     return true;
   }});
@@ -1620,111 +1385,76 @@ function renderMarketsIntel() {{
   const statusTag = (r) => {{
     if (r.status === 'OPEN') return '<span class="badge badge-info">פתוחה</span>';
     if (r.status === 'BUY') return '<span class="badge badge-ok">כניסה</span>';
-    if (r.status === 'CATALYST_BLOCK') return '<span class="badge badge-warn">חסימת קטליזטור</span>';
+    if (r.status === 'CATALYST_BLOCK') return '<span class="badge badge-warn">חסימת חדשות</span>';
     if (r.status === 'CANDIDATE') return '<span class="badge badge-ok">מועמד</span>';
-    if (r.status === 'NEAR') return '<span class="badge badge-info">מתחמם</span>';
-    if (r.setup_tier === 'A+') return '<span class="badge badge-ok">A+</span>';
-    if (r.setup_tier === 'A') return '<span class="badge badge-info">A</span>';
+    if (r.setup_tier === 'A+' || r.setup_tier === 'A') return `<span class="badge badge-info">${{esc(r.setup_tier)}}</span>`;
     return '<span class="badge badge-mute">מעקב</span>';
   }};
 
-  document.getElementById('wl-list').innerHTML = filtered.length ? filtered.map(r => {{
-    const isAct = r.token_id === SELECTED_TOKEN;
-    const z = r.z_score;
-    const vr = Number(r.volume_ratio || 1);
-    const chg24 = r.chg_24h !== null && r.chg_24h !== undefined ? fmtSign(r.chg_24h * 100, 1) + '%' : '—';
-    return `<div class="wl-item ${{isAct ? 'active' : ''}}" onclick="loadChart('${{esc(r.token_id)}}', true)">
+  document.getElementById('wl-list').innerHTML = filtered.length ? filtered.map(r => `
+    <div class="wl-item ${{r.token_id === SELECTED_TOKEN ? 'active' : ''}}" onclick="loadChart('${{esc(r.token_id)}}', true)">
       <div class="wl-top">
-        <div class="wl-q">${{esc((r.question || '').slice(0, 62))}}</div>
+        <div class="wl-q">${{esc((r.question || '').slice(0, 56))}}</div>
         ${{statusTag(r)}}
       </div>
       <div class="wl-sub">
         <span class="num" style="color:var(--text)">${{fmtNum(r.price, 3)}}</span>
-        <span class="num">Z ${{z !== null && z !== undefined ? fmtSign(z, 2) : '—'}}</span>
-        <span class="num">RSI ${{r.rsi !== null && r.rsi !== undefined ? Number(r.rsi).toFixed(0) : '—'}}</span>
-        <span class="num" style="color:${{vr >= 4 ? 'var(--amber)' : 'var(--text-3)'}}">${{vr.toFixed(1)}}x</span>
-        <span class="num">${{chg24}}</span>
+        <span class="num">Z ${{r.z_score != null ? fmtSign(r.z_score, 2) : '—'}} · ${{Number(r.volume_ratio || 1).toFixed(1)}}x</span>
       </div>
-    </div>`;
-  }}).join('') : '<div style="padding:20px;text-align:center;color:var(--text-3)">לא נמצאו שווקים מתאימים</div>';
+    </div>`).join('') : '<div style="padding:20px;text-align:center;color:var(--text-3)">לא נמצאו שווקים</div>';
 }}
 
 function renderDeskPanels() {{
   const ch = CURRENT_CHART || {{}};
   const intel = ch.intel || (STATE.market_intel || []).find(x => x.token_id === (ch.token_id || SELECTED_TOKEN)) || null;
   const pos = ch.position || null;
-  const title = (pos && pos.question) || ch.question || (intel && intel.question) || 'בחר שוק מהרדאר';
-  document.getElementById('desk-title').textContent = title;
+  document.getElementById('desk-title').textContent = (pos && pos.question) || ch.question || (intel && intel.question) || 'בחר שוק מהרדאר';
   document.getElementById('desk-sub').textContent = intel
-    ? `סקטור: ${{intel.sector}} · נפח 24ש׳: $${{Math.round(intel.volume_24h || 0).toLocaleString()}} · תאוצת נפח: ${{Number(intel.volume_ratio || 1).toFixed(1)}}x`
+    ? `${{intel.sector}} · נפח 24ש׳ $${{Math.round(intel.volume_24h || 0).toLocaleString()}}`
     : 'גרף מחיר וסיגנל בזמן אמת';
 
-  // תיזת סוחר מקצועי
   const tier = (intel && intel.setup_tier) || 'B';
-  document.getElementById('thesis-badge').innerHTML = intel
-    ? `<span class="badge ${{tier === 'A+' ? 'badge-ok' : (tier === 'A' ? 'badge-info' : 'badge-mute')}}">Setup ${{esc(tier)}}</span>`
-    : '—';
+  document.getElementById('thesis-badge').innerHTML = intel ? `<span class="badge ${{tier === 'A+' ? 'badge-ok' : 'badge-mute'}}">Setup ${{esc(tier)}}</span>` : '—';
 
   const mNews = ch.matched_news || [];
   if (intel) {{
-    const spEdge = (intel.edge_net && intel.edge_net > 0 && intel.spread) ? (intel.spread / intel.edge_net).toFixed(2) + 'x' : '—';
     const items = [
-      ['Z-Score (24h)', intel.z_score !== null && intel.z_score !== undefined ? fmtSign(intel.z_score, 2) : '—'],
-      ['RSI (14)', intel.rsi !== null && intel.rsi !== undefined ? Number(intel.rsi).toFixed(1) : '—'],
-      ['Microprice / Mid', `${{intel.microprice ? Number(intel.microprice).toFixed(3) : '—'}} / ${{fmtNum(intel.price, 3)}}`],
-      ['Spread / Net Edge', `${{fmtNum(intel.spread, 3)}} / ${{spEdge}}`],
-      ['שינוי 1ש׳ / 6ש׳ / 24ש׳', `${{intel.chg_1h !== null ? fmtSign(intel.chg_1h*100,1)+'%' : '—'}} · ${{intel.chg_6h !== null ? fmtSign(intel.chg_6h*100,1)+'%' : '—'}} · ${{intel.chg_24h !== null ? fmtSign(intel.chg_24h*100,1)+'%' : '—'}}`],
-      ['החלטת הבוט', intel.reason || intel.status || '—'],
+      ['Z-Score (24h)', intel.z_score != null ? fmtSign(intel.z_score, 2) : '—'],
+      ['RSI (14)', intel.rsi != null ? Number(intel.rsi).toFixed(1) : '—'],
+      ['Mid / Spread', `${{fmtNum(intel.price, 3)}} / ${{fmtNum(intel.spread, 3)}}`],
+      ['שינוי 24ש׳', intel.chg_24h != null ? fmtSign(intel.chg_24h * 100, 1) + '%' : '—'],
     ];
     document.getElementById('desk-thesis').innerHTML = `
+      <div class="thesis-summary">${{esc(intel.reason || intel.status || 'במעקב')}}</div>
       <div class="kv-list" style="grid-template-columns:1fr">${{items.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}</div>
-      <div style="margin-top:10px;font-size:11.5px;color:var(--text-3)">
-        ${{mNews.length ? 'כותרות חדשות קשורות: ' + mNews.slice(0, 2).map(t => `<div style="color:var(--text-2);margin-top:3px">• ${{esc(t)}}</div>`).join('') : 'אין ידיעות מתפרצות ישירות על שוק זה.'}}
-      </div>`;
+      ${{mNews.length ? `<div style="margin-top:10px;font-size:11.5px;color:var(--text-3)">כותרת קשורה: <span style="color:var(--text-2)">${{esc(mNews[0])}}</span></div>` : ''}}`;
   }} else {{
-    document.getElementById('desk-thesis').innerHTML = '<div style="color:var(--text-3);font-size:12px">בחר שוק מהרשימה לצפייה בניתוח הטכני והחדשותי המלא.</div>';
+    document.getElementById('desk-thesis').innerHTML = '<div style="color:var(--text-3);font-size:12px">בחר שוק מהרשימה לצפייה בניתוח.</div>';
   }}
 
-  // סולמית ספר פקודות
   const lv = ch.book_levels || null;
   const bk = (ch.books && ch.books.length) ? ch.books[ch.books.length - 1] : null;
-  document.getElementById('ob-meta').textContent = bk ? `Bid ${{fmtNum(bk.best_bid, 3)}} / Ask ${{fmtNum(bk.best_ask, 3)}} · Imb ${{fmtSign(bk.imbalance, 2)}}` : 'Snapshot';
+  document.getElementById('ob-meta').textContent = bk ? `Bid ${{fmtNum(bk.best_bid, 3)}} / Ask ${{fmtNum(bk.best_ask, 3)}}` : 'Snapshot';
   if (lv && ((lv.bids && lv.bids.length) || (lv.asks && lv.asks.length))) {{
-    const allSz = [...(lv.bids || []), ...(lv.asks || [])].map(x => Number(x[1] || 0));
-    const maxSz = Math.max(...allSz, 1);
-    const bidRows = (lv.bids || []).map(([p, s]) => `<div class="ob-row ob-bid"><div class="ob-bar" style="width:${{(s/maxSz*100).toFixed(0)}}%"></div><span class="num pos">${{Number(p).toFixed(3)}}</span><span class="num">${{Number(s).toFixed(0)}}</span></div>`).join('');
-    const askRows = (lv.asks || []).map(([p, s]) => `<div class="ob-row ob-ask"><div class="ob-bar" style="width:${{(s/maxSz*100).toFixed(0)}}%"></div><span class="num neg">${{Number(p).toFixed(3)}}</span><span class="num">${{Number(s).toFixed(0)}}</span></div>`).join('');
-    document.getElementById('desk-ob').innerHTML = `<div class="ob-grid"><div><div style="font-size:11px;color:var(--text-3);margin-bottom:5px">קונים (Bids)</div>${{bidRows}}</div><div><div style="font-size:11px;color:var(--text-3);margin-bottom:5px">מוכרים (Asks)</div>${{askRows}}</div></div>`;
-  }} else if (bk) {{
-    const tot = Math.max(Number(bk.bid_depth || 0) + Number(bk.ask_depth || 0), 1);
-    const bPct = (Number(bk.bid_depth || 0) / tot * 100);
-    document.getElementById('desk-ob').innerHTML = `
-      <div class="bar-row">
-        <div class="bar-top"><span>עומק קונים (Bids)</span><span class="num pos">$${{Math.round(bk.bid_depth || 0)}} (${{bPct.toFixed(0)}}%)</span></div>
-        <div class="bar-track"><div class="bar-fill" style="width:${{bPct.toFixed(0)}}%;background:var(--green)"></div></div>
-      </div>
-      <div class="bar-row">
-        <div class="bar-top"><span>עומק מוכרים (Asks)</span><span class="num neg">$${{Math.round(bk.ask_depth || 0)}} (${{(100-bPct).toFixed(0)}}%)</span></div>
-        <div class="bar-track"><div class="bar-fill" style="width:${{(100-bPct).toFixed(0)}}%;background:var(--red)"></div></div>
-      </div>
-      <div style="font-size:11px;color:var(--text-3);margin-top:8px">לחץ על "משוך חי" לטעינת 6 שכבות העומק המלאות בזמן אמת.</div>`;
+    const maxSz = Math.max(...[...(lv.bids || []), ...(lv.asks || [])].map(x => Number(x[1] || 0)), 1);
+    const bidRows = (lv.bids || []).slice(0, 5).map(([p, s]) => `<div class="ob-row ob-bid"><div class="ob-bar" style="width:${{(s/maxSz*100).toFixed(0)}}%"></div><span class="num pos">${{Number(p).toFixed(3)}}</span><span class="num">${{Number(s).toFixed(0)}}</span></div>`).join('');
+    const askRows = (lv.asks || []).slice(0, 5).map(([p, s]) => `<div class="ob-row ob-ask"><div class="ob-bar" style="width:${{(s/maxSz*100).toFixed(0)}}%"></div><span class="num neg">${{Number(p).toFixed(3)}}</span><span class="num">${{Number(s).toFixed(0)}}</span></div>`).join('');
+    document.getElementById('desk-ob').innerHTML = `<div class="ob-grid"><div><div style="font-size:11px;color:var(--text-3);margin-bottom:4px">קונים</div>${{bidRows}}</div><div><div style="font-size:11px;color:var(--text-3);margin-bottom:4px">מוכרים</div>${{askRows}}</div></div>`;
   }} else {{
-    document.getElementById('desk-ob').innerHTML = '<div style="color:var(--text-3);font-size:12px">אין עדיין צילום ספר פקודות לשוק זה.</div>';
+    document.getElementById('desk-ob').innerHTML = '<div style="color:var(--text-3);font-size:12px">לחץ "משוך חי" לטעינת ספר פקודות.</div>';
   }}
 }}
 
 function renderNews() {{
   const wp = STATE.world_pulse || {{}};
-  const byCat = wp.by_category || {{}};
-  const byReg = wp.by_region || {{}};
+  const na = (STATE.learning && STATE.learning.news_alpha) || STATE.news_alpha || {{}};
   const sent = Number(wp.avg_sentiment || 0);
   document.getElementById('news-pulse-kpis').innerHTML = [
-    {{ l: 'פיד גלובלי', v: `${{wp.sources || 0}} רשתות`, s: `${{wp.total || 0}} כתבות אחרונות`, c: '' }},
-    {{ l: 'משטר חדשות עולמי', v: wp.regime || 'מאוזן', s: `סנטימנט ממוצע: ${{fmtSign(sent, 2)}}`, c: sent >= 0.05 ? 'pos' : (sent <= -0.05 ? 'neg' : '') }},
-    {{ l: 'התראות קטליזטור', v: String(wp.catalysts || 0), s: 'כתבות בעלות השפעה >= 0.45', c: '' }},
-    {{ l: 'אסיה ומזה״ת', v: String((byReg['אסיה'] || 0) + (byReg['מזרח תיכון'] || 0)), s: `אסיה ${{byReg['אסיה'] || 0}} · מזה״ת ${{byReg['מזרח תיכון'] || 0}}`, c: '' }},
-    {{ l: 'אמריקה, אירופה וספורט', v: String((byReg['אמריקה ושווקים'] || 0) + (byReg['אירופה'] || 0)), s: `ספורט ${{byReg['ספורט'] || 0}} · קריפטו ${{byReg['קריפטו'] || 0}}`, c: '' }},
-  ].map(x => `<div class="kpi"><div class="kpi-label">${{esc(x.l)}}</div><div class="kpi-val ${{x.c}}" style="font-size:18px">${{esc(x.v)}}</div><div class="kpi-sub">${{esc(x.s)}}</div></div>`).join('');
+    {{ l: 'פיד גלובלי', v: `${{wp.sources || 0}} רשתות`, s: `${{wp.total || 0}} כתבות עדכניות`, c: '' }},
+    {{ l: 'משטר חדשות עולמי', v: wp.regime || 'מאוזן', s: `סנטימנט ${{fmtSign(sent, 2)}}`, c: sent >= 0.05 ? 'pos' : (sent <= -0.05 ? 'neg' : '') }},
+    {{ l: 'דיוק News Alpha', v: na.directional_hit_pct != null ? `${{na.directional_hit_pct}}%` : '—', s: `${{na.total_measured || 0}} כתבות נמדדו מול השוק`, c: '' }},
+    {{ l: 'התראות השפעה', v: String(wp.catalysts || 0), s: 'כתבות בעלות משקל גבוה', c: '' }},
+  ].map(x => `<div class="metric-tile"><div class="metric-lbl">${{esc(x.l)}}</div><div class="metric-val ${{x.c}}" style="font-size:19px">${{esc(x.v)}}</div><div class="metric-sub">${{esc(x.s)}}</div></div>`).join('');
 
   const news = STATE.news || [];
   const q = (document.getElementById('news-search')?.value || '').trim().toLowerCase();
@@ -1732,33 +1462,27 @@ function renderNews() {{
     if (NEWS_FILTER === 'CATALYST' && Number(n.impact || 0) < 0.45) return false;
     else if (NEWS_FILTER === 'MATCHED' && !n.matched_tokens) return false;
     else if (NEWS_FILTER === 'crypto' && n.category !== 'crypto' && n.category !== 'macro' && (n.region || '') !== 'קריפטו') return false;
-    else if (NEWS_FILTER.startsWith('REG:') && (n.region || '') !== NEWS_FILTER.slice(4)) return false;
-    else if (NEWS_FILTER === 'sports' && n.category !== 'sports' && (n.region || '') !== 'ספורט') return false;
-    if (q && !((n.title || '').toLowerCase().includes(q) || (n.source || '').toLowerCase().includes(q) || (n.region || '').toLowerCase().includes(q))) return false;
+    if (q && !((n.title || '').toLowerCase().includes(q) || (n.source || '').toLowerCase().includes(q))) return false;
     return true;
   }});
 
-  document.getElementById('news-list').innerHTML = filtered.length ? filtered.slice(0, 80).map(n => {{
+  document.getElementById('news-list').innerHTML = filtered.length ? filtered.slice(0, 60).map(n => {{
     const s = Number(n.sentiment || 0);
-    const imp = Number(n.impact || 0);
     const sBadge = s >= 0.15 ? '<span class="badge badge-ok">חיובי</span>'
                  : s <= -0.15 ? '<span class="badge badge-err">שלילי</span>'
                  : '<span class="badge badge-mute">נייטרלי</span>';
-    const impBadge = imp >= 0.45 ? `<span class="badge badge-warn">השפעה ${{imp.toFixed(2)}}</span>` : '';
     return `<div class="news-item">
       <div>
         <div class="news-title">${{esc(n.title)}}</div>
         <div class="news-meta">
           <strong style="color:var(--text-2)">${{esc(n.source || n.category || 'RSS')}}</strong>
-          ${{n.region ? `<span class="badge badge-mute">${{esc(n.region)}}</span>` : ''}}
-          <span>${{esc(n.category || 'world')}}</span>
           <span class="num">${{fmtDateTime(n.ts)}}</span>
-          ${{n.matched_tokens ? '<span style="color:var(--accent)">קשור לשוק פתוח/במעקב</span>' : ''}}
+          ${{n.matched_tokens ? '<span style="color:var(--accent)">קשור לשוק</span>' : ''}}
         </div>
       </div>
-      <div style="display:flex;gap:5px;flex-shrink:0">${{impBadge}}${{sBadge}}</div>
+      ${{sBadge}}
     </div>`;
-  }}).join('') : '<div style="padding:20px;text-align:center;color:var(--text-3)">אין כתבות תואמות לסינון הנוכחי</div>';
+  }}).join('') : '<div style="padding:20px;text-align:center;color:var(--text-3)">אין כתבות תואמות</div>';
 }}
 
 function renderLearning() {{
@@ -1769,60 +1493,31 @@ function renderLearning() {{
   const insights = lr.insights || [];
   const runs = lr.runs || [];
 
-  const rawEval = Number(st.raw_evaluated || 0);
-  const uniqEval = Number(st.total_evaluated || 0);
-  const pEval = Number(psStats.total_evaluated || 0);
-  document.getElementById('learn-total').textContent =
-    `Poly: ${{uniqEval}} (מתוך ${{rawEval}}) · PERPS: ${{pEval}}`;
   document.getElementById('learn-insights').innerHTML = insights.length
     ? '<ul style="margin:0;padding-right:18px;color:var(--text-2);font-size:12.5px">' +
       insights.map(x => `<li style="margin-bottom:6px">${{esc(x)}}</li>`).join('') + '</ul>'
-    : '<div style="color:var(--text-3);font-size:12.5px">המנוע מריץ מיקרו-למידה כל 5 דקות על תוצאות מסחר (Polymarket + PERPS) וחדשות.</div>';
+    : '<div style="color:var(--text-3);font-size:12.5px">מיקרו-למידה פועלת אוטומטית כל 5 דקות על מסחר וחדשות.</div>';
 
-  // טבלת News Alpha
-  const naMeta = document.getElementById('news-alpha-meta');
-  if (naMeta) {{
-    naMeta.textContent = na.total_measured
-      ? `${{na.total_measured}} כתבות נמדדו · דיוק ${{na.directional_hit_pct !== null && na.directional_hit_pct !== undefined ? na.directional_hit_pct + '%' : '—'}}`
-      : 'נמדד כל 5 דקות מול מחיר שוק';
-  }}
-  const naBody = document.getElementById('news-alpha-tbody');
   const srcs = na.by_source || [];
-  if (naBody) {{
-    naBody.innerHTML = srcs.length ? srcs.map(s => `<tr>
-      <td style="color:var(--text);font-weight:500">${{esc(s.source)}}</td>
-      <td class="num">${{s.n}}</td>
-      <td class="num">${{s.high_impact_n || 0}}</td>
-      <td class="num">${{s.hit_pct !== null && s.hit_pct !== undefined ? s.hit_pct + '%' : '—'}}</td>
-      <td class="num">${{s.avg_move_pct !== null && s.avg_move_pct !== undefined ? '±' + Number(s.avg_move_pct).toFixed(2) + '%' : '—'}}</td>
-    </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:16px">צובר מדידות מחיר של 1ש׳ / 4ש׳ מרגע פרסום כתבות...</td></tr>';
-  }}
+  document.getElementById('news-alpha-tbody').innerHTML = srcs.length ? srcs.slice(0, 10).map(s => `<tr>
+    <td style="color:var(--text);font-weight:500">${{esc(s.source)}}</td>
+    <td class="num">${{s.n}}</td>
+    <td class="num">${{s.hit_pct != null ? s.hit_pct + '%' : '—'}}</td>
+    <td class="num">${{s.avg_move_pct != null ? '±' + Number(s.avg_move_pct).toFixed(2) + '%' : '—'}}</td>
+  </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-3);padding:16px">אוסף מדידות מחיר של 1ש׳ / 4ש׳ מרגע פרסום כתבות...</td></tr>';
 
   const zMap = st.by_z_bucket || {{}};
   const regMap = psStats.by_regime || {{}};
-  const polyRows = Object.keys(zMap).map(k => {{
-    const row = zMap[k] || {{}};
-    const hit = row.hit_latest_pct;
-    const mean = row.mean_latest;
-    return `<tr>
-      <td class="num" style="color:var(--text)">Poly Z ${{esc(k)}}</td>
-      <td class="num">${{row.n || 0}}</td>
-      <td class="num">${{hit !== null && hit !== undefined ? hit + '%' : '—'}}</td>
-      <td class="num ${{(mean || 0) >= 0 ? 'pos' : 'neg'}}">${{mean !== null && mean !== undefined ? fmtSign(mean, 4) : '—'}}</td>
-    </tr>`;
-  }});
-  const perpRows = Object.keys(regMap).map(k => {{
-    const row = regMap[k] || {{}};
-    const hit = row.hit_pct;
-    const mean = row.mean_pct;
-    return `<tr>
-      <td class="num" style="color:var(--accent)">PERPS ${{esc(k)}}</td>
-      <td class="num">${{row.n || 0}}</td>
-      <td class="num">${{hit !== null && hit !== undefined ? hit + '%' : '—'}}</td>
-      <td class="num ${{(mean || 0) >= 0 ? 'pos' : 'neg'}}">${{mean !== null && mean !== undefined ? fmtSign(mean, 2) + '%' : '—'}}</td>
-    </tr>`;
-  }});
-  const allRows = [...polyRows, ...perpRows];
+  const allRows = [
+    ...Object.keys(zMap).map(k => {{
+      const row = zMap[k] || {{}};
+      return `<tr><td class="num" style="color:var(--text)">Poly Z ${{esc(k)}}</td><td class="num">${{row.n || 0}}</td><td class="num">${{row.hit_latest_pct != null ? row.hit_latest_pct + '%' : '—'}}</td><td class="num ${{(row.mean_latest || 0) >= 0 ? 'pos' : 'neg'}}">${{row.mean_latest != null ? fmtSign(row.mean_latest, 4) : '—'}}</td></tr>`;
+    }}),
+    ...Object.keys(regMap).map(k => {{
+      const row = regMap[k] || {{}};
+      return `<tr><td class="num" style="color:var(--accent)">PERPS ${{esc(k)}}</td><td class="num">${{row.n || 0}}</td><td class="num">${{row.hit_pct != null ? row.hit_pct + '%' : '—'}}</td><td class="num ${{(row.mean_pct || 0) >= 0 ? 'pos' : 'neg'}}">${{row.mean_pct != null ? fmtSign(row.mean_pct, 2) + '%' : '—'}}</td></tr>`;
+    }}),
+  ];
   document.getElementById('learn-z-tbody').innerHTML = allRows.length ? allRows.join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-3);padding:16px">צובר תוצאות אותות חיים...</td></tr>';
 
   document.getElementById('learn-runs-tbody').innerHTML = runs.length ? runs.slice(0, 8).map(r => `<tr>
@@ -1831,83 +1526,54 @@ function renderLearning() {{
     <td class="num">${{fmtSign(r.candidate_oos)}}</td>
     <td class="num">${{((Number(r.consistency || 0)) * 100).toFixed(0)}}%</td>
     <td>${{r.applied ? '<span class="badge badge-ok">קודם</span>' : '<span class="badge badge-mute">נשמר</span>'}}</td>
-  </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:16px">לא רצו עדיין מחזורי כיול</td></tr>';
+  </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:16px">טרם בוצע כיול OOS</td></tr>';
 }}
 
 function renderSystem() {{
   const ap = STATE.autopilot || [];
   document.getElementById('ap-meta').textContent = `${{ap.length}} משימות אחרונות`;
-  document.getElementById('ap-tbody').innerHTML = ap.length ? ap.slice(0, 12).map(a => {{
-    const cls = a.status === 'ok' ? 'badge-ok' : (a.status === 'fixed' ? 'badge-info' : 'badge-warn');
-    return `<tr>
-      <td class="num" style="color:var(--text-3)">${{fmtDateTime(a.ts)}}</td>
-      <td style="color:var(--text)">${{esc(a.task)}}</td>
-      <td><span class="badge ${{cls}}">${{esc(a.status)}}</span></td>
-      <td>${{esc(a.summary)}}</td>
-    </tr>`;
-  }}).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-3);padding:18px">משימות האוטופיילוט יתועדו כאן אוטומטית</td></tr>';
+  document.getElementById('ap-tbody').innerHTML = ap.length ? ap.slice(0, 8).map(a => `<tr>
+    <td class="num" style="color:var(--text-3)">${{fmtDateTime(a.ts)}}</td>
+    <td style="color:var(--text)">${{esc(a.task)}}</td>
+    <td><span class="badge ${{a.status === 'ok' ? 'badge-ok' : 'badge-warn'}}">${{esc(a.status)}}</span></td>
+    <td>${{esc(a.summary)}}</td>
+  </tr>`).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--text-3);padding:18px">פעולות אוטומטיות יתועדו כאן</td></tr>';
 
   const rd = STATE.readiness || {{}};
   document.getElementById('ready-summary').textContent = (rd.summary || '—').replace(/[\\u{{1F300}}-\\u{{1FAFF}}\\u2600-\\u27BF]/gu, '').trim();
   const checks = rd.checks || [];
-  document.getElementById('ready-tbody').innerHTML = checks.length ? checks.map(c => {{
-    const cls = c.status === 'ok' ? 'badge-ok' : (c.status === 'warn' ? 'badge-warn' : 'badge-err');
-    const lbl = c.status === 'ok' ? 'תקין' : (c.status === 'warn' ? 'אזהרה' : 'חסר');
-    return `<tr>
-      <td style="color:var(--text)">${{esc(c.label || c.id || c.name || '')}}</td>
-      <td><span class="badge ${{cls}}">${{lbl}}</span></td>
-      <td>${{esc(c.detail)}}</td>
-    </tr>`;
-  }}).join('') : '<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:18px">אין בדיקות מוכנות</td></tr>';
+  document.getElementById('ready-tbody').innerHTML = checks.length ? checks.map(c => `<tr>
+    <td style="color:var(--text)">${{esc(c.label || c.id || c.name || '')}}</td>
+    <td><span class="badge ${{c.status === 'ok' ? 'badge-ok' : (c.status === 'warn' ? 'badge-warn' : 'badge-err')}}">${{c.status === 'ok' ? 'תקין' : (c.status === 'warn' ? 'אזהרה' : 'חסר')}}</span></td>
+    <td>${{esc(c.detail)}}</td>
+  </tr>`).join('') : '<tr><td colspan="3" style="text-align:center;color:var(--text-3);padding:18px">אין בדיקות</td></tr>';
 
-  const an = STATE.analytics || {{}};
-  const ps = an.portfolio_summary || {{}};
-  const wf = an.walkforward || {{}};
+  const an = STATE.analytics || {{}}, ps = an.portfolio_summary || {{}}, wf = an.walkforward || {{}};
   const metrics = [
-    ['תשואת פורטפוליו נטו', ps.return_pct || '—'],
-    ['הון סופי (מ-1000)', ps.final_equity ? ps.final_equity + ' USDC' : '—'],
-    ['Profit Factor', ps.profit_factor || '—'],
-    ['Sharpe Ratio', ps.sharpe || '—'],
-    ['Max Drawdown', ps.max_dd || '—'],
-    ['שיעור הצלחה', ps.win_rate || '—'],
-    ['OOS Walk-Forward', wf.total_oos_pnl !== undefined ? fmtSign(wf.total_oos_pnl) + ' USDC' : (wf.oos_pnl !== undefined ? fmtSign(wf.oos_pnl) + ' USDC' : '—')],
+    ['Polymarket תשואה נטו', ps.return_pct || '—'],
+    ['Profit Factor / WR', `${{ps.profit_factor || '—'}} / ${{ps.win_rate || '—'}}`],
+    ['Polymarket OOS', wf.total_oos_pnl !== undefined ? fmtSign(wf.total_oos_pnl) + ' USDC' : (wf.oos_pnl !== undefined ? fmtSign(wf.oos_pnl) + ' USDC' : '—')],
     ['התמדת חלונות OOS', wf.consistency !== undefined ? (Number(wf.consistency) * 100).toFixed(0) + '%' : '—'],
   ];
-  document.getElementById('analytics-box').innerHTML = `<div class="kv-list">
-    ${{metrics.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}
-  </div>`;
+  document.getElementById('analytics-box').innerHTML = `<div class="kv-list" style="grid-template-columns:1fr">${{metrics.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}</div>`;
 
-  const cfg = STATE.config || {{}};
-  const ex = cfg.execution || {{}};
-  const sig = cfg.signal || {{}};
-  const rk = cfg.risk || {{}};
-  const nw = cfg.news || {{}};
-  const apc = cfg.autopilot || {{}};
-  document.getElementById('cfg-mode').textContent = (ex.mode || 'paper').toUpperCase();
+  const cfg = STATE.config || {{}}, sig = cfg.signal || {{}}, rk = cfg.risk || {{}}, pr = (STATE.perps && STATE.perps.guards) || {{}};
+  document.getElementById('cfg-mode').textContent = ((cfg.execution && cfg.execution.mode) || 'paper').toUpperCase();
   const cfgItems = [
-    ['מנוע + RSI Confluence', `${{sig.engine || 'meanrev'}} (RSI <= ${{sig.rsi_max || 'off'}})`],
-    ['סף כניסה / ספרד-ל-Edge', `Z>=${{sig.z_entry || 1.8}} / <=${{sig.max_spread_to_edge || 'off'}}x`],
-    ['יעד / סטופ / Time Stop', `+${{sig.take_profit || 0.05}} / -${{sig.stop_loss || 0.08}} / ${{sig.time_stop_hours || 48}}h`],
-    ['Kelly / סיכון / DD Throttle', `${{((rk.kelly_fraction || 0.25)*100).toFixed(0)}}% / ${{((rk.risk_per_trade_pct || 0.02)*100).toFixed(1)}}% / ${{(Number(rk.drawdown_throttle_pct||0.05)*100).toFixed(0)}}%`],
-    ['תקרת חשיפה / פוזיציות', `${{((rk.max_total_exposure_pct || 0.4)*100).toFixed(0)}}% / ${{rk.max_open_positions || 5}}`],
-    ['תקרת סקטור / קירור', `מקס' ${{rk.max_positions_per_sector || 2}} לסקטור · קירור ${{rk.cooldown_minutes || 0}}m`],
-    ['מגן חדשות / יציאת חירום', `impact>=${{nw.spike_impact_threshold || 0.65}} / exit>=${{nw.emergency_exit_impact || 0.85}}`],
-    ['זינוק נפח שבועי', `${{nw.volume_spike_ratio || 6}}x`],
-    ['תדירות אוטופיילוט', `מסחר ${{apc.trade_interval_sec || 180}}s · גיבוי ${{Math.round((apc.backup_interval_sec || 14400)/3600)}}h`],
+    ['אסטרטגיה וכניסה (Poly)', `${{sig.engine || 'meanrev'}} · Z>=${{sig.z_entry || 1.8}} · RSI<=${{sig.rsi_max || 40}}`],
+    ['יציאה (Poly)', `TP +${{sig.take_profit || 0.06}} / SL -${{sig.stop_loss || 0.07}} / ${{sig.time_stop_hours || 48}}h`],
+    ['ניהול סיכון (Poly)', `Kelly ${{((rk.kelly_fraction || 0.65)*100).toFixed(0)}}% · קירור ${{rk.cooldown_minutes || 360}}m`],
+    ['הגנות PERPS ×50', `SL ${{pr.sl_atr_mult || 1.5}} / TP ${{pr.tp_atr_mult || 2.6}} ATR · Buffer ×${{pr.liq_buffer_mult || 2.2}}`],
   ];
-  document.getElementById('cfg-box').innerHTML = `<div class="kv-list">
-    ${{cfgItems.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}
-  </div>`;
+  document.getElementById('cfg-box').innerHTML = `<div class="kv-list" style="grid-template-columns:1fr">${{cfgItems.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}</div>`;
 }}
 
-/* --- Interactive Canvas Charts with Crosshair --- */
+/* --- Apple Stocks Style Canvas Charts --- */
 function prepCanvas(canvas) {{
   const rect = canvas.parentElement.getBoundingClientRect();
-  const w = Math.max(280, Math.floor(rect.width));
-  const h = Math.max(70, Math.floor(rect.height));
+  const w = Math.max(280, Math.floor(rect.width)), h = Math.max(70, Math.floor(rect.height));
   const dpr = window.devicePixelRatio || 1;
-  canvas.width = w * dpr;
-  canvas.height = h * dpr;
+  canvas.width = w * dpr; canvas.height = h * dpr;
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   return {{ ctx, w, h }};
@@ -1918,77 +1584,117 @@ function drawEquityChart() {{
   const canvas = document.getElementById('eq-canvas');
   if (!canvas) return;
   const {{ ctx, w, h }} = prepCanvas(canvas);
-  const raw = (STATE.equity_curve || []).filter(p => typeof p.equity === 'number');
   ctx.clearRect(0, 0, w, h);
-
+  const src = EQ_ARM === 'perps' ? ((STATE.perps && STATE.perps.equity_curve) || []) : (STATE.equity_curve || []);
+  const raw = src.filter(p => typeof p.equity === 'number');
   if (raw.length < 2) {{
-    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#8e8e93'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('אוסף נקודות הון לעקומה חיה...', w / 2, h / 2);
     return;
   }}
-
   const pts = raw.map(p => p.equity);
-  const minV = Math.min(...pts), maxV = Math.max(...pts);
-  const pad = Math.max((maxV - minV) * 0.14, 1);
+  const minV = Math.min(...pts), maxV = Math.max(...pts), pad = Math.max((maxV - minV) * 0.14, 1);
   const lo = minV - pad, hi = maxV + pad;
-  const pxL = 12, pxR = 54, pyT = 12, pyB = 20;
-  const gw = w - pxL - pxR, gh = h - pyT - pyB;
-  const up = pts[pts.length - 1] >= pts[0];
-  const stroke = up ? '#30d158' : '#ff453a';
-
+  const pxL = 12, pxR = 54, pyT = 12, pyB = 20, gw = w - pxL - pxR, gh = h - pyT - pyB;
+  const up = pts[pts.length - 1] >= pts[0], stroke = up ? '#30d158' : '#ff453a';
   document.getElementById('eq-meta').textContent = `${{pts[0].toFixed(2)}} -> ${{pts[pts.length - 1].toFixed(2)}} (${{fmtSign(pts[pts.length - 1] - pts[0])}})`;
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
   ctx.fillStyle = '#8e8e93'; ctx.font = '11px SF Mono, ui-monospace, monospace'; ctx.textAlign = 'left';
   for (let i = 0; i <= 3; i++) {{
-    const y = pyT + gh * (i / 3);
-    const val = hi - (hi - lo) * (i / 3);
+    const y = pyT + gh * (i / 3), val = hi - (hi - lo) * (i / 3);
     ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
     ctx.fillText(val.toFixed(1), w - pxR + 6, y + 4);
   }}
-
-  const X = (i) => pxL + (i / (pts.length - 1)) * gw;
-  const Y = (v) => pyT + gh - ((v - lo) / (hi - lo)) * gh;
-
+  const X = i => pxL + (i / (pts.length - 1)) * gw, Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
   const grad = ctx.createLinearGradient(0, pyT, 0, pyT + gh);
-  grad.addColorStop(0, up ? 'rgba(48,209,88,0.26)' : 'rgba(255,69,58,0.26)');
+  grad.addColorStop(0, up ? 'rgba(48,209,88,0.24)' : 'rgba(255,69,58,0.24)');
   grad.addColorStop(1, 'rgba(48,209,88,0.0)');
-
   ctx.beginPath();
   pts.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
-  ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
-
-  ctx.lineTo(X(pts.length - 1), pyT + gh);
-  ctx.lineTo(X(0), pyT + gh);
-  ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+  ctx.strokeStyle = stroke; ctx.lineWidth = 2.2; ctx.stroke();
+  ctx.lineTo(X(pts.length - 1), pyT + gh); ctx.lineTo(X(0), pyT + gh); ctx.closePath();
+  ctx.fillStyle = grad; ctx.fill();
 
   const tip = document.getElementById('eq-tip');
   if (EQ_HOVER !== null && EQ_HOVER >= 0 && EQ_HOVER < raw.length) {{
     const hx = X(EQ_HOVER), hy = Y(pts[EQ_HOVER]);
     ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke();
-    ctx.restore();
+    ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke(); ctx.restore();
     ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI * 2); ctx.fillStyle = stroke; ctx.fill();
     tip.style.display = 'block';
     tip.innerHTML = `<span class="num">${{pts[EQ_HOVER].toFixed(2)}} USDC</span> · ${{fmtDateTime(raw[EQ_HOVER].ts)}}`;
-  }} else if (tip) {{
-    tip.style.display = 'none';
+  }} else if (tip) tip.style.display = 'none';
+}}
+
+let PERP_HOVER = null;
+function drawPerpPriceChart() {{
+  const canvas = document.getElementById('perps-price-canvas');
+  if (!canvas) return;
+  const {{ ctx, w, h }} = prepCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const ch = CURRENT_PERP_CHART || {{}}, cs = (ch.candles || []).slice(-100);
+  const tEl = document.getElementById('perps-chart-title'), sEl = document.getElementById('perps-chart-sub');
+  if (tEl) tEl.textContent = `${{ch.symbol || SELECTED_PERP_SYM}} Perpetual (${{ch.timeframe || '1h'}})`;
+  if (sEl && ch.intel && ch.intel.symbol) sEl.textContent = `${{(ch.intel.exchange || '').toUpperCase()}} · ${{ch.intel.regime || ''}} · מינוף ×${{Number(ch.intel.rec_leverage || 10).toFixed(0)}}`;
+  if (cs.length < 2) {{
+    ctx.fillStyle = '#8e8e93'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('אין עדיין נרות לחוזה זה — לחץ "משוך חי"', w / 2, h / 2);
+    return;
   }}
+  const ov = ch.overlays || {{}}, all = [];
+  cs.forEach(c => {{ all.push(Number(c.high || c.close)); all.push(Number(c.low || c.close)); }});
+  if (ov.stop) all.push(Number(ov.stop));
+  if (ov.target) all.push(Number(ov.target));
+  if (ov.liq) all.push(Number(ov.liq));
+  const minV = Math.min(...all), maxV = Math.max(...all), pad = Math.max((maxV - minV) * 0.12, maxV * 0.002);
+  const lo = minV - pad, hi = maxV + pad, pxL = 14, pxR = 66, pyT = 14, pyB = 20, gw = w - pxL - pxR, gh = h - pyT - pyB;
+  const X = i => pxL + ((i + 0.5) / cs.length) * gw, Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.fillStyle = '#8e8e93'; ctx.font = '10px SF Mono, monospace'; ctx.textAlign = 'left';
+  for (let i = 0; i <= 4; i++) {{
+    const y = pyT + gh * (i / 4), v = hi - (hi - lo) * (i / 4);
+    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
+    ctx.fillText(v > 100 ? v.toFixed(1) : v.toFixed(4), w - pxR + 6, y + 3);
+  }}
+  const hLn = (v, col, lbl) => {{
+    if (!v) return;
+    const y = Y(Number(v)); if (y < pyT || y > pyT + gh) return;
+    ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
+    ctx.fillStyle = col; ctx.fillText(lbl, pxL + 6, y - 4); ctx.restore();
+  }};
+  if (ov.entry) {{
+    hLn(ov.target, '#30d158', 'TP ' + Number(ov.target).toFixed(4));
+    hLn(ov.entry, '#aeaeb2', 'ENTRY ×' + Number(ov.leverage || 1).toFixed(0));
+    hLn(ov.stop, '#ff9f0a', 'SL ' + Number(ov.stop).toFixed(4));
+    hLn(ov.liq, '#ff453a', 'LIQ ' + Number(ov.liq).toFixed(4));
+  }}
+  const cw = Math.max(2, Math.min(9, (gw / cs.length) * 0.64));
+  cs.forEach((c, i) => {{
+    const x = X(i), o = Number(c.open || c.close), hiC = Number(c.high || c.close), loC = Number(c.low || c.close), cl = Number(c.close);
+    const col = cl >= o ? '#30d158' : '#ff453a';
+    ctx.strokeStyle = col; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, Y(hiC)); ctx.lineTo(x, Y(loC)); ctx.stroke();
+    const yTop = Y(Math.max(o, cl)), yBot = Y(Math.min(o, cl));
+    ctx.fillStyle = col; ctx.fillRect(x - cw / 2, yTop, cw, Math.max(1.5, yBot - yTop));
+  }});
+  const tip = document.getElementById('perps-price-tip');
+  if (PERP_HOVER !== null && PERP_HOVER >= 0 && PERP_HOVER < cs.length) {{
+    const c = cs[PERP_HOVER], hx = X(PERP_HOVER), hy = Y(Number(c.close)), d = c.close > 100 ? 2 : 4;
+    ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+    ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pxL, hy); ctx.lineTo(w - pxR, hy); ctx.stroke(); ctx.restore();
+    if (tip) {{ tip.style.display = 'block'; tip.innerHTML = `<span class="num">${{fmtDateTime(c.ts)}}</span> | O <span class="num">${{Number(c.open).toFixed(d)}}</span> H <span class="num">${{Number(c.high).toFixed(d)}}</span> L <span class="num">${{Number(c.low).toFixed(d)}}</span> C <strong class="num">${{Number(c.close).toFixed(d)}}</strong>`; }}
+  }} else if (tip) tip.style.display = 'none';
 }}
 
 let PRICE_HOVER = null;
 function _slicedChart() {{
-  const ch = CURRENT_CHART || {{}};
-  const ticks = ch.ticks || [];
+  const ch = CURRENT_CHART || {{}}, ticks = ch.ticks || [];
   if (!ticks.length) return {{ ticks: [], sma: [], lb: [], rsi: [] }};
-  const n = Math.min(ticks.length, CHART_RANGE);
-  const start = ticks.length - n;
-  return {{
-    ticks: ticks.slice(start),
-    sma: (ch.sma || []).slice(start),
-    lb: (ch.lower_band || []).slice(start),
-    rsi: (ch.rsi || []).slice(start),
-  }};
+  const n = Math.min(ticks.length, CHART_RANGE), start = ticks.length - n;
+  return {{ ticks: ticks.slice(start), sma: (ch.sma || []).slice(start), lb: (ch.lower_band || []).slice(start), rsi: (ch.rsi || []).slice(start) }};
 }}
 
 function drawPriceChart() {{
@@ -1996,74 +1702,46 @@ function drawPriceChart() {{
   if (!canvas) return;
   const {{ ctx, w, h }} = prepCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
-
-  const ch = CURRENT_CHART || {{}};
-  const {{ ticks, sma, lb, rsi }} = _slicedChart();
+  const ch = CURRENT_CHART || {{}}, {{ ticks, sma, lb, rsi }} = _slicedChart();
   if (ticks.length < 2) {{
-    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('אין מספיק נרות מחיר — לחץ "משוך חי"', w / 2, h / 2);
+    ctx.fillStyle = '#8e8e93'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('אין מספיק נתונים — לחץ "משוך חי"', w / 2, h / 2);
     return;
   }}
-
-  const prices = ticks.map(t => Number(t.price));
-  const pos = ch.position || null;
-  const allVals = [...prices];
-  sma.forEach(v => {{ if (v !== null && v !== undefined) allVals.push(Number(v)); }});
-  lb.forEach(v => {{ if (v !== null && v !== undefined) allVals.push(Number(v)); }});
+  const prices = ticks.map(t => Number(t.price)), pos = ch.position || null, allVals = [...prices];
+  sma.forEach(v => {{ if (v != null) allVals.push(Number(v)); }});
+  lb.forEach(v => {{ if (v != null) allVals.push(Number(v)); }});
   if (pos && pos.stop_price) allVals.push(Number(pos.stop_price));
   if (pos && pos.target_price) allVals.push(Number(pos.target_price));
+  const minV = Math.min(...allVals), maxV = Math.max(...allVals), pad = Math.max((maxV - minV) * 0.14, 0.012);
+  const lo = Math.max(0, minV - pad), hi = Math.min(1, maxV + pad), pxL = 14, pxR = 54, pyT = 14, pyB = 22, gw = w - pxL - pxR, gh = h - pyT - pyB;
+  const X = i => pxL + (i / (prices.length - 1)) * gw, Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
 
-  const minV = Math.min(...allVals), maxV = Math.max(...allVals);
-  const pad = Math.max((maxV - minV) * 0.14, 0.012);
-  const lo = Math.max(0, minV - pad), hi = Math.min(1, maxV + pad);
-  const pxL = 14, pxR = 54, pyT = 14, pyB = 22;
-  const gw = w - pxL - pxR, gh = h - pyT - pyB;
-  const X = (i) => pxL + (i / (prices.length - 1)) * gw;
-  const Y = (v) => pyT + gh - ((v - lo) / (hi - lo)) * gh;
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
-  ctx.fillStyle = '#64748b'; ctx.font = '11px monospace'; ctx.textAlign = 'left';
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.fillStyle = '#8e8e93'; ctx.font = '11px SF Mono, monospace'; ctx.textAlign = 'left';
   for (let i = 0; i <= 4; i++) {{
-    const y = pyT + gh * (i / 4);
-    const val = hi - (hi - lo) * (i / 4);
+    const y = pyT + gh * (i / 4), val = hi - (hi - lo) * (i / 4);
     ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
     ctx.fillText(val.toFixed(3), w - pxR + 6, y + 4);
   }}
-
-  const hLine = (val, color, label) => {{
-    if (val === null || val === undefined) return;
-    const y = Y(Number(val));
-    if (y < pyT || y > pyT + gh) return;
-    ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = color; ctx.lineWidth = 1.2;
+  const hLine = (val, col, lbl) => {{
+    if (val == null) return;
+    const y = Y(Number(val)); if (y < pyT || y > pyT + gh) return;
+    ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = col;
     ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
-    ctx.fillStyle = color; ctx.fillText(label, pxL + 6, y - 4);
-    ctx.restore();
+    ctx.fillStyle = col; ctx.fillText(lbl, pxL + 6, y - 4); ctx.restore();
   }};
   if (pos) {{
-    hLine(pos.target_price, 'rgba(16,185,129,0.8)', 'TP ' + Number(pos.target_price || 0).toFixed(3));
-    hLine(pos.avg_price, 'rgba(148,163,184,0.65)', 'ENTRY ' + Number(pos.avg_price || 0).toFixed(3));
-    hLine(pos.stop_price, 'rgba(239,68,68,0.8)', 'SL ' + Number(pos.stop_price || 0).toFixed(3));
+    hLine(pos.target_price, '#30d158', 'TP ' + Number(pos.target_price || 0).toFixed(3));
+    hLine(pos.avg_price, '#aeaeb2', 'ENTRY ' + Number(pos.avg_price || 0).toFixed(3));
+    hLine(pos.stop_price, '#ff453a', 'SL ' + Number(pos.stop_price || 0).toFixed(3));
   }}
-
-  // רצועת כניסה Z
   ctx.beginPath(); let st = false;
-  lb.forEach((v, i) => {{
-    if (v === null || v === undefined) return;
-    if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v)));
-  }});
-  ctx.strokeStyle = 'rgba(245,158,11,0.55)'; ctx.lineWidth = 1.2; ctx.stroke();
-
-  // ממוצע נע SMA
+  lb.forEach((v, i) => {{ if (v == null) return; if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v))); }});
+  ctx.strokeStyle = 'rgba(255,159,10,0.5)'; ctx.lineWidth = 1.2; ctx.stroke();
   ctx.beginPath(); st = false;
-  sma.forEach((v, i) => {{
-    if (v === null || v === undefined) return;
-    if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v)));
-  }});
-  ctx.strokeStyle = 'rgba(148,163,184,0.72)'; ctx.lineWidth = 1.3; ctx.stroke();
-
-  // מחיר ראשי
-  ctx.beginPath();
-  prices.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
+  sma.forEach((v, i) => {{ if (v == null) return; if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v))); }});
+  ctx.strokeStyle = 'rgba(174,174,178,0.6)'; ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.beginPath(); prices.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
   ctx.strokeStyle = '#0a84ff'; ctx.lineWidth = 2.2; ctx.stroke();
 
   const tip = document.getElementById('price-tip');
@@ -2071,16 +1749,11 @@ function drawPriceChart() {{
     const hx = X(PRICE_HOVER), hy = Y(prices[PRICE_HOVER]);
     ctx.save(); ctx.setLineDash([3, 3]); ctx.strokeStyle = 'rgba(255,255,255,0.28)';
     ctx.beginPath(); ctx.moveTo(hx, pyT); ctx.lineTo(hx, pyT + gh); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(pxL, hy); ctx.lineTo(w - pxR, hy); ctx.stroke();
-    ctx.restore();
+    ctx.beginPath(); ctx.moveTo(pxL, hy); ctx.lineTo(w - pxR, hy); ctx.stroke(); ctx.restore();
     ctx.beginPath(); ctx.arc(hx, hy, 4, 0, Math.PI * 2); ctx.fillStyle = '#0a84ff'; ctx.fill();
-    const sVal = sma[PRICE_HOVER] !== null && sma[PRICE_HOVER] !== undefined ? Number(sma[PRICE_HOVER]).toFixed(3) : '—';
-    const rVal = rsi[PRICE_HOVER] !== null && rsi[PRICE_HOVER] !== undefined ? Number(rsi[PRICE_HOVER]).toFixed(1) : '—';
     tip.style.display = 'block';
-    tip.innerHTML = `<span class="num">${{fmtDateTime(ticks[PRICE_HOVER].ts)}}</span> | מחיר <strong class="num">${{prices[PRICE_HOVER].toFixed(3)}}</strong> | SMA <span class="num">${{sVal}}</span> | RSI <span class="num">${{rVal}}</span>`;
-  }} else if (tip) {{
-    tip.style.display = 'none';
-  }}
+    tip.innerHTML = `<span class="num">${{fmtDateTime(ticks[PRICE_HOVER].ts)}}</span> | מחיר <strong class="num">${{prices[PRICE_HOVER].toFixed(3)}}</strong>`;
+  }} else if (tip) tip.style.display = 'none';
 }}
 
 function drawRsiChart() {{
@@ -2089,45 +1762,32 @@ function drawRsiChart() {{
   const {{ ctx, w, h }} = prepCanvas(canvas);
   ctx.clearRect(0, 0, w, h);
   const {{ rsi }} = _slicedChart();
-  const valid = rsi.filter(v => v !== null && v !== undefined);
-  if (valid.length < 2) return;
-
-  const pxL = 14, pxR = 54, pyT = 8, pyB = 8;
-  const gw = w - pxL - pxR, gh = h - pyT - pyB;
-  const X = (i) => pxL + (i / Math.max(rsi.length - 1, 1)) * gw;
-  const Y = (v) => pyT + gh - (Math.max(0, Math.min(100, v)) / 100) * gh;
-
-  // אזור Oversold מתחת ל-45
-  ctx.fillStyle = 'rgba(16,185,129,0.08)';
-  ctx.fillRect(pxL, Y(45), gw, Y(0) - Y(45));
-
-  ctx.font = '10px monospace'; ctx.fillStyle = '#64748b'; ctx.textAlign = 'left';
+  if (rsi.filter(v => v != null).length < 2) return;
+  const pxL = 14, pxR = 54, pyT = 8, pyB = 8, gw = w - pxL - pxR, gh = h - pyT - pyB;
+  const X = i => pxL + (i / Math.max(rsi.length - 1, 1)) * gw, Y = v => pyT + gh - (Math.max(0, Math.min(100, v)) / 100) * gh;
+  ctx.fillStyle = 'rgba(48,209,88,0.08)'; ctx.fillRect(pxL, Y(45), gw, Y(0) - Y(45));
+  ctx.font = '10px SF Mono, monospace'; ctx.fillStyle = '#8e8e93'; ctx.textAlign = 'left';
   for (const lvl of [30, 45, 70]) {{
     const y = Y(lvl);
-    ctx.strokeStyle = lvl === 45 ? 'rgba(16,185,129,0.35)' : 'rgba(255,255,255,0.06)';
+    ctx.strokeStyle = lvl === 45 ? 'rgba(48,209,88,0.35)' : 'rgba(255,255,255,0.06)';
     ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
     ctx.fillText(String(lvl), w - pxR + 6, y + 3);
   }}
-
   ctx.beginPath(); let st = false;
-  rsi.forEach((v, i) => {{
-    if (v === null || v === undefined) return;
-    if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v)));
-  }});
+  rsi.forEach((v, i) => {{ if (v == null) return; if (!st) {{ ctx.moveTo(X(i), Y(Number(v))); st = true; }} else ctx.lineTo(X(i), Y(Number(v))); }});
   ctx.strokeStyle = '#bf5af2'; ctx.lineWidth = 1.6; ctx.stroke();
   ctx.fillStyle = '#aeaeb2'; ctx.fillText('RSI(14)', pxL + 4, pyT + 9);
 }}
 
-// Crosshair Listeners
 (function bindCrosshairs() {{
   const eqC = document.getElementById('eq-canvas');
   if (eqC) {{
     eqC.addEventListener('mousemove', (ev) => {{
-      const pts = (STATE.equity_curve || []).filter(p => typeof p.equity === 'number');
+      const src = EQ_ARM === 'perps' ? ((STATE.perps && STATE.perps.equity_curve) || []) : (STATE.equity_curve || []);
+      const pts = src.filter(p => typeof p.equity === 'number');
       if (pts.length < 2) return;
       const rect = eqC.getBoundingClientRect();
-      const rel = (ev.clientX - rect.left - 12) / Math.max(rect.width - 66, 1);
-      EQ_HOVER = Math.max(0, Math.min(pts.length - 1, Math.round(rel * (pts.length - 1))));
+      EQ_HOVER = Math.max(0, Math.min(pts.length - 1, Math.round(((ev.clientX - rect.left - 12) / Math.max(rect.width - 66, 1)) * (pts.length - 1))));
       drawEquityChart();
     }});
     eqC.addEventListener('mouseleave', () => {{ EQ_HOVER = null; drawEquityChart(); }});
@@ -2138,8 +1798,7 @@ function drawRsiChart() {{
       const {{ ticks }} = _slicedChart();
       if (ticks.length < 2) return;
       const rect = prC.getBoundingClientRect();
-      const rel = (ev.clientX - rect.left - 14) / Math.max(rect.width - 68, 1);
-      PRICE_HOVER = Math.max(0, Math.min(ticks.length - 1, Math.round(rel * (ticks.length - 1))));
+      PRICE_HOVER = Math.max(0, Math.min(ticks.length - 1, Math.round(((ev.clientX - rect.left - 14) / Math.max(rect.width - 68, 1)) * (ticks.length - 1))));
       drawPriceChart();
     }});
     prC.addEventListener('mouseleave', () => {{ PRICE_HOVER = null; drawPriceChart(); }});
@@ -2150,8 +1809,7 @@ function drawRsiChart() {{
       const cs = ((CURRENT_PERP_CHART && CURRENT_PERP_CHART.candles) || []).slice(-100);
       if (cs.length < 2) return;
       const rect = ppC.getBoundingClientRect();
-      const rel = (ev.clientX - rect.left - 14) / Math.max(rect.width - 80, 1);
-      PERP_HOVER = Math.max(0, Math.min(cs.length - 1, Math.round(rel * (cs.length - 1))));
+      PERP_HOVER = Math.max(0, Math.min(cs.length - 1, Math.round(((ev.clientX - rect.left - 14) / Math.max(rect.width - 80, 1)) * (cs.length - 1))));
       drawPerpPriceChart();
     }});
     ppC.addEventListener('mouseleave', () => {{ PERP_HOVER = null; drawPerpPriceChart(); }});
@@ -2160,32 +1818,27 @@ function drawRsiChart() {{
 
 window.addEventListener('resize', () => {{
   if (ACTIVE_TAB === 'overview') drawEquityChart();
-  if (ACTIVE_TAB === 'perps') {{ drawPerpEqChart(); drawPerpPriceChart(); }}
+  if (ACTIVE_TAB === 'perps') drawPerpPriceChart();
   if (ACTIVE_TAB === 'markets') {{ drawPriceChart(); drawRsiChart(); }}
 }});
 
 /* --- macOS Spotlight Search (⌘K / Ctrl+K) --- */
 function openSpotlight() {{
-  const ov = document.getElementById('spot-overlay');
-  const inp = document.getElementById('spot-input');
+  const ov = document.getElementById('spot-overlay'), inp = document.getElementById('spot-input');
   if (!ov || !inp) return;
-  ov.classList.add('open');
-  inp.value = '';
-  renderSpotlight();
-  setTimeout(() => inp.focus(), 30);
+  ov.classList.add('open'); inp.value = ''; renderSpotlight(); setTimeout(() => inp.focus(), 30);
 }}
 function closeSpotlight() {{
   const ov = document.getElementById('spot-overlay');
   if (ov) ov.classList.remove('open');
 }}
 function renderSpotlight() {{
-  const list = document.getElementById('spot-list');
-  const q = (document.getElementById('spot-input')?.value || '').trim().toLowerCase();
+  const list = document.getElementById('spot-list'), q = (document.getElementById('spot-input')?.value || '').trim().toLowerCase();
   if (!list) return;
   const items = [];
   (STATE.perps?.intel || []).forEach(p => {{
     if (!q || p.symbol.toLowerCase().includes(q) || (p.regime || '').toLowerCase().includes(q)) {{
-      items.push({{ tag: 'PERPS', title: `${{p.symbol}} ($${{fmtNum(p.price, p.price > 100 ? 2 : 4)}})`, sub: `${{p.regime}} · ×${{Number(p.rec_leverage||10).toFixed(0)}}`, act: () => {{ closeSpotlight(); document.querySelector('[data-tab=perps]').click(); loadPerpChart(p.symbol, true); }} }});
+      items.push({{ tag: 'PERPS', title: `${{p.symbol}} ($${{fmtNum(p.price, p.price > 100 ? 2 : 4)}})`, sub: `${{p.regime}} · ×${{Number(p.rec_leverage||10).toFixed(0)}}`, act: () => {{ closeSpotlight(); switchTab('perps'); loadPerpChart(p.symbol, true); }} }});
     }}
   }});
   (STATE.market_intel || []).forEach(m => {{
@@ -2194,14 +1847,14 @@ function renderSpotlight() {{
     }}
   }});
   const cmds = [
-    {{ tag: 'פקודה', title: 'הרץ מחזור PERPS עכשיו', sub: 'סורק 16 חוזים ומבצע כניסות/יציאות', act: () => {{ closeSpotlight(); postAction('/api/perps/cycle', {{}}); }} }},
-    {{ tag: 'פקודה', title: 'רענן חדשות + למידת News Alpha', sub: 'סריקת 22+ פידים עולמיים', act: () => {{ closeSpotlight(); postAction('/api/news-refresh', {{}}); }} }},
-    {{ tag: 'פקודה', title: 'הפעל למידה עצמית (OOS Walk-Forward)', sub: 'הערכה + קידום מבוקר', act: () => {{ closeSpotlight(); postAction('/api/learn', {{apply:true}}); }} }},
-    {{ tag: 'פקודה', title: 'גיבוי DB חם ומיידי', sub: 'שמירה ל-backups/', act: () => {{ closeSpotlight(); postAction('/api/backup', {{}}); }} }},
+    {{ tag: 'פקודה', title: 'הרץ מחזור PERPS עכשיו', sub: 'סריקה וכניסה/יציאה ב-16 חוזים', act: () => {{ closeSpotlight(); postAction('/api/perps/cycle', {{}}); }} }},
+    {{ tag: 'פקודה', title: 'רענן חדשות + למידת News Alpha', sub: '22+ רשתות חדשות', act: () => {{ closeSpotlight(); postAction('/api/news-refresh', {{}}); }} }},
+    {{ tag: 'פקודה', title: 'הרץ למידה עצמית (OOS Walk-Forward)', sub: 'כיול דו-זרועי מבוקר', act: () => {{ closeSpotlight(); postAction('/api/learn', {{apply:true}}); }} }},
+    {{ tag: 'פקודה', title: 'גיבוי DB מיידי', sub: 'שמירה מאומתת ל-backups/', act: () => {{ closeSpotlight(); postAction('/api/backup', {{}}); }} }},
   ];
   cmds.forEach(c => {{ if (!q || c.title.toLowerCase().includes(q) || c.sub.toLowerCase().includes(q)) items.push(c); }});
-  window.__SPOT_ACTS = items.slice(0, 14).map(x => x.act);
-  list.innerHTML = items.slice(0, 14).map((x, i) => `
+  window.__SPOT_ACTS = items.slice(0, 12).map(x => x.act);
+  list.innerHTML = items.slice(0, 12).map((x, i) => `
     <div class="spot-item" onclick="window.__SPOT_ACTS[${{i}}]()">
       <div>
         <div style="color:#fff;font-weight:500">${{esc(x.title)}}</div>
@@ -2215,15 +1868,11 @@ document.addEventListener('keydown', (e) => {{
     e.preventDefault();
     const ov = document.getElementById('spot-overlay');
     if (ov && ov.classList.contains('open')) closeSpotlight(); else openSpotlight();
-  }} else if (e.key === 'Escape') {{
-    closeSpotlight();
-  }}
+  }} else if (e.key === 'Escape') closeSpotlight();
 }});
 
 renderAll();
-if (LIVE_ORIGIN && {refresh_ms} > 0) {{
-  setInterval(refreshAll, {refresh_ms});
-}}
+if (LIVE_ORIGIN && {refresh_ms} > 0) setInterval(refreshAll, {refresh_ms});
 </script>
 </body>
 </html>
