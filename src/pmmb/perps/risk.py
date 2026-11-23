@@ -124,10 +124,11 @@ class PerpRiskManager:
         lev = round(min(rk.max_leverage, inst.max_leverage, signal.recommended_leverage, safe_lev_cap), 1)
         lev = max(2.0, lev)
 
-        # סייזינג מבוסס סיכון (Risk per trade = 1.5% לסטופ), עם הורדת הילוך בירידה
+        # סייזינג מבוסס סיכון מדורג לפי איכות הסטאפ (A+ מקבל עדיפות הון, B מרוסן)
         dd = (self.peak_equity - equity) / self.peak_equity if self.peak_equity > 0 else 0.0
         dd_mult = 0.65 if dd >= 0.06 else 1.0
-        risk_usd = equity * rk.risk_per_trade_pct * dd_mult
+        tier_mult = 1.30 if signal.tier == "A+" else (1.10 if signal.tier == "A" else 0.85)
+        risk_usd = equity * rk.risk_per_trade_pct * dd_mult * tier_mult
         notional = risk_usd / stop_dist
         margin = notional / lev
 

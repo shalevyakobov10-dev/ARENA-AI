@@ -588,5 +588,158 @@ class PerpEngine:
             "realized": round(net_pnl, 2),
         }
 
+    def open_manual_order(
+        self,
+        symbol: str,
+        side: str,
+        margin_usd: float,
+        leverage: float,
+        *,
+        stop_price: float | None = None,
+        target_price: float | None = None,
+    ) -> dict[str, Any]:
+        """פתיחת עסקת PERPS ידנית (במצב paper בלבד) עם שמירת הגנת ניזול ו-SL/TP אוטומטיים."""
+        if self.pcfg.mode != "paper":
+            raise PermissionError("פקודה ידנית מהממשק מותרת במצב paper בלבד")
+        sym = symbol.strip().upper()
+        dir_u = side.strip().upper()
+        if dir_u not in ("LONG", "SHORT"):
+            raise ValueError("כיוון חייב להיות LONG או SHORT")
+        if sym in self.positions:
+            raise ValueError(f"כבר קיימת פוזיציה פתוחה עבור {sym} — סגור אותה קודם")
+        margin = float(margin_usd)
+        if margin < 5.0:
+            raise ValueError("מרג'ין מינימלי לעסקה הוא 5 USDC")
+        if margin > self.cash * 0.96:
+            raise ValueError(f"אין מספיק מזומן פנוי ב-PERPS ({self.cash:.2f} USDC)")
+
+        req_lev = max(2.0, min(float(self.pcfg.risk.max_leverage), float(leverage)))
+        inst = next((x for x in self.exchange.scan() if x.symbol == sym), None)
+        if inst is None:
+            intel = {r["symbol"]: r for r in self.store.recent_perp_intel(limit=40)}
+            r = intel.get(sym) or {}
+            inst = PerpInstrument(
+                symbol=sym,
+                exchange=str(r.get("exchange") or "okx"),
+                exchange_symbol=f"{sym}-USDT-SWAP",
+                max_leverage=float(r.get("max_leverage") or 50.0),
+                mark_price=float(r.get("price") or 0.0),
+            )
+        candles = self.exchange.get_candles(inst, interval=self.pcfg.signal.timeframe, lookback=60)
+        book = self.exchange.get_book(inst, levels=8)
+        px = (
+            (book.best_ask if dir_u == "LONG" else book.best_bid)
+            if book is not None
+            else None
+        ) or (candles[-1].close if candles else None) or inst.mark_price
+        if not px or px <= 0:
+            raise ValueError(f"לא נמצא מחיר שוק חי עבור {sym}")
+
+        from .signals import calc_atr
+
+        atr = calc_atr(candles, 14) if len(candles) >= 15 else px * 0.012
+        atr = max(atr, px * 0.004)
+        rk = self.pcfg.risk
+        if stop_price is None:
+            sl_dist = rk.sl_atr_mult * atr
+            stop_px = round(px - sl_dist, 6) if dir_u == "LONG" else round(px + sl_dist, 6)
+        else:
+            stop_px = float(stop_price)
+        if target_price is None:
+            tp_dist = rk.tp_atr_mult * atr
+            tp_px = round(px + tp_dist, 6) if dir_u == "LONG" else round(px - tp_dist, 6)
+        else:
+            tp_px = float(target_price)
+
+        # הגנה קשיחה: SL חייב להישאר לפני נקודת הליקווידציה (כפוף ל-liquidation_buffer_mult)
+        mmr = inst.mmr or rk.default_mmr
+        stop_dist_pct = abs(px - stop_px) / px
+        rt_cost = 2.0 * (self.pcfg.taker_fee_bps + self.pcfg.slippage_bps) / 10_000.0
+        safe_lev_cap = max(2.0, (1.0 - mmr) / max(1e-4, stop_dist_pct * 1.35 + rt_cost))
+        lev = round(min(req_lev, inst.max_leverage, safe_lev_cap), 1)
+        notional = round(margin * lev, 2)
+        size = round(notional / px, 6)
+
+        order = PerpOrder(
+            symbol=sym, exchange=inst.exchange, side=dir_u,  # type: ignore[arg-type]
+            action="OPEN", price=float(px), size=size, leverage=lev,
+            reduce_only=False, reason=f"פקודה ידנית ({dir_u} ×{lev:.1f})",
+        )
+        fill = self.broker.execute(
+            order, book=book, taker_fee_bps=inst.taker_fee_bps,
+            ct_val=inst.contract_val, lot_size=inst.lot_size, tick_size=inst.tick_size,
+        )
+        if fill is None:
+            raise RuntimeError("ביצוע הפקודה הידנית נדחה")
+
+        margin_used = round(fill.notional / lev, 4)
+        fill.margin_delta = -margin_used
+        self.cash -= margin_used + fill.fee
+        liq_px = calc_liquidation_price(dir_u, fill.price, lev, mmr)
+        pos = PerpPosition(
+            symbol=sym, exchange=inst.exchange, side=dir_u,  # type: ignore[arg-type]
+            size=fill.size, entry_price=fill.price, notional=fill.notional,
+            leverage=lev, margin_used=margin_used, liquidation_price=round(liq_px, 6),
+            stop_price=stop_px, target_price=tp_px,
+            highest_price=fill.price, lowest_price=fill.price, atr=atr,
+            strategy="manual", regime="MANUAL", entry_score=1.0,
+            fees_paid=fill.fee, opened_at=fill.ts, last_funding_ts=int(fill.ts.timestamp()),
+        )
+        self.positions[sym] = pos
+        self._last_marks[sym] = fill.price
+        self.store.record_perp_fill(fill, self.pcfg.mode)
+        self.store.upsert_perp_position(pos, self.pcfg.mode)
+
+        eq = self._equity()
+        used_m = sum(p.margin_used for p in self.positions.values())
+        tot_not = sum(p.notional for p in self.positions.values())
+        avg_l = (tot_not / used_m) if used_m > 0 else 0.0
+        self.store.snapshot_perp_equity(self.pcfg.mode, eq, self.cash, used_m, tot_not, len(self.positions), avg_l)
+        msg = f"🎯 פקודה ידנית PERPS {sym} {dir_u} ×{lev:.1f} @ {fill.price:.4f} | מרג'ין {margin_used:.2f}$"
+        log.info(msg)
+        self.store.event("perp_entry", msg, data={"symbol": sym, "manual": True, "leverage": lev})
+        return {
+            "symbol": sym, "side": dir_u, "leverage": lev, "price": round(fill.price, 6),
+            "margin": round(margin_used, 2), "notional": round(fill.notional, 2),
+            "stop_price": stop_px, "target_price": tp_px, "liquidation_price": round(liq_px, 6),
+        }
+
+    def update_position_levels(
+        self,
+        symbol: str,
+        *,
+        stop_price: float | None = None,
+        target_price: float | None = None,
+    ) -> dict[str, Any]:
+        """מעדכן Stop-Loss ו/או Take-Profit של פוזיציית PERPS פתוחה."""
+        sym = symbol.strip().upper()
+        pos = self.positions.get(sym)
+        if pos is None:
+            raise KeyError(f"אין פוזיציית PERPS פתוחה עבור {sym}")
+
+        new_sl = float(stop_price) if stop_price is not None else pos.stop_price
+        new_tp = float(target_price) if target_price is not None else pos.target_price
+        if pos.side == "LONG":
+            if new_sl <= pos.liquidation_price:
+                raise ValueError(f"SL ({new_sl:.4f}) חייב להיות גבוה מנקודת הליקווידציה ({pos.liquidation_price:.4f})")
+            if new_tp <= pos.entry_price * 0.5:
+                raise ValueError("יעד רווח לא תקין")
+        else:
+            if new_sl >= pos.liquidation_price:
+                raise ValueError(f"SL ({new_sl:.4f}) חייב להיות נמוך מנקודת הליקווידציה ({pos.liquidation_price:.4f})")
+
+        pos.stop_price = round(new_sl, 6)
+        pos.target_price = round(new_tp, 6)
+        self.store.upsert_perp_position(pos, self.pcfg.mode)
+        self.store.event("perp_update", f"עדכון SL/TP {sym}: SL={pos.stop_price:.4f} TP={pos.target_price:.4f}")
+        return {"symbol": sym, "stop_price": pos.stop_price, "target_price": pos.target_price}
+
+    def close_all_positions(self, reason: str = "סגירת כל הפוזיציות מהטרמינל") -> list[dict[str, Any]]:
+        """סוגר את כל פוזיציות ה-PERPS הפתוחות בזרוע זו."""
+        closed: list[dict[str, Any]] = []
+        for sym in list(self.positions.keys()):
+            closed.append(self.close_position_by_symbol(sym, reason=reason))
+        return closed
+
     def close(self) -> None:
         self.store.close()

@@ -244,6 +244,7 @@ def build_command_center_data(
     out["autopilot"] = []
     out["world_pulse"] = {"total": 0, "avg_sentiment": 0.0, "catalysts": 0, "regime": "שקט", "sources": 0, "by_category": {}}
     out["telemetry"] = {"ticks": 0, "books": 0, "signals": 0, "news": 0, "intel": 0}
+    out["combined_equity_curve"] = []
     out["trader"] = trader_state or {
         "running": False, "cycles": 0, "last_error": "", "interval_sec": 180,
         "stream_ticks": 0, "news_fetches": 0, "learn_cycles": 0,
@@ -384,6 +385,28 @@ def build_command_center_data(
                 "closed_trades": int((out.get("overall") or {}).get("exits") or 0) + int((out["perps"] or {}).get("closed_trades") or 0),
                 "fees_paid": round(float((out.get("overall") or {}).get("fees") or 0.0) + float((out["perps"] or {}).get("fees_paid") or 0.0), 2),
             }
+            poly_pts = out.get("equity_curve") or []
+            perp_pts = (out["perps"] or {}).get("equity_curve") or []
+            if poly_pts or perp_pts:
+                all_ts = sorted({int(p["ts"]) for p in poly_pts} | {int(p["ts"]) for p in perp_pts})
+                cur_poly = float(cfg.execution.starting_cash)
+                cur_perp = float(cfg.perps.risk.starting_cash) if cfg.perps.enabled else 0.0
+                p_idx = q_idx = 0
+                comb_curve = []
+                for ts_i in all_ts:
+                    while p_idx < len(poly_pts) and int(poly_pts[p_idx]["ts"]) <= ts_i:
+                        cur_poly = float(poly_pts[p_idx]["equity"])
+                        p_idx += 1
+                    while q_idx < len(perp_pts) and int(perp_pts[q_idx]["ts"]) <= ts_i:
+                        cur_perp = float(perp_pts[q_idx]["equity"])
+                        q_idx += 1
+                    comb_curve.append({
+                        "ts": ts_i,
+                        "equity": round(cur_poly + cur_perp, 2),
+                        "poly": round(cur_poly, 2),
+                        "perps": round(cur_perp, 2),
+                    })
+                out["combined_equity_curve"] = comb_curve[-140:]
         finally:
             store.close()
 
@@ -527,6 +550,16 @@ def build_command_center_data(
             "backup_interval_sec": cfg.autopilot.backup_interval_sec,
             "backup_keep": cfg.autopilot.backup_keep,
             "reports_interval_sec": cfg.autopilot.reports_interval_sec,
+        },
+        "perps": {
+            "enabled": cfg.perps.enabled,
+            "interval_sec": cfg.perps.interval_sec,
+            "max_leverage": cfg.perps.risk.max_leverage,
+            "risk_per_trade_pct": cfg.perps.risk.risk_per_trade_pct,
+            "max_open_positions": cfg.perps.risk.max_open_positions,
+            "max_total_margin_pct": cfg.perps.risk.max_total_margin_pct,
+            "sl_atr_mult": cfg.perps.risk.sl_atr_mult,
+            "tp_atr_mult": cfg.perps.risk.tp_atr_mult,
         },
     }
     return out

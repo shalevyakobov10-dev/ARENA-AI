@@ -1,10 +1,11 @@
 """
-PMMB Command Center — ממשק דור חדש (Obsidian Glass High-Tech UI).
+PMMB Command Center — ממשק דור חדש אינטראקטיבי (Obsidian Glass Pro).
 
-עצמאי לחלוטין (אפס משאבים חיצוניים), מרוכז בעיקר בלבד:
-  1. התיק והמסחר שלי: הון מאוחד, גרף מחיר אינטראקטיבי, פוזיציות חיות עם מד-התקדמות וסגירה בלחיצה.
-  2. שווקים, PERPS וחדשות: סריקת PERPS ×50 + תזה + סימולטור, שווקי Polymarket, ואימות Walk-Forward.
-  3. מוכנות, סיכונים והגדרות: צ'קליסט Live, חוקי הגנה, גיבויים, CSV ויומן טייס אוטומטי.
+עצמאי לחלוטין (ללא משאבים חיצוניים), מרוכז בפשטות ובשליטה מלאה:
+  - Crosshair אינטראקטיבי + Tooltip על גרפי נרות, קו, ועקומת הון משולבת
+  - מסחר מהיר ידני (Paper Quick Trade), עריכת SL/TP חיה, וסגירת הכל בלחיצה
+  - תצוגת עומק ספר פקודות L2 חי (Bid/Ask Depth)
+  - עריכה ושמירה של הגדרות הסיכון והמהירות של הבוט ישירות מהדפדפן
 """
 from __future__ import annotations
 
@@ -13,14 +14,14 @@ import json
 _UI_CSS = r"""
 :root {
   --bg: #05070d;
-  --bg-glow-1: rgba(56, 189, 248, 0.08);
+  --bg-glow-1: rgba(56, 189, 248, 0.09);
   --bg-glow-2: rgba(16, 185, 129, 0.06);
   --surface: rgba(13, 18, 30, 0.78);
   --surface-solid: #0d121e;
   --surface-2: rgba(20, 28, 46, 0.75);
-  --hover: rgba(30, 42, 68, 0.72);
+  --hover: rgba(30, 42, 68, 0.75);
   --border: rgba(148, 163, 184, 0.14);
-  --border-hi: rgba(56, 189, 248, 0.38);
+  --border-hi: rgba(56, 189, 248, 0.42);
   --text: #f8fafc;
   --muted: #94a3b8;
   --dim: #64748b;
@@ -43,8 +44,8 @@ html, body {
   min-height: 100%;
   background: var(--bg);
   background-image:
-    radial-gradient(900px 420px at 85% -6%, var(--bg-glow-1), transparent 65%),
-    radial-gradient(760px 380px at 12% -4%, var(--bg-glow-2), transparent 62%);
+    radial-gradient(960px 460px at 85% -6%, var(--bg-glow-1), transparent 65%),
+    radial-gradient(800px 400px at 10% -4%, var(--bg-glow-2), transparent 62%);
   color: var(--text);
   font-family: var(--sans);
   font-size: 14px;
@@ -66,17 +67,17 @@ html, body {
 .muted { color: var(--muted); }
 .dim { color: var(--dim); }
 
-/* Top Glass Header */
+/* Header */
 .header {
   position: sticky;
   top: 0;
   z-index: 40;
-  background: rgba(5, 7, 13, 0.82);
+  background: rgba(5, 7, 13, 0.84);
   backdrop-filter: blur(18px);
   border-bottom: 1px solid var(--border);
 }
 .header-inner {
-  max-width: 1320px;
+  max-width: 1340px;
   margin: 0 auto;
   padding: 12px 22px;
   display: flex;
@@ -90,8 +91,8 @@ html, body {
   width: 36px;
   height: 36px;
   border-radius: 11px;
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(16, 185, 129, 0.22));
-  border: 1px solid rgba(56, 189, 248, 0.42);
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(16, 185, 129, 0.22));
+  border: 1px solid rgba(56, 189, 248, 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -108,13 +109,13 @@ html, body {
 .status-dot.idle { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
 .status-dot.halt { background: var(--red); box-shadow: 0 0 10px var(--red); }
 
-/* Segmented Navigation */
+/* Navigation */
 .nav-pills {
   display: inline-flex;
   gap: 4px;
   padding: 4px;
   border-radius: 14px;
-  background: rgba(15, 23, 42, 0.7);
+  background: rgba(15, 23, 42, 0.72);
   border: 1px solid var(--border);
 }
 .nav-tab {
@@ -132,18 +133,17 @@ html, body {
 }
 .nav-tab:hover { color: var(--text); }
 .nav-tab.active {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.22), rgba(56, 189, 248, 0.08));
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0.08));
   color: #e0f2fe;
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.36);
 }
-
 .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-/* Buttons & Inputs */
+/* Controls */
 .btn {
   appearance: none;
   border: 1px solid var(--border);
-  background: rgba(20, 28, 46, 0.8);
+  background: rgba(20, 28, 46, 0.84);
   color: var(--text);
   padding: 8px 14px;
   border-radius: 10px;
@@ -154,48 +154,53 @@ html, body {
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   transition: all 0.15s ease;
 }
 .btn:hover { background: var(--hover); border-color: rgba(148, 163, 184, 0.28); transform: translateY(-1px); }
 .btn.sm { padding: 6px 11px; font-size: 12.5px; border-radius: 9px; }
+.btn.xs { padding: 4px 8px; font-size: 11.5px; border-radius: 7px; }
 .btn.primary {
   background: linear-gradient(135deg, #0284c7, #0ea5e9);
   border-color: rgba(56, 189, 248, 0.6);
   color: #ffffff;
-  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.25);
+  box-shadow: 0 4px 16px rgba(14, 165, 233, 0.24);
 }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn.soft-red {
   background: var(--red-soft);
-  border-color: rgba(244, 63, 94, 0.32);
+  border-color: rgba(244, 63, 94, 0.34);
   color: #fecdd3;
 }
-.btn.soft-red:hover { background: rgba(244, 63, 94, 0.24); }
+.btn.soft-red:hover { background: rgba(244, 63, 94, 0.25); }
 .btn.soft-green {
   background: var(--green-soft);
-  border-color: rgba(16, 185, 129, 0.32);
+  border-color: rgba(16, 185, 129, 0.34);
   color: #a7f3d0;
+}
+.btn.soft-green:hover { background: rgba(16, 185, 129, 0.24); }
+.btn.active-mode {
+  background: var(--cyan-soft);
+  border-color: var(--border-hi);
+  color: #bae6fd;
 }
 
 .sel, .inp {
-  background: rgba(10, 15, 26, 0.9);
+  background: rgba(10, 15, 26, 0.92);
   border: 1px solid var(--border);
   color: var(--text);
   border-radius: 10px;
-  padding: 7px 12px;
+  padding: 7px 11px;
   font-size: 13px;
   font-family: inherit;
   outline: none;
 }
 .sel:focus, .inp:focus { border-color: var(--cyan); }
+.range-inp { accent-color: var(--cyan); width: 100%; cursor: pointer; }
 
 /* Layout */
-.container {
-  max-width: 1320px;
-  margin: 0 auto;
-  padding: 22px 22px 48px;
-}
+.container { max-width: 1340px; margin: 0 auto; padding: 22px 22px 48px; }
 .tab-pane { display: none; }
 .tab-pane.active { display: block; animation: fadeUp 0.2s ease; }
 @keyframes fadeUp {
@@ -215,7 +220,6 @@ html, body {
   gap: 12px;
 }
 
-/* Cards */
 .card {
   background: var(--surface);
   backdrop-filter: blur(16px);
@@ -224,9 +228,9 @@ html, body {
   overflow: hidden;
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.28);
 }
-.card-pad { padding: 20px 22px; }
+.card-pad { padding: 18px 20px; }
 .card-head {
-  padding: 15px 20px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
@@ -237,7 +241,7 @@ html, body {
 .card-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
 .card-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
-/* Hero Row — Essential 3 Cards */
+/* Hero */
 .hero-grid {
   display: grid;
   grid-template-columns: 1.45fr 1fr 1fr;
@@ -247,7 +251,7 @@ html, body {
 .hero-card {
   position: relative;
   padding: 20px 22px;
-  background: linear-gradient(155deg, rgba(16, 23, 39, 0.88), rgba(9, 13, 22, 0.82));
+  background: linear-gradient(155deg, rgba(16, 23, 39, 0.90), rgba(9, 13, 22, 0.84));
   border: 1px solid var(--border);
   border-radius: 20px;
   display: flex;
@@ -256,22 +260,20 @@ html, body {
   gap: 10px;
 }
 .hero-card.primary-glow {
-  border-color: rgba(56, 189, 248, 0.28);
-  box-shadow: 0 12px 40px rgba(14, 165, 233, 0.08);
+  border-color: rgba(56, 189, 248, 0.30);
+  box-shadow: 0 12px 40px rgba(14, 165, 233, 0.09);
 }
-.hero-label { font-size: 12.5px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+.hero-label { font-size: 12.5px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .hero-value { font-size: 32px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.1; }
 .hero-sub { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.hero-split {
-  display: flex;
-  gap: 12px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(148, 163, 184, 0.1);
-}
+.alloc-bar { height: 6px; border-radius: 999px; background: rgba(148, 163, 184, 0.14); overflow: hidden; display: flex; }
+.alloc-perps { background: linear-gradient(90deg, #0284c7, #38bdf8); }
+.alloc-poly { background: linear-gradient(90deg, #059669, #10b981); }
+.hero-split { display: flex; gap: 12px; padding-top: 6px; }
 .hero-pill {
   flex: 1;
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  background: rgba(15, 23, 42, 0.68);
+  border: 1px solid rgba(148, 163, 184, 0.11);
   border-radius: 12px;
   padding: 8px 12px;
 }
@@ -295,58 +297,45 @@ html, body {
 .badge.amber { background: var(--amber-soft); color: #fcd34d; }
 .badge.blue { background: var(--cyan-soft); color: #7dd3fc; }
 
-/* Main Workspace */
-.main-split {
-  display: grid;
-  grid-template-columns: 1.25fr 1fr;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-.grid-2 {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 18px;
-}
+/* Split Grids */
+.main-split { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; margin-bottom: 18px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
 
-/* Charts */
+/* Interactive Chart + Crosshair Tooltip */
 .chart-wrap {
   position: relative;
-  height: 310px;
+  height: 320px;
   width: 100%;
   border-radius: 14px;
   background: #070b13;
-  border: 1px solid rgba(148, 163, 184, 0.1);
+  border: 1px solid rgba(148, 163, 184, 0.12);
   overflow: hidden;
+  cursor: crosshair;
 }
 .chart-wrap canvas { width: 100%; height: 100%; display: block; }
-.chart-stats {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 12px;
-  font-size: 12.5px;
-  color: var(--muted);
+.chart-tip {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  pointer-events: none;
+  background: rgba(10, 15, 28, 0.90);
+  border: 1px solid var(--border-hi);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 11.5px;
+  color: var(--text);
+  display: none;
+  z-index: 5;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
-.chart-stat-item {
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid rgba(148, 163, 184, 0.1);
-  padding: 5px 10px;
-  border-radius: 9px;
-}
+.chart-stats { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; font-size: 12.5px; color: var(--muted); }
+.chart-stat-item { background: rgba(15, 23, 42, 0.65); border: 1px solid rgba(148, 163, 184, 0.1); padding: 5px 10px; border-radius: 9px; }
 .chart-stat-item b { color: var(--text); font-weight: 600; }
 
-/* Position Cards with Live SL-TP Progress Bar */
-.pos-list {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-  max-height: 410px;
-  overflow-y: auto;
-  padding: 16px;
-}
+/* Position Cards + Inline Edit */
+.pos-list { display: flex; flex-direction: column; gap: 11px; max-height: 440px; overflow-y: auto; padding: 16px; }
 .pos-item {
-  background: rgba(16, 23, 39, 0.78);
+  background: rgba(16, 23, 39, 0.80);
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 14px 16px;
@@ -354,38 +343,47 @@ html, body {
   transition: border-color 0.15s, background 0.15s;
 }
 .pos-item:hover { background: var(--hover); border-color: rgba(148, 163, 184, 0.28); }
-.pos-item.selected { border-color: var(--border-hi); box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.22); }
-.pos-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
+.pos-item.selected { border-color: var(--border-hi); box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.24); }
+.pos-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 .pos-name { font-weight: 700; font-size: 14px; line-height: 1.35; }
 .pos-pnl { font-family: var(--mono); font-weight: 800; font-size: 15px; text-align: left; white-space: nowrap; }
-.pos-bar-wrap {
-  margin: 10px 0 9px;
-  height: 5px;
-  border-radius: 999px;
-  background: rgba(148, 163, 184, 0.14);
+.pos-bar-wrap { margin: 10px 0 9px; height: 5px; border-radius: 999px; background: rgba(148, 163, 184, 0.14); overflow: hidden; }
+.pos-bar-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--amber), var(--cyan), var(--green)); transition: width 0.25s ease; }
+.pos-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.pos-edit-box {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  display: none;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.pos-edit-box.open { display: flex; }
+
+/* Orderbook Depth Bar */
+.depth-row {
+  display: grid;
+  grid-template-columns: 1fr 78px 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 11.5px;
+  padding: 2px 0;
+}
+.depth-bar-l, .depth-bar-r {
+  height: 16px;
+  border-radius: 4px;
   position: relative;
-  overflow: hidden;
-}
-.pos-bar-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--amber), var(--cyan), var(--green));
-  transition: width 0.25s ease;
-}
-.pos-meta {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 12px;
-  color: var(--muted);
+  padding: 0 6px;
+  overflow: hidden;
 }
+.depth-bar-l { justify-content: flex-end; background: rgba(16, 185, 129, 0.08); }
+.depth-bar-r { justify-content: flex-start; background: rgba(244, 63, 94, 0.08); }
+.depth-fill-l { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(16, 185, 129, 0.25); }
+.depth-fill-r { position: absolute; right: 0; top: 0; bottom: 0; background: rgba(244, 63, 94, 0.25); }
+.depth-txt { position: relative; z-index: 2; font-family: var(--mono); font-size: 11px; }
 
 /* Tables */
 .tbl-scroll { overflow-x: auto; max-height: 360px; overflow-y: auto; }
@@ -402,15 +400,11 @@ table.clean-tbl th {
   top: 0;
   white-space: nowrap;
 }
-table.clean-tbl td {
-  padding: 11px 16px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.07);
-  vertical-align: middle;
-}
+table.clean-tbl td { padding: 11px 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.07); vertical-align: middle; }
 table.clean-tbl tbody tr:hover { background: rgba(56, 189, 248, 0.04); }
 table.clean-tbl tbody tr.clickable { cursor: pointer; }
 
-/* Sub-Nav inside Markets */
+/* Sub-Nav */
 .sub-nav {
   display: inline-flex;
   gap: 4px;
@@ -436,30 +430,25 @@ table.clean-tbl tbody tr.clickable { cursor: pointer; }
 .sub-view { display: none; }
 .sub-view.active { display: block; }
 
-/* Chips & Rule Cards */
+/* Chips, Rules & Settings Form */
 .chip-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.chip {
-  background: rgba(15, 23, 42, 0.72);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 6px 10px;
-  font-size: 12px;
-}
+.chip { background: rgba(15, 23, 42, 0.72); border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; font-size: 12px; }
 .rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 16px 20px; }
-.rule-box {
-  background: rgba(15, 23, 42, 0.65);
-  border: 1px solid var(--border);
-  border-radius: 13px;
-  padding: 13px 15px;
-}
+.rule-box { background: rgba(15, 23, 42, 0.65); border: 1px solid var(--border); border-radius: 13px; padding: 13px 15px; }
 .rule-k { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
 .rule-v { font-size: 16px; font-weight: 700; color: var(--text); }
+.cfg-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 18px 20px; }
+.cfg-field { background: rgba(15, 23, 42, 0.65); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.cfg-field label { font-size: 12px; color: var(--muted); font-weight: 600; }
+
+/* Quick Trade Segmented Side */
+.side-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
 /* Search Overlay (#spot-overlay) */
 .spot-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(5, 7, 13, 0.76);
+  background: rgba(5, 7, 13, 0.78);
   backdrop-filter: blur(8px);
   z-index: 100;
   display: none;
@@ -495,14 +484,14 @@ table.clean-tbl tbody tr.clickable { cursor: pointer; }
   font-size: 13px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
   display: none;
-  max-width: 420px;
+  max-width: 440px;
 }
 .toast.show { display: block; }
 .toast.ok { border-color: rgba(16, 185, 129, 0.5); color: #a7f3d0; }
 .toast.err { border-color: rgba(244, 63, 94, 0.5); color: #fecdd3; }
 
 @media (max-width: 1060px) {
-  .hero-grid, .main-split, .grid-2, .rule-grid { grid-template-columns: 1fr; }
+  .hero-grid, .main-split, .grid-2, .rule-grid, .cfg-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   .header-inner { padding: 10px 14px; }
@@ -515,12 +504,16 @@ _UI_JS = r"""
 let DATA = window.__PMMB_INIT__ || {};
 let ACTIVE_TAB = "home";
 let ACTIVE_SUB = "perps";
+let HOME_CHART_MODE = "equity"; // "equity" | "asset"
 let SELECTED_ASSET = null;
 let PERP_SYM = null;
 let POLY_TID = null;
 let CHART_CACHE = { home: null, perps: null, poly: null };
 let POLL_TIMER = null;
 let PERPS_ONLY_SIGNALS = false;
+let QUICK_SIDE = "LONG";
+let BOOK_CACHE = {};
+let CHART_CROSSHAIR = { home: null, perps: null, poly: null };
 
 const $ = (id) => document.getElementById(id);
 function esc(s) {
@@ -593,6 +586,32 @@ async function closePosition(arm, key, label) {
   }
 }
 
+async function closeAllPositions() {
+  if (typeof window.confirm === "function" && !window.confirm("לסגור את כל הפוזיציות הפתוחות בכל הזרועות עכשיו?")) return;
+  await runAction("/api/positions/close-all", { arm: "all" });
+}
+
+function toggleEditLevels(uid) {
+  const el = $("edit-" + uid);
+  if (el) el.classList.toggle("open");
+}
+
+async function savePositionLevels(arm, key, uid) {
+  const slEl = $("sl-" + uid);
+  const tpEl = $("tp-" + uid);
+  const stop_price = slEl && slEl.value !== "" ? Number(slEl.value) : null;
+  const target_price = tpEl && tpEl.value !== "" ? Number(tpEl.value) : null;
+  await runAction("/api/positions/update", { arm, key, stop_price, target_price });
+}
+
+function setHomeChartMode(mode) {
+  HOME_CHART_MODE = mode;
+  const bEq = $("btn-hc-eq"), bAs = $("btn-hc-asset");
+  if (bEq) bEq.className = "btn sm " + (mode === "equity" ? "active-mode" : "");
+  if (bAs) bAs.className = "btn sm " + (mode === "asset" ? "active-mode" : "");
+  drawHomeChart();
+}
+
 function switchTab(tab) {
   ACTIVE_TAB = tab;
   document.querySelectorAll(".nav-tab").forEach((b) => b.classList.toggle("active", b.getAttribute("data-tab") === tab));
@@ -612,6 +631,49 @@ function toggleSignalFilter() {
   const btn = $("btn-sig-filter");
   if (btn) btn.className = "btn sm " + (PERPS_ONLY_SIGNALS ? "primary" : "");
   renderMarketsTab();
+}
+
+function setQuickSide(side) {
+  QUICK_SIDE = side;
+  const bL = $("qt-long"), bS = $("qt-short");
+  if (bL) bL.className = "btn sm " + (side === "LONG" ? "soft-green" : "");
+  if (bS) bS.className = "btn sm " + (side === "SHORT" ? "soft-red" : "");
+  updateQuickPreview();
+}
+
+function updateQuickPreview() {
+  const m = Number(($("qt-margin") && $("qt-margin").value) || 25);
+  const lev = Number(($("qt-lev") && $("qt-lev").value) || 15);
+  const lbl = $("qt-lev-lbl");
+  if (lbl) lbl.textContent = "×" + lev;
+  const prv = $("qt-preview");
+  const sym = PERP_SYM || "BTC";
+  if (prv) {
+    const notional = m * lev;
+    const liqMove = (100 / Math.max(1, lev)).toFixed(1);
+    prv.innerHTML = `${esc(sym)} <b>${QUICK_SIDE}</b> · נומינלי <b class="num cyan">$${fmt(notional, 0)}</b> · מרווח תנועה ~<b class="num">${liqMove}%</b> (מוגן אוטומטית ב־SL/TP)`;
+  }
+}
+
+async function submitQuickOrder() {
+  const sym = PERP_SYM || "BTC";
+  const margin = Number(($("qt-margin") && $("qt-margin").value) || 25);
+  const leverage = Number(($("qt-lev") && $("qt-lev").value) || 15);
+  await runAction("/api/perps/order", { symbol: sym, side: QUICK_SIDE, margin, leverage });
+}
+
+async function saveBotConfig() {
+  const payload = {
+    perps_enabled: $("cfg-perps-en") ? $("cfg-perps-en").value === "1" : true,
+    perps_risk_pct: Number(($("cfg-perps-risk") && $("cfg-perps-risk").value) || 2.8) / 100.0,
+    perps_max_lev: Number(($("cfg-perps-lev") && $("cfg-perps-lev").value) || 50),
+    perps_max_pos: Number(($("cfg-perps-pos") && $("cfg-perps-pos").value) || 4),
+    perps_interval_sec: Number(($("cfg-perps-int") && $("cfg-perps-int").value) || 60),
+    poly_risk_pct: Number(($("cfg-poly-risk") && $("cfg-poly-risk").value) || 3.0) / 100.0,
+    poly_max_pos: Number(($("cfg-poly-pos") && $("cfg-poly-pos").value) || 7),
+    trade_interval_sec: Number(($("cfg-poly-int") && $("cfg-poly-int").value) || 120),
+  };
+  await runAction("/api/config/update", payload);
 }
 
 function renderHeader() {
@@ -657,6 +719,7 @@ function renderHero() {
   const ov = DATA.overall || {};
   const soak = DATA.soak || {};
   const rd = DATA.readiness || {};
+  const pwf = (DATA.analytics && DATA.analytics.perp_walkforward) || {};
 
   const unr = Number(poly.unrealized_pnl || 0) + Number(perps.unrealized_pnl || 0);
   const closedCnt = Number(comb.closed_trades || 0);
@@ -664,6 +727,7 @@ function renderHero() {
     ? (((Number(ov.wins || 0)) + ((Number(perps.closed_trades || 0) * Number(perps.win_rate_pct || 0)) / 100)) / closedCnt * 100)
     : 0;
   const freeCash = Number(poly.cash || 0) + Number(perps.cash || 0);
+  const pShare = comb.equity > 0 ? Math.max(10, Math.min(90, Math.round((Number(perps.equity || 0) / comb.equity) * 100))) : 50;
 
   hero.innerHTML = `
     <div class="hero-card primary-glow">
@@ -674,16 +738,18 @@ function renderHero() {
       <div class="hero-value num">$${fmt(comb.equity)}</div>
       <div class="hero-sub">
         <span class="num ${pnlCls(comb.pnl)}"><b>${fmtSigned(comb.pnl)}$ (${fmtSigned(comb.return_pct)}%)</b></span>
-        <span class="dim">הון התחלתי $${fmt(comb.starting_cash, 0)}</span>
+        <span class="dim">מ־$${fmt(comb.starting_cash, 0)}</span>
+        ${pwf.full_30d_return_pct != null ? `<span class="badge green">PERPS 30d OOS: +${fmt(pwf.full_30d_return_pct, 0)}%</span>` : ""}
       </div>
+      <div class="alloc-bar"><div class="alloc-perps" style="width:${pShare}%"></div><div class="alloc-poly" style="width:${100 - pShare}%"></div></div>
       <div class="hero-split">
         <div class="hero-pill">
           <div class="hero-pill-k">זרוע PERPS ×50</div>
-          <div class="hero-pill-v num">$${fmt(perps.equity)}</div>
+          <div class="hero-pill-v num cyan">$${fmt(perps.equity)}</div>
         </div>
         <div class="hero-pill">
           <div class="hero-pill-k">זרוע Polymarket</div>
-          <div class="hero-pill-v num">$${fmt(poly.equity)}</div>
+          <div class="hero-pill-v num pos">$${fmt(poly.equity)}</div>
         </div>
       </div>
     </div>
@@ -707,7 +773,7 @@ function renderHero() {
 
     <div class="hero-card">
       <div class="hero-label">
-        <span>נזילות פנויה</span>
+        <span>נזילות ושליטה</span>
         <a class="btn sm" href="/api/export/trades.csv">ייצוא CSV</a>
       </div>
       <div class="hero-value num">$${fmt(freeCash)}</div>
@@ -717,7 +783,7 @@ function renderHero() {
       </div>
       <div class="hero-sub" style="margin-top:auto">
         <span>מרג׳ין פעיל: <b class="num cyan">$${fmt(perps.margin_used)}</b></span>
-        <button class="btn sm" onclick="switchTab('settings')">צ׳קליסט Live</button>
+        <button class="btn sm" onclick="switchTab('settings')">הגדרות ו־Live</button>
       </div>
     </div>
   `;
@@ -772,6 +838,10 @@ function syncSelectors() {
 
 async function selectHomeAsset(arm, id, live = false) {
   SELECTED_ASSET = { arm, id };
+  HOME_CHART_MODE = "asset";
+  const bEq = $("btn-hc-eq"), bAs = $("btn-hc-asset");
+  if (bEq) bEq.className = "btn sm";
+  if (bAs) bAs.className = "btn sm active-mode";
   const hSel = $("home-asset-sel");
   if (hSel) hSel.value = arm + ":" + id;
   if (arm === "perps") {
@@ -805,6 +875,46 @@ async function selectPerpAsset(sym, live = false) {
   }
   drawPerpChart();
   renderPerpsThesis();
+  updateQuickPreview();
+  loadPerpBook(sym);
+}
+
+async function loadPerpBook(sym) {
+  const box = $("perps-depth-box");
+  if (!box) return;
+  try {
+    const bk = await apiGet(`/api/perps/book?symbol=${encodeURIComponent(sym)}`);
+    BOOK_CACHE[sym] = bk;
+    renderPerpDepth(bk);
+  } catch (_) {}
+}
+
+function renderPerpDepth(bk) {
+  const box = $("perps-depth-box");
+  if (!box || !bk) return;
+  const bids = (bk.bids || []).slice(0, 5);
+  const asks = (bk.asks || []).slice(0, 5);
+  const maxSz = Math.max(1e-6, ...bids.map((b) => b[1]), ...asks.map((a) => a[1]));
+  const rows = [];
+  for (let i = 0; i < Math.max(bids.length, asks.length); i++) {
+    const b = bids[i], a = asks[i];
+    const bw = b ? Math.round((b[1] / maxSz) * 100) : 0;
+    const aw = a ? Math.round((a[1] / maxSz) * 100) : 0;
+    rows.push(`
+      <div class="depth-row">
+        <div class="depth-bar-l"><div class="depth-fill-l" style="width:${bw}%"></div><span class="depth-txt pos">${b ? fmt(b[0], b[0] >= 10 ? 2 : 4) : "—"}</span></div>
+        <div class="dim num" style="text-align:center;font-size:10.5px">${b && a ? fmt(b[1], 1) + " / " + fmt(a[1], 1) : ""}</div>
+        <div class="depth-bar-r"><div class="depth-fill-r" style="width:${aw}%"></div><span class="depth-txt neg">${a ? fmt(a[0], a[0] >= 10 ? 2 : 4) : "—"}</span></div>
+      </div>
+    `);
+  }
+  box.innerHTML = `
+    <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:6px">
+      <span>ספר פקודות חי · <b class="num">${esc(bk.symbol)}</b></span>
+      <span class="muted">Spread <b class="num">${fmt(bk.spread_bps, 2)} bps</b> · Imbalance <b class="num ${pnlCls(bk.imbalance)}">${fmtSigned(bk.imbalance, 2)}</b></span>
+    </div>
+    ${rows.join("") || '<div class="muted">טוען ספר פקודות...</div>'}
+  `;
 }
 
 async function selectPolyAsset(tid, live = false) {
@@ -822,9 +932,9 @@ async function selectPolyAsset(tid, live = false) {
 
 function initCanvas(canvas) {
   if (!canvas || !canvas.getContext) return null;
-  const rect = canvas.parentElement ? canvas.parentElement.getBoundingClientRect() : { width: 720, height: 310 };
+  const rect = canvas.parentElement ? canvas.parentElement.getBoundingClientRect() : { width: 720, height: 320 };
   const w = Math.max(300, Math.floor(rect.width || 720));
-  const h = Math.max(220, Math.floor(rect.height || 310));
+  const h = Math.max(220, Math.floor(rect.height || 320));
   const dpr = window.devicePixelRatio || 1;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
@@ -834,7 +944,83 @@ function initCanvas(canvas) {
   return { ctx, w, h };
 }
 
-function drawCandles(canvas, payload) {
+function updateTip(tipId, htmlText, show = true) {
+  const tip = $(tipId);
+  if (!tip) return;
+  if (!show) { tip.style.display = "none"; return; }
+  tip.innerHTML = htmlText;
+  tip.style.display = "block";
+}
+
+function drawEquityCurve(canvas, points, tipId, hoverX) {
+  const s = initCanvas(canvas);
+  if (!s) return;
+  const { ctx, w, h } = s;
+  ctx.fillStyle = "#070b13";
+  ctx.fillRect(0, 0, w, h);
+
+  if (!points || points.length < 2) {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "13px sans-serif";
+    ctx.fillText("צובר נקודות הון לעקומה...", 22, 42);
+    return;
+  }
+  const padL = 16, padR = 64, padT = 20, padB = 26;
+  const cw = w - padL - padR, ch = h - padT - padB;
+  let lo = Infinity, hi = -Infinity;
+  points.forEach((p) => { if (p.equity < lo) lo = p.equity; if (p.equity > hi) hi = p.equity; });
+  if (hi <= lo) hi = lo + 10;
+  const sp = hi - lo;
+  lo -= sp * 0.12;
+  hi += sp * 0.12;
+  const xOf = (i) => padL + (i / Math.max(1, points.length - 1)) * cw;
+  const yOf = (v) => padT + ((hi - v) / (hi - lo)) * ch;
+
+  ctx.strokeStyle = "rgba(148,163,184,0.08)";
+  ctx.lineWidth = 1;
+  ctx.font = "11px monospace";
+  ctx.fillStyle = "#64748b";
+  for (let i = 0; i <= 4; i++) {
+    const gy = padT + (ch * i) / 4;
+    const gp = hi - ((hi - lo) * i) / 4;
+    ctx.beginPath(); ctx.moveTo(padL, gy); ctx.lineTo(w - padR, gy); ctx.stroke();
+    ctx.fillText("$" + gp.toFixed(0), w - padR + 8, gy + 4);
+  }
+
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = xOf(i), y = yOf(p.equity);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = "#10b981";
+  ctx.lineWidth = 2.6;
+  ctx.stroke();
+
+  ctx.lineTo(xOf(points.length - 1), h - padB);
+  ctx.lineTo(xOf(0), h - padB);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(16, 185, 129, 0.12)";
+  ctx.fill();
+
+  if (hoverX != null && hoverX >= padL && hoverX <= w - padR) {
+    const idx = Math.max(0, Math.min(points.length - 1, Math.round(((hoverX - padL) / cw) * (points.length - 1))));
+    const pt = points[idx];
+    const cx = xOf(idx), cy = yOf(pt.equity);
+    ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+    ctx.lineWidth = 1;
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(cx, padT); ctx.lineTo(cx, h - padB); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(padL, cy); ctx.lineTo(w - padR, cy); ctx.stroke();
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([]);
+    ctx.fillStyle = "#38bdf8";
+    ctx.beginPath(); if (typeof ctx.arc === "function") ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
+    updateTip(tipId, `<b>${fmtDateTime(pt.ts)}</b> · הון <b class="num pos">$${fmt(pt.equity)}</b> · PERPS <span class="num">$${fmt(pt.perps)}</span> · Poly <span class="num">$${fmt(pt.poly)}</span>`, true);
+  } else {
+    updateTip(tipId, "", false);
+  }
+}
+
+function drawCandles(canvas, payload, tipId, hoverX) {
   const s = initCanvas(canvas);
   if (!s) return;
   const { ctx, w, h } = s;
@@ -906,9 +1092,26 @@ function drawCandles(canvas, payload) {
     ctx.fillStyle = lv.col;
     ctx.fillText(lv.label, padL + 6, y - 4);
   });
+
+  if (hoverX != null && hoverX >= padL && hoverX <= w - padR) {
+    const idx = Math.max(0, Math.min(view.length - 1, Math.floor((hoverX - padL) / step)));
+    const c = view[idx];
+    const cx = padL + (idx + 0.5) * step;
+    const cy = yOf(c.close);
+    ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+    ctx.lineWidth = 1;
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(cx, padT); ctx.lineTo(cx, h - padB); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(padL, cy); ctx.lineTo(w - padR, cy); ctx.stroke();
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([]);
+    const d = c.close >= 100 ? 1 : (c.close >= 1 ? 3 : 4);
+    updateTip(tipId, `<b>${fmtDateTime(c.ts)}</b> · O:<span class="num">${fmt(c.open, d)}</span> H:<span class="num pos">${fmt(c.high, d)}</span> L:<span class="num neg">${fmt(c.low, d)}</span> C:<b class="num cyan">${fmt(c.close, d)}</b>`, true);
+  } else {
+    updateTip(tipId, "", false);
+  }
 }
 
-function drawSmoothLine(canvas, payload) {
+function drawSmoothLine(canvas, payload, tipId, hoverX) {
   const s = initCanvas(canvas);
   if (!s) return;
   const { ctx, w, h } = s;
@@ -979,20 +1182,50 @@ function drawSmoothLine(canvas, payload) {
     ctx.fillStyle = lv.col;
     ctx.fillText(lv.label, padL + 6, y - 4);
   });
+
+  if (hoverX != null && hoverX >= padL && hoverX <= w - padR) {
+    const idx = Math.max(0, Math.min(ticks.length - 1, Math.round(((hoverX - padL) / cw) * (ticks.length - 1))));
+    const tk = ticks[idx];
+    const cx = xOf(idx), cy = yOf(tk.price);
+    ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+    ctx.lineWidth = 1;
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(cx, padT); ctx.lineTo(cx, h - padB); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(padL, cy); ctx.lineTo(w - padR, cy); ctx.stroke();
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([]);
+    updateTip(tipId, `<b>${fmtDateTime(tk.ts)}</b> · מחיר <b class="num cyan">${fmt(tk.price, 3)}</b>`, true);
+  } else {
+    updateTip(tipId, "", false);
+  }
 }
 
 function drawHomeChart() {
   const c = $("home-chart");
   if (!c) return;
+  const stats = $("home-chart-stats");
+  const curve = DATA.combined_equity_curve || [];
+  if (HOME_CHART_MODE === "equity" && curve.length >= 2) {
+    drawEquityCurve(c, curve, "home-tip", CHART_CROSSHAIR.home);
+    if (stats) {
+      const first = curve[0], last = curve[curve.length - 1];
+      const delta = last.equity - first.equity;
+      stats.innerHTML = `
+        <div class="chart-stat-item">תחילת מעקב: <b class="num">$${fmt(first.equity)}</b></div>
+        <div class="chart-stat-item">כעת: <b class="num cyan">$${fmt(last.equity)}</b></div>
+        <div class="chart-stat-item">שינוי בתקופה: <b class="num ${pnlCls(delta)}">${fmtSigned(delta)}$</b></div>
+      `;
+    }
+    return;
+  }
+
   const cached = CHART_CACHE.home;
   let kind = "perps", d = null;
   if (cached) { kind = cached.kind; d = cached.data; }
   else if (DATA.perps && DATA.perps.default_chart && (DATA.perps.default_chart.candles || []).length) { kind = "perps"; d = DATA.perps.default_chart; }
   else if (DATA.charts && DATA.charts.default) { kind = "poly"; d = DATA.charts.default; }
   if (!d) return;
-  if (kind === "perps") drawCandles(c, d); else drawSmoothLine(c, d);
+  if (kind === "perps") drawCandles(c, d, "home-tip", CHART_CROSSHAIR.home); else drawSmoothLine(c, d, "home-tip", CHART_CROSSHAIR.home);
 
-  const stats = $("home-chart-stats");
   if (!stats) return;
   if (kind === "perps") {
     const cs = d.candles || [];
@@ -1023,17 +1256,31 @@ function drawHomeChart() {
 function drawPerpChart() {
   const c = $("perps-chart");
   const d = CHART_CACHE.perps || (DATA.perps && DATA.perps.default_chart);
-  if (c && d) drawCandles(c, d);
+  if (c && d) drawCandles(c, d, "perps-tip", CHART_CROSSHAIR.perps);
 }
 function drawPolyChart() {
   const c = $("mkt-chart");
   const d = CHART_CACHE.poly || (DATA.charts && DATA.charts.default);
-  if (c && d) drawSmoothLine(c, d);
+  if (c && d) drawSmoothLine(c, d, "poly-tip", CHART_CROSSHAIR.poly);
 }
 function redrawActiveCharts() {
   if (ACTIVE_TAB === "home") drawHomeChart();
   if (ACTIVE_TAB === "markets" && ACTIVE_SUB === "perps") drawPerpChart();
   if (ACTIVE_TAB === "markets" && ACTIVE_SUB === "poly") drawPolyChart();
+}
+
+function bindCanvasCrosshair(canvasId, key, redrawFn) {
+  const c = $(canvasId);
+  if (!c || typeof c.addEventListener !== "function") return;
+  c.addEventListener("mousemove", (ev) => {
+    const rect = c.getBoundingClientRect ? c.getBoundingClientRect() : { left: 0 };
+    CHART_CROSSHAIR[key] = ev.clientX - rect.left;
+    redrawFn();
+  });
+  c.addEventListener("mouseleave", () => {
+    CHART_CROSSHAIR[key] = null;
+    redrawFn();
+  });
 }
 
 function calcProgressPct(sl, tp, cur, side) {
@@ -1048,11 +1295,14 @@ function renderPositionsPanel() {
   if (!box) return;
   const pRows = (DATA.perps && DATA.perps.positions) || [];
   const mRows = DATA.positions || [];
+  const closeAllBtn = $("btn-close-all");
+  if (closeAllBtn) closeAllBtn.style.display = (pRows.length + mRows.length) > 0 ? "inline-flex" : "none";
   const cards = [];
 
-  pRows.forEach((p) => {
+  pRows.forEach((p, idx) => {
     const isSel = SELECTED_ASSET && SELECTED_ASSET.arm === "perps" && SELECTED_ASSET.id === p.symbol;
     const key = esc(p.symbol);
+    const uid = "p" + idx;
     const pct = calcProgressPct(p.stop_price, p.target_price, p.mark_price, p.side);
     cards.push(`
       <div class="pos-item ${isSel ? 'selected' : ''}" onclick="selectHomeAsset('perps','${key}')">
@@ -1069,17 +1319,26 @@ function renderPositionsPanel() {
         <div class="pos-bar-wrap"><div class="pos-bar-fill" style="width:${pct}%"></div></div>
         <div class="pos-meta">
           <span><b class="num">${fmt(p.entry_price, p.entry_price >= 10 ? 2 : 4)}</b> → <b class="num">${fmt(p.mark_price, p.mark_price >= 10 ? 2 : 4)}</b></span>
-          <span>הגנה <span class="num warn">${fmt(p.stop_price, 4)}</span> · יעד <span class="num pos">${fmt(p.target_price, 4)}</span></span>
-          <button class="btn sm soft-red" onclick="event.stopPropagation(); closePosition('perps','${key}','${key} ${esc(p.side)}')">סגור עסקה</button>
+          <span>SL <span class="num warn">${fmt(p.stop_price, 4)}</span> · TP <span class="num pos">${fmt(p.target_price, 4)}</span></span>
+          <div style="display:flex;gap:6px">
+            <button class="btn xs" onclick="event.stopPropagation(); toggleEditLevels('${uid}')">ערוך SL/TP</button>
+            <button class="btn xs soft-red" onclick="event.stopPropagation(); closePosition('perps','${key}','${key} ${esc(p.side)}')">סגור עסקה</button>
+          </div>
+        </div>
+        <div id="edit-${uid}" class="pos-edit-box" onclick="event.stopPropagation()">
+          <input id="sl-${uid}" class="inp num" style="width:92px;padding:4px 8px;font-size:12px" type="number" step="any" value="${fmt(p.stop_price, 4)}" title="Stop Loss">
+          <input id="tp-${uid}" class="inp num" style="width:92px;padding:4px 8px;font-size:12px" type="number" step="any" value="${fmt(p.target_price, 4)}" title="Take Profit">
+          <button class="btn xs primary" onclick="savePositionLevels('perps','${key}','${uid}')">שמור</button>
         </div>
       </div>
     `);
   });
 
-  mRows.forEach((p) => {
+  mRows.forEach((p, idx) => {
     const key = esc(p.full_token_id || p.token_id);
     const isSel = SELECTED_ASSET && SELECTED_ASSET.arm === "poly" && SELECTED_ASSET.id === (p.full_token_id || p.token_id);
     const label = esc((p.question || p.token_id).slice(0, 34));
+    const uid = "m" + idx;
     const pct = calcProgressPct(p.stop_price, p.target_price, p.mark_price ?? p.avg_price, "LONG");
     cards.push(`
       <div class="pos-item ${isSel ? 'selected' : ''}" onclick="selectHomeAsset('poly','${key}')">
@@ -1096,14 +1355,22 @@ function renderPositionsPanel() {
         <div class="pos-bar-wrap"><div class="pos-bar-fill" style="width:${pct}%"></div></div>
         <div class="pos-meta">
           <span><b class="num">${fmt(p.avg_price, 3)}</b> → <b class="num">${p.mark_price != null ? fmt(p.mark_price, 3) : "—"}</b></span>
-          <span>הגנה <span class="num warn">${p.stop_price != null ? fmt(p.stop_price, 2) : "—"}</span> · יעד <span class="num pos">${p.target_price != null ? fmt(p.target_price, 2) : "—"}</span></span>
-          <button class="btn sm soft-red" onclick="event.stopPropagation(); closePosition('polymarket','${key}','${label}')">סגור עסקה</button>
+          <span>SL <span class="num warn">${p.stop_price != null ? fmt(p.stop_price, 2) : "—"}</span> · TP <span class="num pos">${p.target_price != null ? fmt(p.target_price, 2) : "—"}</span></span>
+          <div style="display:flex;gap:6px">
+            <button class="btn xs" onclick="event.stopPropagation(); toggleEditLevels('${uid}')">ערוך SL/TP</button>
+            <button class="btn xs soft-red" onclick="event.stopPropagation(); closePosition('polymarket','${key}','${label}')">סגור עסקה</button>
+          </div>
+        </div>
+        <div id="edit-${uid}" class="pos-edit-box" onclick="event.stopPropagation()">
+          <input id="sl-${uid}" class="inp num" style="width:76px;padding:4px 8px;font-size:12px" type="number" step="0.01" min="0.01" max="0.99" value="${p.stop_price != null ? fmt(p.stop_price, 3) : ''}" title="Stop Loss">
+          <input id="tp-${uid}" class="inp num" style="width:76px;padding:4px 8px;font-size:12px" type="number" step="0.01" min="0.01" max="0.99" value="${p.target_price != null ? fmt(p.target_price, 3) : ''}" title="Take Profit">
+          <button class="btn xs primary" onclick="savePositionLevels('polymarket','${key}','${uid}')">שמור</button>
         </div>
       </div>
     `);
   });
 
-  box.innerHTML = cards.length ? cards.join("") : `<div class="muted" style="padding:28px;text-align:center">אין עסקאות פתוחות כרגע — הסורק ממתין לאיתות באיכות גבוהה.</div>`;
+  box.innerHTML = cards.length ? cards.join("") : `<div class="muted" style="padding:28px;text-align:center">אין עסקאות פתוחות כרגע — הבוט ממתין לאיתות באיכות גבוהה.</div>`;
 }
 
 function renderHomeBottomTables() {
@@ -1204,6 +1471,7 @@ function renderMarketsTab() {
     `).join("") || `<tr><td colspan="4" class="muted">אין חדשות במאגר</td></tr>`;
   }
   renderPerpsThesis();
+  if (BOOK_CACHE[PERP_SYM]) renderPerpDepth(BOOK_CACHE[PERP_SYM]);
 }
 
 function renderPerpsThesis() {
@@ -1222,7 +1490,7 @@ function renderPerpsThesis() {
       <div class="chip-grid">
         <span class="chip">כניסה <b class="num">${fmt(pos.entry_price, 4)}</b></span>
         <span class="chip">כעת <b class="num">${fmt(pos.mark_price, 4)}</b></span>
-        <span class="chip">מרחק ניזול <b class="num pos">${fmt(pos.liq_distance_pct, 1)}%</b></span>
+        <span class="chip">ניזול <b class="num pos">${fmt(pos.liq_distance_pct, 1)}%</b></span>
       </div>
     `;
   } else if (intel) {
@@ -1263,7 +1531,23 @@ async function runPerpsSim() {
   }
 }
 
+function syncConfigForm() {
+  const cfg = DATA.config || {};
+  const pc = cfg.perps || {};
+  const r = cfg.risk || {};
+  const ap = cfg.autopilot || {};
+  if ($("cfg-perps-en")) $("cfg-perps-en").value = pc.enabled === false ? "0" : "1";
+  if ($("cfg-perps-risk") && pc.risk_per_trade_pct != null) $("cfg-perps-risk").value = (pc.risk_per_trade_pct * 100).toFixed(1);
+  if ($("cfg-perps-lev") && pc.max_leverage != null) $("cfg-perps-lev").value = pc.max_leverage;
+  if ($("cfg-perps-pos") && pc.max_open_positions != null) $("cfg-perps-pos").value = pc.max_open_positions;
+  if ($("cfg-perps-int") && pc.interval_sec != null) $("cfg-perps-int").value = pc.interval_sec;
+  if ($("cfg-poly-risk") && r.risk_per_trade_pct != null) $("cfg-poly-risk").value = (r.risk_per_trade_pct * 100).toFixed(1);
+  if ($("cfg-poly-pos") && r.max_open_positions != null) $("cfg-poly-pos").value = r.max_open_positions;
+  if ($("cfg-poly-int") && ap.trade_interval_sec != null) $("cfg-poly-int").value = ap.trade_interval_sec;
+}
+
 function renderSettingsTab() {
+  syncConfigForm();
   const rd = DATA.readiness || {};
   const rdBadge = $("readiness-summary");
   if (rdBadge) {
@@ -1290,7 +1574,7 @@ function renderSettingsTab() {
       ["הרחקה מהכרעת שווקים", `לפחות ${u.min_entry_hours_to_resolution ?? 48} שעות לפני סגירה`],
       ["טווח מחירים בטוח ב־Polymarket", `${(u.price_band || [0.2, 0.85]).join(" – ")}`],
       ["יעד והגנה לעסקת Polymarket", `יעד +${s.take_profit ?? 0.06} · הגנה -${s.stop_loss ?? 0.07}`],
-      ["מינוף מקסימלי ב־PERPS", `עד ×${(DATA.perps && DATA.perps.max_leverage) || 50} (מבודד עם הגנת ניזול)`],
+      ["מינוף מדורג ב־PERPS", `עד ×${(DATA.perps && DATA.perps.max_leverage) || 50} (A+ 1.3× · A 1.1× · B 0.85×)`],
     ];
     rules.innerHTML = items.map(([k, v]) => `<div class="rule-box"><div class="rule-k">${esc(k)}</div><div class="rule-v">${esc(v)}</div></div>`).join("");
   }
@@ -1368,10 +1652,22 @@ function toggleLoop() {
 }
 
 function initApp(refreshSec) {
+  if (!(DATA.combined_equity_curve && DATA.combined_equity_curve.length >= 2)) HOME_CHART_MODE = "asset";
+  setHomeChartMode(HOME_CHART_MODE);
   renderAll();
-  if (SELECTED_ASSET) selectHomeAsset(SELECTED_ASSET.arm, SELECTED_ASSET.id, false);
+  if (SELECTED_ASSET) {
+    const prevMode = HOME_CHART_MODE;
+    selectHomeAsset(SELECTED_ASSET.arm, SELECTED_ASSET.id, false).then(() => {
+      if (prevMode === "equity") setHomeChartMode("equity");
+    });
+  }
   if (PERP_SYM) selectPerpAsset(PERP_SYM, false);
   if (POLY_TID) selectPolyAsset(POLY_TID, false);
+  updateQuickPreview();
+
+  bindCanvasCrosshair("home-chart", "home", drawHomeChart);
+  bindCanvasCrosshair("perps-chart", "perps", drawPerpChart);
+  bindCanvasCrosshair("mkt-chart", "poly", drawPolyChart);
 
   document.addEventListener("keydown", (ev) => {
     if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === "k") { ev.preventDefault(); openSpot(); }
@@ -1434,9 +1730,9 @@ _HTML_TEMPLATE = """<!doctype html>
     <div class="main-split">
       <div class="card">
         <div class="card-head">
-          <div>
-            <div class="card-title">גרף מחיר חי ורמות יעד</div>
-            <div class="card-sub">בחר נכס או עסקה פתוחה לצפייה בגרף</div>
+          <div style="display:flex;gap:6px;align-items:center">
+            <button id="btn-hc-eq" class="btn sm active-mode" onclick="setHomeChartMode('equity')">עקומת הון התיק</button>
+            <button id="btn-hc-asset" class="btn sm" onclick="setHomeChartMode('asset')">גרף נכס חי</button>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
             <select id="home-asset-sel" class="sel" onchange="const v=this.value.split(':');selectHomeAsset(v[0],v.slice(1).join(':'),false)"></select>
@@ -1444,7 +1740,10 @@ _HTML_TEMPLATE = """<!doctype html>
           </div>
         </div>
         <div class="card-pad">
-          <div class="chart-wrap"><canvas id="home-chart"></canvas></div>
+          <div class="chart-wrap">
+            <canvas id="home-chart"></canvas>
+            <div id="home-tip" class="chart-tip"></div>
+          </div>
           <div id="home-chart-stats" class="chart-stats"></div>
         </div>
       </div>
@@ -1453,8 +1752,9 @@ _HTML_TEMPLATE = """<!doctype html>
         <div class="card-head">
           <div>
             <div class="card-title">הפוזיציות הפתוחות שלי</div>
-            <div class="card-sub">מד התקדמות בין הגנה ליעד · סגירה בלחיצה</div>
+            <div class="card-sub">ערוך הגנה/יעד, סגור עסקה בודדת או הכל</div>
           </div>
+          <button id="btn-close-all" class="btn xs soft-red" style="display:none" onclick="closeAllPositions()">סגור הכל</button>
         </div>
         <div id="home-positions-list" class="pos-list"></div>
       </div>
@@ -1501,28 +1801,61 @@ _HTML_TEMPLATE = """<!doctype html>
         <div class="card">
           <div class="card-head">
             <div>
-              <div class="card-title">גרף נרות PERPS ×50</div>
-              <div class="card-sub">נרות 1H בזמן אמת · OKX / Hyperliquid</div>
+              <div class="card-title">גרף נרות אינטראקטיבי PERPS ×50</div>
+              <div class="card-sub">הזז עכבר על הנרות לפירוט OHLC · OKX / Hyperliquid</div>
             </div>
             <div style="display:flex;gap:8px">
               <select id="perp-asset-sel" class="sel" onchange="selectPerpAsset(this.value,false)"></select>
               <button class="btn sm primary" onclick="runAction('/api/perps/cycle')">סרוק PERPS עכשיו</button>
             </div>
           </div>
-          <div class="card-pad"><div class="chart-wrap"><canvas id="perps-chart"></canvas></div></div>
+          <div class="card-pad">
+            <div class="chart-wrap">
+              <canvas id="perps-chart"></canvas>
+              <div id="perps-tip" class="chart-tip"></div>
+            </div>
+            <div id="perps-depth-box" class="rule-box" style="margin-top:12px"></div>
+          </div>
         </div>
 
         <div class="card">
-          <div class="card-head"><div class="card-title">ניתוח נכס ובדיקת תרחישים</div></div>
+          <div class="card-head"><div class="card-title">תזת נכס, מסחר מהיר וסימולטור</div></div>
           <div class="card-pad" style="display:flex;flex-direction:column;gap:14px">
             <div id="perps-thesis-box" class="rule-box" style="font-size:13px"></div>
-            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-              <label style="font-size:12px;color:var(--muted)">מינוף מקס׳<br><input id="sim-lev" class="inp num" style="width:76px;margin-top:4px" type="number" min="2" max="50" value="50"></label>
-              <label style="font-size:12px;color:var(--muted)">הגנה (×ATR)<br><input id="sim-sl" class="inp num" style="width:76px;margin-top:4px" type="number" step="0.1" min="0.8" max="4" value="1.5"></label>
-              <label style="font-size:12px;color:var(--muted)">יעד (×ATR)<br><input id="sim-tp" class="inp num" style="width:76px;margin-top:4px" type="number" step="0.1" min="1.2" max="6" value="2.6"></label>
-              <button class="btn sm primary" onclick="runPerpsSim()">הרץ בדיקה</button>
+
+            <!-- Quick Manual Paper Order -->
+            <div class="rule-box" style="display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;justify-content:space-between;align-items:center">
+                <b style="font-size:13px">פתיחת עסקה ידנית (Paper)</b>
+                <span class="badge blue">הגנת SL/TP אוטומטית</span>
+              </div>
+              <div class="side-toggle">
+                <button id="qt-long" class="btn sm soft-green" onclick="setQuickSide('LONG')">LONG (עלייה)</button>
+                <button id="qt-short" class="btn sm" onclick="setQuickSide('SHORT')">SHORT (ירידה)</button>
+              </div>
+              <div style="display:flex;gap:10px;align-items:center">
+                <label style="font-size:12px;color:var(--muted);flex:1">מרג׳ין ($)<br>
+                  <input id="qt-margin" class="inp num" style="width:100%;margin-top:4px" type="number" min="5" step="5" value="25" oninput="updateQuickPreview()">
+                </label>
+                <label style="font-size:12px;color:var(--muted);flex:1.4">מינוף: <b id="qt-lev-lbl" class="num cyan">×15</b><br>
+                  <input id="qt-lev" class="range-inp" style="margin-top:9px" type="range" min="2" max="50" value="15" oninput="updateQuickPreview()">
+                </label>
+              </div>
+              <div id="qt-preview" class="muted" style="font-size:12px"></div>
+              <button class="btn sm primary" onclick="submitQuickOrder()">בצע עסקת PERPS</button>
             </div>
-            <div id="perps-sim-res" class="rule-box muted" style="font-size:13px">בחר פרמטרים והרץ סימולציה על נתוני אמת.</div>
+
+            <!-- Simulator -->
+            <div class="rule-box" style="display:flex;flex-direction:column;gap:10px">
+              <b style="font-size:13px">בדיקת תרחיש 30 יום (What-If)</b>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+                <label style="font-size:11.5px;color:var(--muted)">מינוף<br><input id="sim-lev" class="inp num" style="width:68px;margin-top:4px" type="number" min="2" max="50" value="50"></label>
+                <label style="font-size:11.5px;color:var(--muted)">SL (×ATR)<br><input id="sim-sl" class="inp num" style="width:68px;margin-top:4px" type="number" step="0.1" min="0.8" max="4" value="1.5"></label>
+                <label style="font-size:11.5px;color:var(--muted)">TP (×ATR)<br><input id="sim-tp" class="inp num" style="width:68px;margin-top:4px" type="number" step="0.1" min="1.2" max="6" value="2.6"></label>
+                <button class="btn sm primary" onclick="runPerpsSim()">הרץ בדיקה</button>
+              </div>
+              <div id="perps-sim-res" class="muted" style="font-size:12.5px">הרץ סימולציה על נתוני אמת היסטוריים.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -1550,7 +1883,12 @@ _HTML_TEMPLATE = """<!doctype html>
             <button class="btn sm primary" onclick="runAction('/api/paper-cycle')">סרוק Polymarket עכשיו</button>
           </div>
         </div>
-        <div class="card-pad"><div class="chart-wrap"><canvas id="mkt-chart"></canvas></div></div>
+        <div class="card-pad">
+          <div class="chart-wrap">
+            <canvas id="mkt-chart"></canvas>
+            <div id="poly-tip" class="chart-tip"></div>
+          </div>
+        </div>
       </div>
       <div class="card">
         <div class="card-head">
@@ -1586,8 +1924,28 @@ _HTML_TEMPLATE = """<!doctype html>
     </div>
   </section>
 
-  <!-- TAB 3: Readiness, Risk & Settings -->
+  <!-- TAB 3: Readiness, Live Settings & Autopilot -->
   <section id="tab-settings" class="tab-pane">
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-head">
+        <div>
+          <div class="card-title">שליטה ישירה בבוט ובניהול הסיכון</div>
+          <div class="card-sub">השינויים מוחלים מיד על הבוט הרץ ונשמרים אוטומטית ב־config.yaml</div>
+        </div>
+        <button class="btn sm primary" onclick="saveBotConfig()">שמור והחל הגדרות</button>
+      </div>
+      <div class="cfg-grid">
+        <div class="cfg-field"><label>זרוע PERPS ×50</label><select id="cfg-perps-en" class="sel"><option value="1">פעילה</option><option value="0">מושהית</option></select></div>
+        <div class="cfg-field"><label>סיכון לעסקת PERPS (%)</label><input id="cfg-perps-risk" class="inp num" type="number" step="0.1" min="0.5" max="5.0" value="2.8"></div>
+        <div class="cfg-field"><label>מינוף מקסימלי (×2–×50)</label><input id="cfg-perps-lev" class="inp num" type="number" min="2" max="50" value="50"></div>
+        <div class="cfg-field"><label>מקסימום פוזיציות PERPS</label><input id="cfg-perps-pos" class="inp num" type="number" min="1" max="8" value="4"></div>
+        <div class="cfg-field"><label>תדירות סריקת PERPS (שניות)</label><input id="cfg-perps-int" class="inp num" type="number" min="30" max="600" value="60"></div>
+        <div class="cfg-field"><label>סיכון לעסקת Polymarket (%)</label><input id="cfg-poly-risk" class="inp num" type="number" step="0.1" min="0.5" max="5.0" value="3.0"></div>
+        <div class="cfg-field"><label>מקסימום פוזיציות Polymarket</label><input id="cfg-poly-pos" class="inp num" type="number" min="1" max="12" value="7"></div>
+        <div class="cfg-field"><label>תדירות מחזור Polymarket (שניות)</label><input id="cfg-poly-int" class="inp num" type="number" min="45" max="600" value="120"></div>
+      </div>
+    </div>
+
     <div class="grid-2">
       <div class="card">
         <div class="card-head"><div class="card-title">מוכנות למעבר לכסף אמיתי</div><span id="readiness-summary" class="badge">—</span></div>

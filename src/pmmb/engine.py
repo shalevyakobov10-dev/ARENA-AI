@@ -215,10 +215,36 @@ class Engine:
         self._intel_rows = []
         self._refresh_news_if_due(markets)
 
+        prefetched: dict[str, tuple[Book | None, list]] = {}
+        if len(markets) >= 8 and type(self.clob) is ClobClient:
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _fetch_mkt(mk: Market) -> tuple[str, Book | None, list]:
+                try:
+                    bk = self.clob.get_book(mk.yes_token_id)
+                except Exception:
+                    bk = None
+                if bk is None:
+                    return mk.condition_id, None, []
+                try:
+                    cs = self.clob.get_history(
+                        mk.yes_token_id,
+                        fidelity_min=self.cfg.signal.candle_fidelity_min,
+                        lookback_candles=self.cfg.signal.lookback_candles,
+                    )
+                except Exception:
+                    cs = []
+                return mk.condition_id, bk, cs
+
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                for cid, bk, cs in pool.map(_fetch_mkt, markets):
+                    prefetched[cid] = (bk, cs)
+
         pending_entries: list[tuple[Market, Signal, Book, dict]] = []
         for mk in markets:
             try:
-                prep = self._prepare_market(mk, stats)
+                pre_bk, pre_cs = prefetched.get(mk.condition_id, (None, None))
+                prep = self._prepare_market(mk, stats, prefetched_book=pre_bk, prefetched_candles=pre_cs)
                 if prep is not None:
                     pending_entries.append(prep)
             except Exception as exc:  # לא מפילים את כל המחזור בגלל שוק אחד
@@ -335,12 +361,15 @@ class Engine:
     #  שוק בודד (שלב 1: הערכה + יציאות; שלב 2: כניסות מתועדפות)
     # ==================================================================
     def _prepare_market(
-        self, mk: Market, stats: CycleStats
+        self, mk: Market, stats: CycleStats,
+        *,
+        prefetched_book: Book | None = None,
+        prefetched_candles: list | None = None,
     ) -> tuple[Market, Signal, Book, dict] | None:
         cfg = self.cfg
 
         # --- ספר הפקודות קודם: הוא נדרש גם לסיגנל וגם לאיסוף הדאטה ---
-        yes_book = self.clob.get_book(mk.yes_token_id)
+        yes_book = prefetched_book if prefetched_book is not None else self.clob.get_book(mk.yes_token_id)
         if yes_book is None:
             stats.skip("אין ספר פקודות")
             return None
@@ -353,7 +382,7 @@ class Engine:
             self._last_marks[mk.no_token_id] = 1.0 - yes_book.mid
 
         # --- היסטוריה ---
-        candles = self.clob.get_history(
+        candles = prefetched_candles if prefetched_candles is not None else self.clob.get_history(
             mk.yes_token_id,
             fidelity_min=cfg.signal.candle_fidelity_min,
             lookback_candles=cfg.signal.lookback_candles,
@@ -921,6 +950,47 @@ class Engine:
             "size": round(fill.size, 2),
             "realized": round(realized, 2),
         }
+
+    def update_position_levels(
+        self,
+        token_id: str,
+        *,
+        stop_price: float | None = None,
+        target_price: float | None = None,
+    ) -> dict:
+        """מעדכן Stop-Loss / Take-Profit של פוזיציית Polymarket פתוחה."""
+        resolved_tid = (
+            token_id
+            if token_id in self.portfolio.positions
+            else next((tid for tid in self.portfolio.positions if tid.startswith(token_id)), "")
+        )
+        pos = self.portfolio.positions.get(resolved_tid)
+        if pos is None:
+            raise KeyError(f"אין פוזיציה פתוחה עבור {token_id}")
+        if stop_price is not None:
+            sp = float(stop_price)
+            if not (0.01 <= sp <= 0.99):
+                raise ValueError("Stop Loss ב-Polymarket חייב להיות בין 0.01 ל-0.99")
+            pos.stop_price = round(sp, 4)
+        if target_price is not None:
+            tp = float(target_price)
+            if not (0.01 <= tp <= 0.99):
+                raise ValueError("יעד רווח ב-Polymarket חייב להיות בין 0.01 ל-0.99")
+            pos.target_price = round(tp, 4)
+        self.store.upsert_position(pos, self.cfg.execution.mode)
+        self.store.event("position_update", f"עדכון SL/TP {(pos.question or resolved_tid)[:36]}")
+        return {
+            "token_id": resolved_tid,
+            "stop_price": pos.stop_price,
+            "target_price": pos.target_price,
+        }
+
+    def close_all_positions(self, reason: str = "סגירת כל הפוזיציות מהטרמינל") -> list[dict]:
+        """סוגר את כל פוזיציות ה-Polymarket הפתוחות."""
+        closed: list[dict] = []
+        for tid in list(self.portfolio.positions.keys()):
+            closed.append(self.close_position_by_token(tid, reason=reason))
+        return closed
 
     def close(self) -> None:
         self.store.close()

@@ -540,3 +540,148 @@ def test_combined_hero_spotlight_early_eval_and_simulator(tmp_path):
         srv.shutdown()
         srv.server_close()
 
+
+def test_tiered_risk_allocation_and_manual_controls(tmp_path):
+    """בדיקת הקצאת סיכון מדורגת (A+ > B), פתיחה ידנית, עדכון SL/TP, וסגירת הכל."""
+    from pmmb.perps.models import PerpBook
+
+    cfg = Config()
+    cfg.data.db_path = str(tmp_path / "tiered.db")
+    rm = PerpRiskManager(cfg.perps)
+    inst = PerpInstrument(symbol="BTC", exchange="okx", exchange_symbol="BTC-USDT-SWAP", max_leverage=50.0, mark_price=50000.0, tick_size=0.1, lot_size=0.001)
+    inst_eth = PerpInstrument(symbol="ETH", exchange="okx", exchange_symbol="ETH-USDT-SWAP", max_leverage=50.0, mark_price=3000.0, tick_size=0.01, lot_size=0.01)
+
+    sig_ap = PerpSignal(
+        symbol="BTC", exchange="okx", direction="LONG", regime="TREND_UP", strategy="breakout",
+        score=0.85, tier="A+", price=50000.0, atr=300.0, stop_price=49550.0, take_profit_price=50780.0,
+        recommended_leverage=25.0, reason="trend",
+    )
+    sig_b = PerpSignal(
+        symbol="ETH", exchange="okx", direction="LONG", regime="TREND_UP", strategy="pullback",
+        score=0.60, tier="B", price=3000.0, atr=18.0, stop_price=2973.0, take_profit_price=3046.8,
+        recommended_leverage=25.0, reason="pullback",
+    )
+
+    d_ap = rm.evaluate_entry(sig_ap, inst, equity=1000.0, free_cash=1000.0, open_positions=[])
+    d_b = rm.evaluate_entry(sig_b, inst_eth, equity=1000.0, free_cash=1000.0, open_positions=[])
+    assert d_ap.approved and d_b.approved
+    assert d_ap.notional > d_b.notional
+    assert d_ap.margin > d_b.margin
+
+    class _StubEx:
+        def scan(self):
+            return [inst]
+        def get_candles(self, i, interval="1h", lookback=160):
+            return _mk_candles(60, base=50000.0, mode="trend_up")
+        def get_book(self, i, levels=8):
+            return PerpBook(symbol=i.symbol, exchange="okx", best_bid=49999.0, best_ask=50001.0, bids=[(49999.0, 2.5)], asks=[(50001.0, 2.0)])
+
+    eng = PerpEngine(cfg, exchange=_StubEx())
+    try:
+        res_open = eng.open_manual_order("BTC", "LONG", 30.0, 15.0)
+        assert res_open["symbol"] == "BTC"
+        pos = eng.positions["BTC"]
+        assert pos.stop_price > pos.liquidation_price
+
+        # Attempt to move SL below liquidation must raise ValueError safely
+        try:
+            eng.update_position_levels("BTC", stop_price=pos.liquidation_price * 0.9, target_price=53000.0)
+            assert False, "Expected ValueError when stop <= liquidation"
+        except ValueError:
+            pass
+
+        # Valid SL/TP update succeeds
+        good_upd = eng.update_position_levels("BTC", stop_price=pos.entry_price * 0.99, target_price=53000.0)
+        assert abs(good_upd["target_price"] - 53000.0) < 1e-6
+
+        res_all = eng.close_all_positions()
+        assert len(res_all) == 1
+        assert eng.positions == {}
+    finally:
+        eng.close()
+
+
+def test_new_command_center_endpoints(tmp_path):
+    """בדיקת endpoints חדשים: orderbook, manual order, update levels, close-all, ו-config update."""
+    import threading
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from pmmb.perps.models import PerpBook
+    from pmmb.server import _TraderManager, make_handler
+
+    cfg_file = tmp_path / "config.yaml"
+    cfg_file.write_text(
+        "risk:\n  risk_per_trade_pct: 0.03\n  max_open_positions: 7\n"
+        "perps:\n  enabled: true\n  interval_sec: 60.0\n  risk:\n    risk_per_trade_pct: 0.028\n    max_leverage: 50.0\n    max_open_positions: 4\n",
+        encoding="utf-8",
+    )
+    cfg = Config.load(str(cfg_file))
+    cfg.data.db_path = str(tmp_path / "srv.db")
+    inst = PerpInstrument(symbol="SOL", exchange="okx", exchange_symbol="SOL-USDT-SWAP", max_leverage=50.0, mark_price=150.0, tick_size=0.01, lot_size=0.1)
+
+    class _StubEx:
+        def scan(self):
+            return [inst]
+        def get_candles(self, i, interval="1h", lookback=160):
+            return _mk_candles(60, base=150.0, mode="trend_up")
+        def get_book(self, i, levels=8):
+            return PerpBook(symbol="SOL", exchange="okx", best_bid=149.9, best_ask=150.1, bids=[(149.9, 10.0)], asks=[(150.1, 8.0)])
+
+    trader = _TraderManager(cfg, config_path=str(cfg_file))
+    trader._perps_exchange = _StubEx()
+    handler = make_handler(cfg, max_age_sec=300, refresh_sec=0, token="", trader=trader)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/perps/book?symbol=SOL", timeout=5) as r:
+            bk = json.loads(r.read().decode())
+            assert bk["symbol"] == "SOL" and len(bk["bids"]) == 1
+
+        req_ord = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/perps/order",
+            data=json.dumps({"symbol": "SOL", "side": "LONG", "margin": 25.0, "leverage": 10.0}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_ord, timeout=5) as r:
+            res = json.loads(r.read().decode())
+            assert res["ok"] is True
+
+        req_upd = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/positions/update",
+            data=json.dumps({"arm": "perps", "key": "SOL", "target_price": 170.0}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_upd, timeout=5) as r:
+            res = json.loads(r.read().decode())
+            assert res["ok"] is True
+
+        req_cfg = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/config/update",
+            data=json.dumps({"perps_max_lev": 35.0, "perps_max_pos": 3}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_cfg, timeout=5) as r:
+            res = json.loads(r.read().decode())
+            assert res["ok"] is True
+            assert cfg.perps.risk.max_leverage == 35.0
+            assert cfg.perps.risk.max_open_positions == 3
+
+        req_close = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/positions/close-all",
+            data=json.dumps({"arm": "all"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_close, timeout=5) as r:
+            res = json.loads(r.read().decode())
+            assert res["ok"] is True and len(res["closed"]) == 1
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
+

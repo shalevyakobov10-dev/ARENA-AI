@@ -11,10 +11,13 @@ import hmac
 import json
 import logging
 import os
+from pathlib import Path
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+
+import yaml
 
 from .backup import backup_db
 from .data.clob import ClobClient
@@ -53,8 +56,9 @@ class _TraderManager:
       - מחזור למידה עצמית ושיפור Walk-Forward (כל learning.interval_sec)
     """
 
-    def __init__(self, cfg) -> None:
+    def __init__(self, cfg, *, config_path: str | None = None) -> None:
         self.cfg = cfg
+        self.config_path = Path(config_path) if config_path else Path("config/config.yaml")
         self._lock = threading.Lock()
         self._learn_lock = threading.Lock()
         self._perps_lock = threading.Lock()
@@ -400,6 +404,138 @@ class _TraderManager:
                     eng.close()
 
         raise ValueError(f"זרוע לא מוכרת: {arm}")
+
+    def open_perps_order(self, symbol: str, side: str, margin: float, leverage: float) -> dict:
+        if self.cfg.perps.mode != "paper":
+            raise PermissionError("פקודה ידנית מותרת במצב paper בלבד")
+        with self._perps_lock:
+            from .perps.engine import PerpEngine
+
+            eng = PerpEngine(self.cfg, exchange=self._get_perps_exchange())
+            try:
+                res = eng.open_manual_order(symbol, side, margin, leverage)
+                return {
+                    "message": f"נפתחה עסקה ידנית {res['symbol']} {res['side']} ×{res['leverage']:.1f} @ {res['price']}",
+                    "order": res,
+                }
+            finally:
+                eng.close()
+
+    def update_position_levels(
+        self, arm: str, key: str, *, stop_price: float | None = None, target_price: float | None = None
+    ) -> dict:
+        arm_l = (arm or "").strip().lower()
+        key_s = (key or "").strip()
+        if not key_s:
+            raise ValueError("חסר מזהה פוזיציה (key)")
+        if arm_l == "perps":
+            if self.cfg.perps.mode != "paper":
+                raise PermissionError("עדכון ידני של PERPS מותר במצב paper בלבד")
+            with self._perps_lock:
+                from .perps.engine import PerpEngine
+
+                eng = PerpEngine(self.cfg, exchange=self._get_perps_exchange())
+                try:
+                    info = eng.update_position_levels(key_s, stop_price=stop_price, target_price=target_price)
+                    return {"message": f"עודכנו רמות {info['symbol']}: SL={info['stop_price']} | TP={info['target_price']}", "updated": info}
+                finally:
+                    eng.close()
+        if arm_l in ("poly", "polymarket"):
+            if self.cfg.execution.mode != "paper":
+                raise PermissionError("עדכון ידני של Polymarket מותר במצב paper בלבד")
+            with self._lock:
+                from .engine import Engine
+
+                eng = Engine(self.cfg)
+                try:
+                    info = eng.update_position_levels(key_s, stop_price=stop_price, target_price=target_price)
+                    return {"message": f"עודכנו רמות Polymarket: SL={info['stop_price']} | TP={info['target_price']}", "updated": info}
+                finally:
+                    eng.close()
+        raise ValueError(f"זרוע לא מוכרת: {arm}")
+
+    def close_all_positions(self, arm: str = "all", reason: str = "סגירת כל הפוזיציות מהטרמינל") -> dict:
+        arm_l = (arm or "all").strip().lower()
+        closed: list[dict] = []
+        if arm_l in ("all", "perps") and self.cfg.perps.mode == "paper":
+            with self._perps_lock:
+                from .perps.engine import PerpEngine
+
+                eng = PerpEngine(self.cfg, exchange=self._get_perps_exchange())
+                try:
+                    closed.extend(eng.close_all_positions(reason=reason))
+                finally:
+                    eng.close()
+        if arm_l in ("all", "poly", "polymarket") and self.cfg.execution.mode == "paper":
+            with self._lock:
+                from .engine import Engine
+
+                eng = Engine(self.cfg)
+                try:
+                    closed.extend(eng.close_all_positions(reason=reason))
+                finally:
+                    eng.close()
+        return {"message": f"נסגרו {len(closed)} פוזיציות פתוחות", "closed": closed}
+
+    def update_config_params(self, body: dict) -> dict:
+        """עדכון פרמטרי סיכון ותדירות חיים (גם בזיכרון וגם ב-config/config.yaml)."""
+        from pathlib import Path
+        import yaml
+
+        updated: list[str] = []
+        with self._perps_lock:
+            pr = self.cfg.perps.risk
+            if "perps_enabled" in body:
+                self.cfg.perps.enabled = bool(body["perps_enabled"])
+                updated.append(f"perps.enabled={self.cfg.perps.enabled}")
+            if "perps_risk_pct" in body:
+                pr.risk_per_trade_pct = max(0.005, min(0.05, float(body["perps_risk_pct"])))
+                updated.append(f"perps.risk={pr.risk_per_trade_pct*100:.1f}%")
+            if "perps_max_lev" in body:
+                pr.max_leverage = max(2.0, min(50.0, float(body["perps_max_lev"])))
+                updated.append(f"perps.lev=×{pr.max_leverage:.0f}")
+            if "perps_max_pos" in body:
+                pr.max_open_positions = max(1, min(8, int(body["perps_max_pos"])))
+                updated.append(f"perps.pos={pr.max_open_positions}")
+            if "perps_interval_sec" in body:
+                self.cfg.perps.interval_sec = max(30.0, min(600.0, float(body["perps_interval_sec"])))
+                updated.append(f"perps.interval={self.cfg.perps.interval_sec:.0f}s")
+        with self._lock:
+            rr = self.cfg.risk
+            if "poly_risk_pct" in body:
+                rr.risk_per_trade_pct = max(0.005, min(0.05, float(body["poly_risk_pct"])))
+                updated.append(f"poly.risk={rr.risk_per_trade_pct*100:.1f}%")
+            if "poly_max_pos" in body:
+                rr.max_open_positions = max(1, min(12, int(body["poly_max_pos"])))
+                updated.append(f"poly.pos={rr.max_open_positions}")
+            if "trade_interval_sec" in body:
+                self.interval_sec = max(45.0, min(600.0, float(body["trade_interval_sec"])))
+                self.cfg.autopilot.trade_interval_sec = int(self.interval_sec)
+                updated.append(f"poly.interval={self.interval_sec:.0f}s")
+
+        cfg_path = self.config_path
+        if cfg_path.exists():
+            try:
+                raw = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+                raw.setdefault("perps", {}).setdefault("risk", {})
+                raw["perps"]["enabled"] = bool(self.cfg.perps.enabled)
+                raw["perps"]["interval_sec"] = float(self.cfg.perps.interval_sec)
+                raw["perps"]["risk"]["risk_per_trade_pct"] = round(self.cfg.perps.risk.risk_per_trade_pct, 4)
+                raw["perps"]["risk"]["max_leverage"] = float(self.cfg.perps.risk.max_leverage)
+                raw["perps"]["risk"]["max_open_positions"] = int(self.cfg.perps.risk.max_open_positions)
+                raw.setdefault("risk", {})
+                raw["risk"]["risk_per_trade_pct"] = round(self.cfg.risk.risk_per_trade_pct, 4)
+                raw["risk"]["max_open_positions"] = int(self.cfg.risk.max_open_positions)
+                raw.setdefault("autopilot", {})
+                raw["autopilot"]["trade_interval_sec"] = int(self.cfg.autopilot.trade_interval_sec)
+                cfg_path.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False), encoding="utf-8")
+            except Exception as exc:
+                log.warning("שמירת config.yaml נכשלה: %s", exc)
+
+        return {
+            "message": "הגדרות עודכנו ונשמרו: " + (" · ".join(updated) if updated else "ללא שינוי"),
+            "updated": updated,
+        }
 
     def _trigger_perps_learning_bg(self) -> None:
         if self._perps_learn_thread is not None and self._perps_learn_thread.is_alive():
@@ -768,6 +904,24 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     key = str(body.get("key") or "")
                     reason = str(body.get("reason") or "סגירה ידנית מהטרמינל")
                     res = {"ok": True, **trader.close_position(arm, key, reason=reason)}
+                elif path == "/api/positions/update":
+                    arm = str(body.get("arm") or "")
+                    key = str(body.get("key") or "")
+                    sp = float(body["stop_price"]) if body.get("stop_price") not in (None, "") else None
+                    tp = float(body["target_price"]) if body.get("target_price") not in (None, "") else None
+                    res = {"ok": True, **trader.update_position_levels(arm, key, stop_price=sp, target_price=tp)}
+                elif path == "/api/positions/close-all":
+                    arm = str(body.get("arm") or "all")
+                    reason = str(body.get("reason") or "סגירת כל הפוזיציות מהטרמינל")
+                    res = {"ok": True, **trader.close_all_positions(arm=arm, reason=reason)}
+                elif path == "/api/perps/order":
+                    sym = str(body.get("symbol") or "")
+                    side = str(body.get("side") or "LONG")
+                    margin = float(body.get("margin") or 20.0)
+                    lev = float(body.get("leverage") or 10.0)
+                    res = {"ok": True, **trader.open_perps_order(sym, side, margin, lev)}
+                elif path == "/api/config/update":
+                    res = {"ok": True, **trader.update_config_params(body)}
                 elif path == "/api/perps/toggle":
                     cfg.perps.enabled = bool(body.get("enabled", not cfg.perps.enabled))
                     res = {"ok": True, "enabled": cfg.perps.enabled,
@@ -855,6 +1009,25 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     live_flag = query.get("live", ["0"])[0] == "1"
                     pchart = _build_perps_chart_payload(cfg, sym, live=live_flag)
                     return self._send(200, json.dumps(pchart, ensure_ascii=False).encode(),
+                                      "application/json; charset=utf-8", head_only=head_only)
+                if path == "/api/perps/book":
+                    sym = (query.get("symbol", ["BTC"])[0] or "BTC").strip().upper()
+                    from .perps.models import PerpInstrument
+
+                    ex = trader._get_perps_exchange()
+                    inst = next((x for x in ex.scan() if x.symbol == sym), None)
+                    if inst is None:
+                        inst = PerpInstrument(symbol=sym, exchange="okx", exchange_symbol=f"{sym}-USDT-SWAP", max_leverage=50.0, mark_price=1.0)
+                    bk = ex.get_book(inst, levels=8)
+                    payload_bk = {
+                        "symbol": sym,
+                        "exchange": inst.exchange,
+                        "spread_bps": round(bk.spread_bps, 2) if bk else 0.0,
+                        "imbalance": round(bk.imbalance(8), 3) if bk else 0.0,
+                        "bids": [[round(float(p), 6), round(float(s), 4)] for p, s in (bk.bids[:8] if bk else [])],
+                        "asks": [[round(float(p), 6), round(float(s), 4)] for p, s in (bk.asks[:8] if bk else [])],
+                    }
+                    return self._send(200, json.dumps(payload_bk, ensure_ascii=False).encode(),
                                       "application/json; charset=utf-8", head_only=head_only)
                 if path == "/lite":
                     st = build_status(cfg, max_age_sec=max_age_sec)
