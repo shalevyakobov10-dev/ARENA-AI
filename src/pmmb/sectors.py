@@ -15,13 +15,17 @@ RULES: list[tuple[str, str]] = [
     ("sports", r"(?:\b(?:nba|nfl|nhl|mlb|wnba|atp|wta|ufc|f1|nascar|cs2|counter-strike|"
                r"dota|valorant|lol|league of legends|premier league|la liga|serie a|"
                r"bundesliga|ligue 1|champions league|europa league|vs\.?\s|"
-               r"spread:|moneyline|over/under|handicap|bo3|bo5|match|pgl major|esports)\b|"
+               r"moneyline|over/under|o/u|handicap|bo3|bo5|match|pgl major|esports|"
+               r"49ers|chiefs|eagles|cowboys|ravens|bills|lions|vikings|raiders|broncos|"
+               r"lakers|celtics|knicks|pacers|warriors|thunder|heat|bulls|nets|bucks|"
+               r"penguins|stars)\b|\bspread:\s|"
                r"(?:^|[\s-])(?:nba|nfl|nhl|mlb|epl|fl1|itsb|laliga|ucl|uel|"
                r"bundesliga|seriea|atp|wta|cs2)-)"),
     ("crypto", r"\b(bitcoin|btc|ethereum|eth|solana|sol|xrp|doge|cardano|crypto|"
                r"binance|coinbase|zcash|zec|monero|airdrop|token launch|launch a token)\b"),
     ("macro", r"\b(fed|fomc|interest rate|cpi|inflation|gdp|unemployment|recession|"
-              r"treasury|ecb|rate cut|rate hike|tariff)\b"),
+              r"treasury|ecb|rate cut|rate hike|tariff|quarterly earnings|earnings|ipo price|"
+              r"diesel stocks|oil price)\b"),
     ("politics", r"\b(election|president|prime minister|senate|congress|parliament|"
                  r"mayor|governor|nominee|impeach|shutdown|veto|minister|"
                  r"white house|press secretary|cabinet)\b"),
@@ -31,7 +35,8 @@ RULES: list[tuple[str, str]] = [
     ("tech", r"\b(openai|gpt|nvidia|apple|google|tesla|spacex|meta|microsoft|ai\b|"
              r"model|launch|iphone|starship)\b"),
     ("culture", r"\b(tweet|tweets|truth[- ]social|elon|kanye|taylor swift|album|movie|box office|oscar|"
-                r"grammy|celebrity|affair|arrest|resign|gta|xqc|twitch|streamer|mrbeast|youtuber)\b"),
+                r"grammy|celebrity|affair|arrest|resign|gta|xqc|twitch|streamer|mrbeast|youtuber|"
+                r"miss universe|searched person|person of the year|reality tv)\b"),
 ]
 
 

@@ -124,4 +124,23 @@ def test_backtest_enforces_price_band(cfg, market):
     assert res.n_trades == 0
 
 
+def test_backtest_enforces_cooldown_after_exit(cfg, market):
+    """הבקטסט אוכף cooldown_minutes אחרי יציאה ולא נכנס מיד מחדש לתוך מפולת."""
+    cfg.signal.engine = "momentum"
+    cfg.signal.min_score = 0.2
+    cfg.signal.min_edge = 0.0
+    candles = _candles(_series(0.30, 0.70, 200), step=3600)
+
+    cfg.risk.cooldown_minutes = 0
+    r0 = Backtester.run(_NoNet(cfg), market, candles, spread=0.01)
+
+    cfg.risk.cooldown_minutes = 7200  # 5 ימים צינון
+    r_cd = Backtester.run(_NoNet(cfg), market, candles, spread=0.01)
+    assert r0.n_trades >= r_cd.n_trades >= 1
+    if r_cd.n_trades >= 2:
+        assert r_cd.trades[1].entry_ts - r_cd.trades[0].exit_ts >= 7200 * 60
+
+
+
+
 

@@ -146,6 +146,7 @@ class Backtester:
         trades: list[BTrade] = []
         passive_fills = 0
         taker_fills = 0
+        cooldown_until = 0
 
         def _try_open(entry_px: float, sig, ts_now: int, *, maker: bool) -> bool:
             """
@@ -238,9 +239,10 @@ class Backtester:
                         )
                     )
                     pos = None
+                    cooldown_until = ts + int(cfg.risk.cooldown_minutes) * 60
 
             # ---------- כניסה ----------
-            if pos is None and pending is None and signal.direction != "FLAT":
+            if pos is None and pending is None and signal.direction != "FLAT" and ts >= cooldown_until:
                 if entry_style == "passive":
                     # מגבלה על ה-bid: לא חוצים את הספרד, לא משלמים עמלה,
                     # ומרוויחים חצי ספרד אם מישהו מוכר לנו.

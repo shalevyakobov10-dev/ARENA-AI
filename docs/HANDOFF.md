@@ -48,12 +48,12 @@ _המסמך הזה הוא נקודת הכניסה היחידה לפרויקט. �
 ## 4. המצב הנוכחי (מדויק, לא שיווקי)
 
 ```
-206 בדיקות · 26 פקודות · אפס קריאות רשת בבדיקות
-אסטרטגיה וקונפיגורציה מוקשחת (ADR #18–19: סינון עמלת Taker <= 2%, אופק <= 45d, z_max=6.5, TP +6c / SL -7c):
-  Portfolio Backtest (`pmmb backtest --top 35 --portfolio`, 27 שווקים, spread=0.015):
-    58 עסקאות | Win Rate 63.8% | PF 2.45 | תשואה +8.32% (1083.24 USDC) | Max DD 1.56% | עמלות 6.76 USDC
-  Walk-Forward OOS (`pmmb walkforward --markets 35 --spread 0.01`, 3 חלונות, 24 שווקים):
-    +60.55 USDC OOS על 65 עסקאות (ללא מוביל +46.84, 14/21 שווקים חיוביים, עקביות 100%)
+208 בדיקות · 26 פקודות · אפס קריאות רשת בבדיקות
+אסטרטגיה וקונפיגורציה מוקשחת (ADR #18–20: עמלת Taker<=2%, אופק<=45d, z_max=6.5, TP+6c/SL-7c, kelly=0.65, cd=360m):
+  Portfolio Backtest (`pmmb backtest --top 35 --portfolio`, 25 שווקים, spread=0.015):
+    54 עסקאות | Win Rate 61.1% | PF 2.33 | תשואה +19.66% (1196.59 USDC) | Max DD 4.06% | עמלות 16.93 USDC
+  Walk-Forward OOS (`pmmb walkforward --markets 35 --spread 0.01`, 3 חלונות, 22 שווקים):
+    +75.16 USDC OOS על 58 עסקאות (ללא מוביל +52.80, עקביות 100%) | Baseline OOS: +95.00 USDC
   Readiness: 9/10 בדיקות תוכנה/מודל/דופק/גיבוי ירוקות; השער הנותר תפעולי/זמן בלבד (`soak` 7 ימים רצופים)
 רשת חדשות של 19 סוכנויות במקביל + למידה רקע אסינכרונית (`_learn_lock`) + Trading Desk (`pmmb serve --autostart`)
 ```
@@ -61,7 +61,8 @@ _המסמך הזה הוא נקודת הכניסה היחידה לפרויקט. �
 פרמטרים מכוילים: `lookback_candles=24`, `z_entry=1.8`, `z_max=6.5`, `reversion_ratio=0.55`,
 `rsi_max=40.0`, `max_spread_to_edge=1.1`, `min_score=0.55`, `min_edge=0.005` (נמדד **אחרי** ספרד ועמלה),
 `max_taker_fee_rate=0.02`, `max_hours_to_resolution=1080`, `price_band=[0.12, 0.88]`,
-`stop_mode=abs`, TP +0.06 (סנט בהסתברות), SL -0.07, `time_stop_hours=48`, `drawdown_throttle_pct=0.05`.
+`stop_mode=abs`, TP +0.06, SL -0.07, `time_stop_hours=48`, `kelly_fraction=0.65`, `cooldown_minutes=360`,
+`max_open_positions=5`, `drawdown_throttle_pct=0.05`.
 
 ---
 

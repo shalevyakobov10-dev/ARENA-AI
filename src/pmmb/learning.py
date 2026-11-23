@@ -57,11 +57,18 @@ def evaluate_live_signals(
         return 0
 
     news_rows = store.recent_news(hours=24 * 14, limit=400)
-    # מפה זריזה של שאלה לפי token_id אם קיימת ב-positions
-    pos_q = {}
+    # מפה זריזה של שאלה וסקטור לפי token_id מ-market_intel ומ-positions
+    pos_q: dict[str, str] = {}
+    pos_sec: dict[str, str] = {}
     with store.tx() as c:
+        for r in c.execute("SELECT token_id, question, sector FROM market_intel"):
+            if r["question"]:
+                pos_q[r["token_id"]] = r["question"]
+            if r["sector"]:
+                pos_sec[r["token_id"]] = r["sector"]
         for r in c.execute("SELECT token_id, question FROM positions"):
-            pos_q[r["token_id"]] = r["question"] or ""
+            if r["question"] and r["token_id"] not in pos_q:
+                pos_q[r["token_id"]] = r["question"]
 
     updated = 0
     history_cache: dict[str, list[Candle]] = {}
@@ -116,7 +123,7 @@ def evaluate_live_signals(
         r48 = round((p48 - entry_px) * mult, 5) if p48 is not None else None
 
         q_text = pos_q.get(tid, "")
-        sec = classify(q_text, "") if q_text else "other"
+        sec = classify(q_text, "") if q_text else pos_sec.get(tid, "other")
         short_tid = tid[:12]
         imp = 0.0
         for nr in news_rows:

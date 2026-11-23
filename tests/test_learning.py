@@ -137,3 +137,25 @@ def test_self_learning_promotes_only_when_safe_and_never_auto_applies_live(tmp_p
     assert cfg.signal.meanrev.z_entry < 4.9
     assert (tmp_path / "config.yaml.bak").exists()
     store_paper.close()
+
+
+def test_evaluate_live_signals_resolves_sector_from_market_intel(tmp_path):
+    """אותות ללא פוזיציה פתוחה מסווגים לסקטור האמיתי מתוך market_intel ולא נזרקים ל-other."""
+    store = Store(tmp_path / "mi_sec.db")
+    now = int(time.time())
+    t0 = now - 25 * 3600
+    store.upsert_market_intel([
+        {"condition_id": "c_fed", "token_id": "t_fed", "question": "Fed interest rate cut?", "sector": "macro", "updated_at": now}
+    ])
+    store.record_signal(Signal(
+        "c_fed", "t_fed", "LONG", 0.7, 0.55, 0.50, 0.05, "dip z=-2.2", features={"z": -2.2},
+        created_at=datetime.fromtimestamp(t0, tz=timezone.utc),
+    ))
+    store.insert_ticks([("t_fed", t0 + 24 * 3600, 0.54)])
+    n = evaluate_live_signals(store, now_ts=now)
+    assert n == 1
+    with store.tx() as c:
+        row = c.execute("SELECT sector FROM signal_outcomes WHERE token_id='t_fed'").fetchone()
+    assert row is not None and row["sector"] == "macro"
+    store.close()
+

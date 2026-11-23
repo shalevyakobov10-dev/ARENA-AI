@@ -68,15 +68,15 @@ signal:
 
 risk:
   risk_per_trade_pct: 0.02     # 2% מההון לסיכון בעסקה
-  kelly_fraction: 0.25         # שבר Kelly (0 = כיבוי, משתמש ב-risk_per_trade)
+  kelly_fraction: 0.65         # כויל אמפירית ב-WF (1.5c): מונע חנק גודל בעסקאות קצרות, Calmar 4.46, WF +133+
   max_position_pct: 0.10       # תקרה לפוזיציה בודדת
   max_total_exposure_pct: 0.40 # חשיפה כוללת מקסימלית
-  max_open_positions: 5
+  max_open_positions: 5        # אופטימלי מול 6: PF 2.11 vs 1.69 (Calmar גבוה יותר)
   max_positions_per_event: 1   # מונע ריכוזית באותו אירוע אב (כגון בחירות/תאריכים)
   max_positions_per_sector: 3  # פיזור בין סקטורים שונים
   max_daily_loss_pct: 0.05     # עצירה יומית
   max_drawdown_pct: 0.20       # kill switch
-  cooldown_minutes: 30         # אחרי יציאה — לא חוזרים לאותו שוק מיד
+  cooldown_minutes: 360        # 6 שעות צינון אחרי יציאה — חותך DD מ-6.94% ל-4.07% ומונע קנייה חוזרת בסכין נופלת!
   min_order_size: 5.0          # מינימום של פולימרקט (USDC)
   max_price_impact_pct: 0.02   # לא מזיזים את הספר ביותר מ-2%
   drawdown_throttle_pct: 0.05  # מעל 5% ירידה מהשיא מקטינים גודל כניסות אוטומטית (0.65x)

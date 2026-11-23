@@ -232,9 +232,14 @@ def test_extended_sectors_and_max_taker_fee_filter():
     assert classify("Ligue 1 match", "fl1-lor-ren-2026-11-22-ren") == "sports"
     assert classify("Serie B match", "itsb-ave-man-2026-11-22") == "sports"
     assert classify("Will FURIA win PGL Major?", "will-furia-win-pgl-major") == "sports"
+    assert classify("Spread: 49ers (-3.5)", "nfl-spread-49ers") == "sports"
     assert classify("Will Zcash reach $2000?", "will-zcash-reach-2000") == "crypto"
     assert classify("Next White House Press Secretary", "next-white-house-press-secretary") == "politics"
     assert classify("US announces end of Iranian blockade", "iranian-blockade") == "geopolitics"
+    assert classify("Will Venezuela win Miss Universe 2026?", "miss-universe-2026") == "culture"
+    assert classify("Will X be the #1 searched person?", "searched-person") == "culture"
+    assert classify("Donald Trump Truth Social posts", "trump-truth-social") == "culture"
+    assert classify("Company beat quarterly earnings", "dks-quarterly-earnings") == "macro"
 
     from datetime import datetime, timedelta, timezone
 
