@@ -533,6 +533,33 @@ class Store:
             "SELECT * FROM events WHERE ts >= ? ORDER BY ts DESC LIMIT ?", (since_ts, limit)
         ).fetchall()
 
+    def recent_exits(self, mode: str, since_ts: int) -> dict[str, int]:
+        """מחזיר מיפוי condition_id -> ts של היציאה האחרונה לשחזור תקופת צינון (cooldown)."""
+        rows = self._conn.execute(
+            """SELECT condition_id, MAX(ts) AS last_ts
+               FROM fills
+               WHERE mode=? AND side='SELL' AND condition_id != '' AND ts >= ?
+               GROUP BY condition_id""",
+            (mode, int(since_ts)),
+        ).fetchall()
+        return {str(r["condition_id"]): int(r["last_ts"]) for r in rows}
+
+    def recent_event_data(self, kind: str, since_ts: int) -> list[dict[str, Any]]:
+        """מחזיר רשימת מטעני data (JSON) של אירועים מסוג מסוים מאז חותמת זמן נתונה."""
+        rows = self._conn.execute(
+            "SELECT data FROM events WHERE kind=? AND ts >= ? ORDER BY ts DESC",
+            (kind, int(since_ts)),
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            try:
+                parsed = json.loads(r["data"] or "{}")
+                if isinstance(parsed, dict):
+                    out.append(parsed)
+            except (TypeError, ValueError):
+                continue
+        return out
+
     # ------------------------------------------------------------------
     #  חדשות, תוצאות אותות בזמן אמת, למידה עצמית וגרפים
     # ------------------------------------------------------------------

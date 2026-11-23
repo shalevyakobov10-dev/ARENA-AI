@@ -392,5 +392,37 @@ def test_orphan_position_exits_before_resolution(cfg, tmp_path):
     eng.close()
 
 
+def test_cooldown_and_position_alerts_persist_across_restarts(cfg, tmp_path):
+    """קירור (cooldown) אחרי יציאה והתראות חדשות לפוזיציה שורדים אתחול מחדש של Engine."""
+    from pmmb.models import Fill
+
+    cfg.signal.engine = "momentum"
+    cfg.signal.min_score = 0.5
+    cfg.signal.min_edge = 0.02
+    cfg.risk.cooldown_minutes = 360
+    db_path = tmp_path / "cd.db"
+    state_dir = tmp_path / "s_cd"
+
+    store = Store(db_path)
+    store.record_fill(Fill("yes-token", "0xcond", "SELL", 0.55, 20.0, ts=utcnow()), "paper", realized=1.0)
+    store.event(
+        "position_news_alert",
+        "Will X happen: Breaking headline",
+        data={"token_id": "yes-token", "title": "Breaking headline on X market"},
+    )
+
+    clob = _FakeClob(trending_series(0.30, 0.80, n=140))
+    eng = Engine(cfg, store=store, clob=clob, gamma=_FakeGamma([_gamma_market()]),
+                 state_dir=str(state_dir))
+    assert "0xcond" in eng.risk._cooldown_until
+    assert "yes-token:Breaking headline on X market" in eng._seen_pos_alerts
+
+    st = eng.run_once()
+    assert st.entries == 0
+    assert "קירור אחרי יציאה" in st.skipped
+    eng.close()
+
+
+
 
 

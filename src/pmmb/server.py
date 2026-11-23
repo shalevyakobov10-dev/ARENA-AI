@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import copy
 import hmac
 import json
 import logging
@@ -21,7 +22,7 @@ from .data.gamma import GammaClient, MarketUniverse
 from .data.http import HttpClient
 from .data.news import match_market_news, refresh_news_to_store
 from .data.store import Store
-from .learning import evaluate_live_signals, run_self_learning_cycle
+from .learning import _apply as _apply_learned_cfg, evaluate_live_signals, run_self_learning_cycle
 from .reconcile import reconcile_paper
 from .runtime import (
     ProcessLock,
@@ -70,6 +71,7 @@ class _TraderManager:
         self.last_backup_ts = 0
         self.last_reports_ts = 0
         self.last_error = ""
+        self._seen_pos_alerts: set[str] = set()
         self.interval_sec = float(cfg.autopilot.trade_interval_sec)
         self.stream_interval_sec = float(cfg.autopilot.stream_interval_sec)
 
@@ -107,9 +109,11 @@ class _TraderManager:
         )
         return gamma, clob
 
-    def refresh_news_and_stream(self, *, include_markets: bool = True) -> dict:
-        """מושך חדשות חיות וטיקים/ספרי גרפים של פוזיציות פתוחות ומועמדים."""
+    def refresh_news_and_stream(self, *, include_markets: bool = True, force_news: bool | None = None) -> dict:
+        """מושך חדשות חיות (בכפוף למרווח הרענון) וטיקים/ספרי גרפים של פוזיציות פתוחות ומועמדים."""
         allow_net = os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1"
+        if force_news is None:
+            force_news = include_markets
         store = Store(self.cfg.data.db_path)
         n_articles = 0
         n_stream = 0
@@ -122,7 +126,8 @@ class _TraderManager:
                 except Exception as exc:
                     log.debug("סריקת שווקים לרענון חדשות נכשלה: %s", exc)
 
-            if allow_net and self.cfg.news.enabled:
+            news_due = force_news or (time.time() - float(self.last_news_ts)) >= self.cfg.news.refresh_interval_sec
+            if allow_net and self.cfg.news.enabled and news_due:
                 arts = refresh_news_to_store(
                     store,
                     markets=markets,
@@ -174,13 +179,17 @@ class _TraderManager:
             store = Store(self.cfg.data.db_path)
             try:
                 gamma, clob = self._build_clients(fast=True)
+                cfg_copy = copy.deepcopy(self.cfg)
                 rep = run_self_learning_cycle(
-                    self.cfg,
+                    cfg_copy,
                     store,
                     gamma=gamma if allow_net else None,
                     clob=clob if allow_net else None,
                     apply_changes=apply_changes,
                 )
+                if rep.applied and rep.candidate_cfg:
+                    with self._lock:
+                        _apply_learned_cfg(self.cfg, rep.candidate_cfg)
                 self.learn_cycles += 1
                 self.last_learn_ts = rep.ts
                 return {
@@ -216,12 +225,17 @@ class _TraderManager:
             except ProcessLockError as exc:
                 raise RuntimeError(str(exc)) from exc
             eng = Engine(self.cfg)
+            eng.cycle = self.cycles
+            prev_news_ts = float(self.last_news_ts)
+            eng._last_news_refresh = prev_news_ts
+            eng._seen_pos_alerts.update(self._seen_pos_alerts)
             try:
                 st = eng.run_once()
                 self.cycles += 1
                 self.last_error = ""
-                if eng._last_news_refresh:
+                if eng._last_news_refresh > prev_news_ts:
                     self.last_news_ts = int(eng._last_news_refresh)
+                self._seen_pos_alerts.update(eng._seen_pos_alerts)
                 self.last_stream_ts = int(time.time())
                 snap = eng.portfolio.snapshot(eng._last_marks)
                 return {

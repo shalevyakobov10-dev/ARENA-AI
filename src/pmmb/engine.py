@@ -8,10 +8,11 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from .config import Config
 from .data.clob import Book, ClobClient
@@ -118,7 +119,7 @@ class Engine:
         self._restore_state()
 
     def _restore_state(self) -> None:
-        """שחזור פוזיציות, מזומן, רווח יומי ושיא הון מ-SQLite אחרי הפעלה מחדש."""
+        """שחזור פוזיציות, מזומן, רווח יומי, שיא, תקופות צינון (cooldown) והתראות עבר מ-SQLite."""
         st = self.store.load_portfolio_state(self.cfg.execution.mode, self.cfg.execution.starting_cash)
         if st["positions"] or st["cash"] != self.cfg.execution.starting_cash or st["realized_pnl"]:
             self.portfolio.restore(st["positions"], st["cash"])
@@ -134,6 +135,26 @@ class Engine:
                 "♻️  שוחזר תיק: %d פוזיציות פתוחות | מזומן %.2f | שיא %.2f | PnL היום %+.2f",
                 len(st["positions"]), st["cash"], st["peak_equity"], st["realized_pnl_today"],
             )
+
+        now = utcnow()
+        cd_min = int(self.cfg.risk.cooldown_minutes or 0)
+        if cd_min > 0:
+            cutoff_ts = int((now - timedelta(minutes=cd_min)).timestamp())
+            restored_cd = 0
+            for cid, sell_ts in self.store.recent_exits(self.cfg.execution.mode, cutoff_ts).items():
+                until = datetime.fromtimestamp(sell_ts, tz=timezone.utc) + timedelta(minutes=cd_min)
+                if until > now:
+                    self.risk._cooldown_until[cid] = until
+                    restored_cd += 1
+            if restored_cd:
+                log.info("♻️  שוחזרו %d תקופות צינון פעילות מ-fills (%dm)", restored_cd, cd_min)
+
+        alert_cutoff = int((now - timedelta(hours=12)).timestamp())
+        for d in self.store.recent_event_data("position_news_alert", alert_cutoff):
+            tid = str(d.get("token_id") or "")
+            title = str(d.get("title") or "")
+            if tid and title:
+                self._seen_pos_alerts.add(f"{tid[:12]}:{title[:48]}")
 
     # ==================================================================
     #  מחזור
@@ -407,7 +428,7 @@ class Engine:
             "spread": round(float(yes_book.spread), 4),
             "bid_depth": round(float(bid_depth), 1),
             "ask_depth": round(float(ask_depth), 1),
-            "imbalance": round(float(imb), 3),
+            "imbalance": round(float(imb), 3) if imb is not None else None,
             "volume_24h": round(float(mk.volume_24h), 1),
             "volume_ratio": float(mk.volume_ratio),
             "chg_1h": chg_1h,
@@ -580,6 +601,20 @@ class Engine:
         )
         return ("BUY", f"בוצעה כניסה @ {fill.price:.3f}")
 
+    def _effective_sell_size(self, token_id: str, size: float) -> float:
+        """במצב live מאמת יתרת טוקנים אמיתית כדי למנוע דחיית מכירה על פער עיגול של 0.01."""
+        if self.cfg.execution.mode != "live":
+            return size
+        bal_fn = getattr(self.broker, "conditional_balance", None)
+        if not callable(bal_fn):
+            return size
+        live_bal = bal_fn(token_id)
+        if live_bal is None or live_bal >= size:
+            return size
+        if live_bal < 0.01:
+            return 0.0
+        return round(min(size, math.floor(live_bal * 100.0) / 100.0), 4)
+
     # ------------------------------------------------------------------
     def _handle_exit(self, mk: Market, signal: Signal, yes_book: Book, stats: CycleStats) -> None:
         for token_id, pos in list(self.portfolio.positions.items()):
@@ -619,11 +654,16 @@ class Engine:
             if reason is None:
                 continue
 
+            sell_size = self._effective_sell_size(token_id, pos.size)
+            if sell_size <= 0:
+                log.warning("יתרת הטוקן בבורסה זניחה עבור %s — מדלג על מכירה", mk.slug)
+                continue
+
             order = Order(
                 token_id=token_id,
                 side="SELL",
                 price=mark,
-                size=pos.size,
+                size=sell_size,
                 fee_rate=mk.taker_fee_rate,
                 condition_id=pos.condition_id,
                 reason=f"יציאה: {reason}",
@@ -667,6 +707,7 @@ class Engine:
                 continue
             orphan_hours: float | None = None
             orphan_closed = False
+            orphan_fee_rate = 0.02
             gamma_http = getattr(self.gamma, "http", None)
             if pos.condition_id and gamma_http is not None:
                 try:
@@ -677,6 +718,7 @@ class Engine:
                         parsed = Market.from_gamma(raw_mk)
                         if parsed is not None:
                             orphan_hours = parsed.hours_to_resolution
+                            orphan_fee_rate = parsed.taker_fee_rate
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -712,8 +754,13 @@ class Engine:
                               (pos.question or token_id)[:32], mark, pos.target_price or 0, pos.stop_price or 0)
                     continue
 
+                sell_size = self._effective_sell_size(token_id, pos.size)
+                if sell_size <= 0:
+                    continue
+
                 order = Order(
-                    token_id=token_id, side="SELL", price=mark, size=pos.size,
+                    token_id=token_id, side="SELL", price=mark, size=sell_size,
+                    fee_rate=orphan_fee_rate,
                     condition_id=pos.condition_id, reason=f"יציאה: {reason}",
                 )
                 fill = self.broker.execute(order, book=book, aggressive=True)

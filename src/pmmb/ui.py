@@ -1142,7 +1142,12 @@ function renderLearning() {{
   const insights = lr.insights || [];
   const runs = lr.runs || [];
 
-  document.getElementById('learn-total').textContent = `${{st.total_evaluated || 0}} אותות הוערכו`;
+  const rawEval = Number(st.raw_evaluated || 0);
+  const uniqEval = Number(st.total_evaluated || 0);
+  document.getElementById('learn-total').textContent =
+    rawEval > uniqEval
+      ? `${{uniqEval}} אותות הוערכו (מתוך ${{rawEval}} דגימות)`
+      : `${{uniqEval}} אותות הוערכו`;
   document.getElementById('learn-insights').innerHTML = insights.length
     ? '<ul style="margin:0;padding-right:18px;color:var(--text-2);font-size:12px">' +
       insights.map(x => `<li style="margin-bottom:5px">${{esc(x)}}</li>`).join('') + '</ul>'
@@ -1229,6 +1234,7 @@ function renderSystem() {{
     ['יעד / סטופ / Time Stop', `+${{sig.take_profit || 0.05}} / -${{sig.stop_loss || 0.08}} / ${{sig.time_stop_hours || 48}}h`],
     ['Kelly / סיכון / DD Throttle', `${{((rk.kelly_fraction || 0.25)*100).toFixed(0)}}% / ${{((rk.risk_per_trade_pct || 0.02)*100).toFixed(1)}}% / ${{(Number(rk.drawdown_throttle_pct||0.05)*100).toFixed(0)}}%`],
     ['תקרת חשיפה / פוזיציות', `${{((rk.max_total_exposure_pct || 0.4)*100).toFixed(0)}}% / ${{rk.max_open_positions || 5}}`],
+    ['תקרת סקטור / קירור', `מקס' ${{rk.max_positions_per_sector || 2}} לסקטור · קירור ${{rk.cooldown_minutes || 0}}m`],
     ['מגן חדשות / יציאת חירום', `impact>=${{nw.spike_impact_threshold || 0.65}} / exit>=${{nw.emergency_exit_impact || 0.85}}`],
     ['זינוק נפח שבועי', `${{nw.volume_spike_ratio || 6}}x`],
     ['תדירות אוטופיילוט', `מסחר ${{apc.trade_interval_sec || 180}}s · גיבוי ${{Math.round((apc.backup_interval_sec || 14400)/3600)}}h`],

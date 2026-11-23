@@ -226,3 +226,95 @@ def test_engine_prioritizes_higher_quality_candidate_across_markets(cfg, store):
     assert "yes-b" in eng.portfolio.positions
     assert "yes-a" not in eng.portfolio.positions
 
+
+def test_empty_book_imbalance_none_and_live_sell_size_clamp(cfg, store, monkeypatch):
+    """ספר ללא רמות עומק (imbalance=None) אינו מפיל את הסריקה, ומכירה ב-live מתאימה עצמה ליתרת הטוקן."""
+    from pmmb.engine import CycleStats
+    from pmmb.models import Fill, Market, Position, Signal, utcnow
+
+    cfg.news.enabled = False
+
+    class _EmptyDepthClob:
+        def get_history(self, tid, **_kw):
+            base = [0.50 + (0.002 if i % 2 else -0.002) for i in range(44)]
+            return [Candle(ts=1_700_000_000 + i * 3600, price=p) for i, p in enumerate(base)]
+
+        def get_book(self, tid):
+            # best_bid/ask קיימים אבל אין רמות bids/asks -> imbalance() == None
+            return Book(token_id=tid, best_bid=0.49, best_ask=0.51, bid_size=100, ask_size=100, bids=[], asks=[])
+
+    eng = Engine(cfg, store=store, clob=_EmptyDepthClob(), gamma=FakeGamma([_gamma_market(yes_price=0.50)]))
+    stats = eng.run_once()
+    assert stats.errors == 0
+    rows = store.recent_market_intel(limit=5)
+    assert len(rows) == 1
+
+    # כעת בודקים הקטנת גודל SELL ב-live כאשר conditional_balance נמוך במעט מ-pos.size
+    cfg.execution.mode = "live"
+    captured_orders = []
+
+    class _LiveStubBroker:
+        mode = "live"
+
+        def conditional_balance(self, _tid):
+            return 39.974
+
+        def execute(self, order, **_kw):
+            captured_orders.append(order)
+            return Fill(order.token_id, order.condition_id, order.side, order.price, order.size)
+
+    eng_live = Engine(cfg, store=store, clob=_EmptyDepthClob(), broker=_LiveStubBroker(),
+                      gamma=FakeGamma([_gamma_market(yes_price=0.50)]))
+    pos = Position(
+        token_id="yes-tok", condition_id="0xcond", direction="LONG",
+        size=40.0, avg_price=0.40, stop_price=0.30, target_price=0.45,
+        opened_at=utcnow(), question="Live sell clamp?",
+    )
+    eng_live.portfolio.restore([pos], 500.0)
+    mk = Market.from_gamma(_gamma_market(yes_price=0.49))
+    assert mk is not None
+    bk = Book(token_id="yes-tok", best_bid=0.46, best_ask=0.47, bid_size=100, ask_size=100,
+              bids=[(0.46, 100)], asks=[(0.47, 100)])
+    eng_live._handle_exit(mk, Signal("0xcond", "yes-tok", "FLAT", 0.0, 0.5, 0.46, 0.0, ""), bk, CycleStats())
+    assert len(captured_orders) == 1
+    assert captured_orders[0].size == 39.97
+
+
+def test_server_manager_throttles_rss_refresh_on_stream_ticks(cfg, tmp_path, monkeypatch):
+    """לולאת השידור החי (60s) אינה שולפת RSS מחדש אם טרם חלף refresh_interval_sec, אך רענון ידני כן."""
+    from pmmb.server import _TraderManager
+    import pmmb.server as srv_mod
+
+    cfg.data.db_path = str(tmp_path / "srv.db")
+    monkeypatch.setenv("PMMB_DISABLE_LIVE_NEWS", "0")
+    calls = []
+
+    def _fake_refresh(_store, **_kw):
+        calls.append(1)
+        return []
+
+    class _QuietHttp:
+        def get(self, *_a, **_kw):
+            return []
+
+    class _QuietClob:
+        def get_book(self, _tid):
+            return None
+
+        def get_history(self, _tid, **_kw):
+            return []
+
+    monkeypatch.setattr(srv_mod, "refresh_news_to_store", _fake_refresh)
+    mgr = _TraderManager(cfg)
+    monkeypatch.setattr(mgr, "_build_clients", lambda **_kw: (_QuietHttp(), _QuietClob()))
+    mgr.last_news_ts = int(srv_mod.time.time())
+
+    # קריאת stream שוטפת (include_markets=False) לא מושכת RSS מחדש לפני שעבר המרווח
+    mgr.refresh_news_and_stream(include_markets=False)
+    assert len(calls) == 0
+
+    # קריאה ידנית (include_markets=True) כן מרעננת מיד
+    mgr.refresh_news_and_stream(include_markets=True)
+    assert len(calls) == 1
+
+

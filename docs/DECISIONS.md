@@ -156,6 +156,15 @@ CNBC ו-NPR נוספו לצד Google News (`data/news.py`), ויחס האצת ה
 (ג) **ניקוי False Positives וזיהוי קטליזטורים אמיתיים (`news.py`)**: אבחון `news_items` ב־`pmmb.db` גילה ש־`match_market_news` שייך בטעות כתבות לא קשורות בגלל מילים גנריות בודדות באורך >= 7 (`reported`, `announces`) ופספס כותרות מהותיות (`reinstates`, `probing`, `espionage`, `scandal`, `airspace`, `blockade`). המילים הגנריות הוחרגו, מילת יחיד בודדת באורך >= 7 מותרת כעת רק לשם פרטי ייחודי (אות גדולה בשאלה), ו־`316` כתבות + `86` תוצאות אותות ב־`pmmb.db` עודכנו רטרואקטיבית.
 (ד) **דדופליקציית אותות חיים לשעה (`store.py`)**: הדגימה המחזורית כל 3 דקות יצרה 10+ כפילויות לכל אות שעתי וניפחה סטטיסטיקת שווא; `signal_outcome_stats()` מאחדת כעת לפי `(token_id, direction, ts // 3600)` ושומרת `raw_evaluated` במקביל — ומראה `41.4%` הצלחה אמיתית על `29` אותות עצמאיים במקום `24.6%` מעוות.
 
+## 22. שימור מצב בין-מחזורי (`cooldown` והתראות), הקשחת ביצוע Live, ומניעת הצפת רשת בשרת
+2026-11 · מתקבל · מלא (אומת ב-214 בדיקות ובשרת הרציף החי)
+ביקורת קוד עמוקה של שכבות ה־Runtime, הביצוע והשרת (`engine.py`, `server.py`, `store.py`, `ui.py`) חשפה ופתרה ארבעה כשלי זמן-ריצה שקטים:
+(א) **אובדן `cooldown_minutes=360` והצפת התראות במצב `pmmb serve` (`store.py`, `engine.py`, `server.py`)**: כיוון ש־`_TraderManager.run_single_cycle()` יצר מופע `Engine` חדש בכל מחזור של 3 דקות, `_cooldown_until` ו־`_seen_pos_alerts` שבזיכרון נמחקו בסוף כל מחזור ובעלייה מחדש. `Store.recent_exits()` ו־`Store.recent_event_data()` משחזרים כעת ב־`_restore_state()` את תקופות הצינון מ־`fills` (SELL) ואת התראות החדשות לפוזיציות מ־12 השעות האחרונות, והשרת מעביר `eng.cycle` ו־`_seen_pos_alerts` מעודכנים.
+(ב) **שליפת 26+ בקשות RSS/Google בכל 60 שנ' (`server.py`, `engine.py`)**: לולאת הזרמת הטיקים של כל 60 שנ' (`refresh_news_and_stream(include_markets=False)`) ו־`Engine._last_news_refresh` המתאפס רעננו מחדש את כל 19 הפידים ושאילתות Google כמעט בכל דקה. כעת `force_news` מכובד אוטומטית (`include_markets=True` מהכפתור) בעוד שידור הרקע ו־`Engine` סופרים כנגד `self.last_news_ts` ו־`refresh_interval_sec` (900s) — הפחתה של ~93% בעומס ה־RSS.
+(ג) **הגנות ביצוע וסנכרון חוטים (`engine.py`, `server.py`)**: נוסף `_effective_sell_size()` המגביל כמות SELL במצב `live` מול `conditional_balance()` כדי שפער עיגול של `0.01` טוקן לעולם לא יכשיל Stop-Loss/Exit; נוספה הגנת `imb is None` ב־`market_intel` לספר ריק ושימור `taker_fee_rate` באורפנים; ו־`run_learning_now()` מריץ אופטימיזציה על `copy.deepcopy(self.cfg)` ומחיל שינוי רק בתוך `self._lock`.
+(ד) **שקיפות דשבורד (`ui.py`)**: כרטיסיית הלמידה והגדרות הסיכון מציגות כעת גם `raw_evaluated` (כשיש כפילויות דגימה) וגם את `max_positions_per_sector` ו־`cooldown_minutes`.
+
+
 
 
 
