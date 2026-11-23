@@ -877,6 +877,118 @@ def cmd_report(args, cfg: Config) -> int:
     return 0
 
 
+def cmd_perps(args, cfg: Config) -> int:
+    """שליטה מלאה בזרוע ה-PERPS (סריקה רב-בורסות, Paper/Live עד ×50, בקטסט ולמידה OOS)."""
+    from .perps.backtest import run_perp_portfolio_backtest, run_perp_walkforward, write_perp_reports
+    from .perps.broker import LivePerpBroker, PaperPerpBroker
+    from .perps.engine import PerpEngine
+    from .perps.exchange import MultiPerpExchange
+    from .perps.learning import run_perp_self_learning_cycle
+    from .perps.signals import ProMultiRegimeEngine
+    from .status import build_perps_status
+
+    act = args.perps_cmd
+    if act == "scan":
+        ex = MultiPerpExchange(cfg.perps.exchange)
+        sig_eng = ProMultiRegimeEngine(cfg.perps)
+        insts = ex.scan()
+        btc_i = next((i for i in insts if i.symbol == "BTC"), None)
+        btc_cs = ex.get_candles(btc_i, interval=cfg.perps.signal.timeframe, lookback=160) if btc_i else []
+        rows = []
+        for inst in insts:
+            cs = btc_cs if (inst.symbol == "BTC" and btc_cs) else ex.get_candles(inst, interval=cfg.perps.signal.timeframe, lookback=160)
+            bk = ex.get_book(inst)
+            s = sig_eng.evaluate(inst, cs, book=bk, btc_candles=btc_cs)
+            rows.append([
+                inst.symbol, inst.exchange.upper(), f"${inst.mark_price:,.2f}" if inst.mark_price > 10 else f"${inst.mark_price:.4f}",
+                s.regime, s.direction if s.direction != "FLAT" else "—",
+                f"×{s.recommended_leverage:.0f}", f"{s.features.get('adx', 0):.1f}",
+                f"{s.features.get('z', 0):+.2f}", f"{inst.funding_1h*100:+.4f}%", s.reason[:42],
+            ])
+        print(_table(rows, ["מטבע", "זירה", "מחיר", "משטר", "אות", "מינוף", "ADX", "Z", "Fund/1h", "נימוק"]))
+        return 0
+
+    if act == "status":
+        store = Store(cfg.data.db_path)
+        try:
+            ps = build_perps_status(cfg, store)
+            print(
+                f"⚡ PERPS [{ps['mode'].upper()}] | זירות: {', '.join(ps['exchanges']).upper()} | "
+                f"הון {ps['equity']:.2f} USDC | מזומן {ps['cash']:.2f} | מרג'ין {ps['margin_used']:.2f} | "
+                f"מינוף ממוצע ×{ps['avg_leverage']:.1f} | פוזיציות {len(ps['positions'])}"
+            )
+            if ps["positions"]:
+                rows = [
+                    [p["symbol"], p["exchange"].upper(), p["side"], f"×{p['leverage']:.0f}",
+                     f"${p['margin_used']:.1f}", f"{p['entry_price']:.4f}", f"{p['mark_price']:.4f}",
+                     f"{p['liquidation_price']:.4f} ({p['liq_distance_pct']:.1f}%)", f"{p['unrealized_pnl']:+.2f}"]
+                    for p in ps["positions"]
+                ]
+                print(_table(rows, ["חוזה", "זירה", "כיוון", "מינוף", "מרג'ין", "כניסה", "נוכחי", "LIQ (%)", "לא ממומש"]))
+        finally:
+            store.close()
+        return 0
+
+    if act == "backtest":
+        ex = MultiPerpExchange(cfg.perps.exchange)
+        insts = ex.scan()[: args.assets]
+        datasets = {}
+        funding_map = {}
+        for inst in insts:
+            cs = ex.get_candles(inst, interval=cfg.perps.signal.timeframe, lookback=args.lookback)
+            if len(cs) >= 240:
+                datasets[inst.symbol] = (inst, cs)
+                if inst.hl_funding_1h is not None:
+                    funding_map[inst.symbol] = ex.hl.get_funding_history(inst.symbol, days=30)
+        full = run_perp_portfolio_backtest(cfg.perps, datasets, funding_map=funding_map)
+        wf = run_perp_walkforward(cfg.perps, datasets, funding_map=funding_map, folds=3)
+        p = write_perp_reports(full, wf, out_dir=args.out)
+        print(
+            f"⚡ PERPS Backtest ({len(datasets)} חוזים, ×{cfg.perps.risk.max_leverage:.0f} max):\n"
+            f"  תשואה: {full.return_pct:+.2f}% | הון סופי {full.ending_equity:.2f} | "
+            f"עסקאות {full.trades} (WR {full.win_rate_pct:.1f}%, PF {full.profit_factor:.2f}) | "
+            f"DD {full.max_drawdown_pct:.1f}% | ליקווידציות {full.liquidations}\n"
+            f"  מינוף ממוצע ×{full.avg_leverage:.1f} (שיא ×{full.max_leverage_used:.1f}) | "
+            f"OOS (3 חלונות): {wf.oos_return_pct:+.2f}% (עקביות {wf.consistency*100:.0f}%)\n"
+            f"📄 {p}"
+        )
+        return 0
+
+    if act == "learn":
+        store = Store(cfg.data.db_path)
+        try:
+            rep = run_perp_self_learning_cycle(cfg, store, apply_changes=not args.no_apply)
+            print(f"🧠 {rep.summary}")
+            print(f"  Baseline OOS: {rep.baseline_oos_pct:+.2f}% | Candidate OOS: {rep.candidate_oos_pct:+.2f}% | 0 ליקווידציות: {rep.liquidations == 0}")
+        finally:
+            store.close()
+        return 0
+
+    if act in ("paper", "live"):
+        if act == "live":
+            cfg.perps.mode = "live"
+            broker = LivePerpBroker(cfg.perps)
+        else:
+            cfg.perps.mode = "paper"
+            broker = PaperPerpBroker(cfg.perps)
+        eng = PerpEngine(cfg, broker=broker)
+        n_cycles = args.cycles or 1
+        try:
+            for idx in range(n_cycles):
+                st = eng.run_once()
+                print(
+                    f"⚡ מחזור #{idx+1}: נסרקו {st.scanned} | אותות {st.signalled} | "
+                    f"כניסות {st.entries} | יציאות {st.exits} | הון {eng._equity():.2f}"
+                )
+                if idx + 1 < n_cycles:
+                    time.sleep(args.interval)
+        finally:
+            eng.close()
+        return 0
+
+    return 1
+
+
 # ----------------------------------------------------------------------
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="pmmb", description="Polymarket Momentum Bot (אסטרטגיה B)")
@@ -1024,6 +1136,21 @@ def build_parser() -> argparse.ArgumentParser:
     nw = sub.add_parser("news", help="חדשות שווקים חיות וזיהוי קטליזטורים")
     nw.add_argument("--refresh", action="store_true", help="משוך עכשיו חדשות עדכניות מ-RSS")
     nw.add_argument("--limit", type=int, default=15)
+
+    pr = sub.add_parser("perps", help="זרוע חוזים תמידיים (Perpetual Futures עד ×50)")
+    pr_sub = pr.add_subparsers(dest="perps_cmd", required=True)
+    pr_sub.add_parser("scan", help="סריקת OKX + Hyperliquid + Binance והצגת סיגנלים")
+    pr_sub.add_parser("status", help="מצב תיק Perps, מרג'ין, מינוף וליקווידציה")
+    for pm in ("paper", "live"):
+        pr_run = pr_sub.add_parser(pm, help=f"הרצת מסחר Perps במצב {pm}")
+        pr_run.add_argument("--cycles", type=int, default=1)
+        pr_run.add_argument("--interval", type=float, default=120.0)
+    pr_bt = pr_sub.add_parser("backtest", help="בקטסט פורטפוליו + 3-Fold Walk-Forward ל-Perps")
+    pr_bt.add_argument("--assets", type=int, default=16)
+    pr_bt.add_argument("--lookback", type=int, default=720)
+    pr_bt.add_argument("--out", default="reports")
+    pr_lr = pr_sub.add_parser("learn", help="למידה עצמית OOS לפרמטרי Perps")
+    pr_lr.add_argument("--no-apply", action="store_true")
     return p
 
 
@@ -1063,6 +1190,7 @@ def main(argv: list[str] | None = None) -> int:
         "telegram": cmd_telegram,
         "learn": cmd_learn,
         "news": cmd_news,
+        "perps": cmd_perps,
     }
     return handlers[args.command](args, cfg)
 

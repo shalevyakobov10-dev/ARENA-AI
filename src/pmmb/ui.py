@@ -329,6 +329,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
     <nav class="nav-tabs" aria-label="ניווט ראשי">
       <button class="nav-tab active" data-tab="overview">סקירה ומסחר</button>
+      <button class="nav-tab" data-tab="perps">⚡ חוזים (PERPS ×50)</button>
       <button class="nav-tab" data-tab="markets">שווקים וגרפים</button>
       <button class="nav-tab" data-tab="intel">חדשות ולמידה</button>
       <button class="nav-tab" data-tab="system">תפעול אוטונומי</button>
@@ -637,6 +638,115 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
       </div>
     </div>
   </section>
+
+  <!-- ========== TAB PERPS: חוזים תמידיים עד ×50 ========== -->
+  <section id="tab-perps" class="tab-pane">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:14px">
+      <div>
+        <div style="font-size:15px;font-weight:700">זרוע חוזים תמידיים (PERPS · Isolated Margin עד ×50)</div>
+        <div style="font-size:12px;color:var(--text-3)" id="perps-sub-hdr">OKX + Hyperliquid + Binance · Multi-Regime + Funding + Global Macro</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary" onclick="postAction('/api/perps/cycle', {{}})">מחזור PERPS עכשיו</button>
+        <button class="btn" onclick="postAction('/api/perps/learn', {{}})">כיול Walk-Forward</button>
+        <button class="btn btn-ghost" id="btn-perps-toggle" onclick="postAction('/api/perps/toggle', {{}})">השהה PERPS</button>
+      </div>
+    </div>
+
+    <div class="kpi-row" id="perps-kpi-row"></div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">עקומת הון PERPS</span>
+          <span class="card-meta" id="perps-eq-meta">—</span>
+        </div>
+        <div class="card-body">
+          <div class="eq-wrap"><canvas id="perps-eq-canvas" class="plot"></canvas></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <span class="card-title">הגנות מרג׳ין וליקווידציה (עד ×50)</span>
+          <span class="card-meta" id="perps-guard-meta">Isolated Margin</span>
+        </div>
+        <div class="card-body" id="perps-guards-box"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <span class="card-title">פוזיציות PERPS פתוחות</span>
+        <span class="card-meta">לחיצה על שורה טוענת את גרף החוזה וקווי SL / TP / LIQ</span>
+      </div>
+      <div class="card-body flush">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>חוזה / בורסה</th><th>כיוון</th><th>מינוף</th><th>מרג׳ין</th><th>נומינלי</th>
+                <th>כניסה</th><th>נוכחי</th><th>SL / TP</th><th>ליקווידציה (LIQ)</th><th>ROE / PnL</th>
+              </tr>
+            </thead>
+            <tbody id="perps-pos-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="desk-grid">
+      <div class="card">
+        <div class="card-head" style="flex-direction:column;align-items:stretch;gap:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span class="card-title">רדאר חוזים רב-בורסות</span>
+            <span class="card-meta" id="perps-intel-cnt">—</span>
+          </div>
+          <input type="text" id="perps-search" class="input" placeholder="חיפוש מטבע (BTC, ETH, SOL...)" oninput="renderPerps()">
+        </div>
+        <div class="wl-scroll" id="perps-wl"></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div class="card">
+          <div class="card-head">
+            <div>
+              <div class="card-title" id="perps-chart-title">גרף חוזה חי</div>
+              <div class="card-meta" id="perps-chart-sub">1h · Multi-Regime</div>
+            </div>
+            <button class="btn btn-ghost btn-xs" onclick="loadPerpChart(SELECTED_PERP_SYM, true)">משוך חי</button>
+          </div>
+          <div class="card-body">
+            <div class="chart-wrap"><canvas id="perps-price-canvas" class="plot"></canvas></div>
+          </div>
+        </div>
+
+        <div class="grid-even">
+          <div class="card">
+            <div class="card-head"><span class="card-title">עסקאות PERPS סגורות</span><span class="card-meta" id="perps-tr-cnt">—</span></div>
+            <div class="card-body flush">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>מועד</th><th>חוזה</th><th>כיוון</th><th>מינוף</th><th>PnL</th><th>סיבה</th></tr></thead>
+                  <tbody id="perps-trades-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-head"><span class="card-title">למידה עצמית OOS (PERPS)</span></div>
+            <div class="card-body flush">
+              <div class="table-wrap">
+                <table>
+                  <thead><tr><th>מועד</th><th>Baseline</th><th>מועמד</th><th>עקביות</th><th>סטטוס</th></tr></thead>
+                  <tbody id="perps-learn-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <div id="toast" class="toast"></div>
@@ -650,6 +760,8 @@ let NEWS_FILTER = 'ALL';
 let CHART_RANGE = 9999;
 let CURRENT_CHART = (INITIAL.charts && INITIAL.charts.default) || null;
 let SELECTED_TOKEN = (CURRENT_CHART && CURRENT_CHART.token_id) || '';
+let CURRENT_PERP_CHART = (INITIAL.perps && INITIAL.perps.default_chart) || null;
+let SELECTED_PERP_SYM = (CURRENT_PERP_CHART && CURRENT_PERP_CHART.symbol) || 'BTC';
 const LIVE_ORIGIN = {inter_js} && Boolean(window.location && window.location.protocol && window.location.protocol.startsWith('http'));
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, m => ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[m]));
@@ -685,6 +797,7 @@ document.querySelectorAll('.nav-tab').forEach(btn => {{
     document.querySelectorAll('.tab-pane').forEach(p => p.classList.toggle('active', p.id === 'tab-' + ACTIVE_TAB));
     if (ACTIVE_TAB === 'markets') {{ drawPriceChart(); drawRsiChart(); }}
     if (ACTIVE_TAB === 'overview') drawEquityChart();
+    if (ACTIVE_TAB === 'perps') {{ drawPerpEqChart(); drawPerpPriceChart(); }}
   }});
 }});
 
@@ -778,14 +891,226 @@ async function loadChart(tokenId, live = false) {{
 function renderAll() {{
   renderHeader();
   renderOverview();
+  renderPerps();
   renderMarketsIntel();
   renderDeskPanels();
   drawEquityChart();
+  drawPerpEqChart();
+  drawPerpPriceChart();
   drawPriceChart();
   drawRsiChart();
   renderNews();
   renderLearning();
   renderSystem();
+}}
+
+async function loadPerpChart(sym, live = false) {{
+  if (!sym) return;
+  SELECTED_PERP_SYM = sym;
+  renderPerps();
+  if (!LIVE_ORIGIN) {{ drawPerpPriceChart(); return; }}
+  try {{
+    const res = await fetch('/api/perps/chart?symbol=' + encodeURIComponent(sym) + (live ? '&live=1' : ''));
+    if (res.ok) {{
+      CURRENT_PERP_CHART = await res.json();
+      drawPerpPriceChart();
+    }}
+  }} catch (e) {{}}
+}}
+
+function renderPerps() {{
+  const ps = STATE.perps || {{}};
+  const tr = STATE.trader || {{}};
+  const enabled = ps.enabled !== false;
+  const btnT = document.getElementById('btn-perps-toggle');
+  if (btnT) btnT.textContent = enabled ? 'השהה PERPS' : 'הפעל PERPS';
+  const hdrSub = document.getElementById('perps-sub-hdr');
+  if (hdrSub) {{
+    hdrSub.textContent = `${{(ps.exchanges || ['okx','hyperliquid']).join(' + ').toUpperCase()}} · מצב ${{(ps.mode || 'paper').toUpperCase()}} · ${{(ps.timeframe || '1h')}} · מקס׳ ×${{ps.max_leverage || 50}} · מחזורים: ${{tr.perps_cycles || 0}}`;
+  }}
+
+  const eq = Number(ps.equity || 1000);
+  const cash = Number(ps.cash || 0);
+  const mrg = Number(ps.margin_used || 0);
+  const notl = Number(ps.notional || 0);
+  const unr = Number(ps.unrealized_pnl || 0);
+  const ov = Number(ps.overall_pnl || 0);
+  const pkpis = [
+    {{ l: 'הון PERPS (USDC)', v: fmtNum(eq), s: `לא ממומש: ${{fmtSign(unr)}} · DD ${{fmtNum(ps.drawdown_pct || 0, 1)}}%`, c: '' }},
+    {{ l: 'מרג׳ין ומינוף חי', v: `×${{fmtNum(ps.avg_leverage || 0, 1)}}`, s: `מרג׳ין ${{fmtNum(mrg)}} | נומינלי $${{Math.round(notl).toLocaleString()}}`, c: '' }},
+    {{ l: 'מזומן פנוי', v: fmtNum(cash), s: `פוזיציות: ${{(ps.positions || []).length}} | מינוף שיא ×${{fmtNum(ps.max_leverage_open || 0, 0)}}`, c: '' }},
+    {{ l: 'PnL + Funding', v: fmtSign(ov), s: `היום ${{fmtSign(ps.today_pnl || 0)}} · Funding ${{fmtSign(ps.funding_net || 0, 3)}}`, c: ov >= 0 ? 'pos' : 'neg' }},
+    {{ l: 'WR / Profit Factor', v: `${{fmtNum(ps.win_rate_pct || 0, 0)}}%`, s: `${{ps.closed_trades || 0}} עסקאות · PF ${{fmtNum(ps.profit_factor || 0, 2)}}`, c: '' }},
+  ];
+  const kpiEl = document.getElementById('perps-kpi-row');
+  if (kpiEl) kpiEl.innerHTML = pkpis.map(k => `<div class="kpi"><div class="kpi-label">${{esc(k.l)}}</div><div class="kpi-val num ${{k.c}}">${{esc(k.v)}}</div><div class="kpi-sub">${{esc(k.s)}}</div></div>`).join('');
+
+  const g = ps.guards || {{}};
+  const gBox = document.getElementById('perps-guards-box');
+  if (gBox) {{
+    const gBars = [
+      {{ lbl: 'ניצול Margin מהתיק', txt: `${{fmtNum(g.used_margin_pct || 0, 1)}}% / ${{g.max_margin_pct || 65}}%`, pct: Math.min(100, Number(g.used_margin_pct || 0) / Math.max(1, Number(g.max_margin_pct || 65)) * 100), col: 'var(--accent)' }},
+      {{ lbl: 'Drawdown מוגבל', txt: `${{fmtNum(ps.drawdown_pct || 0, 1)}}% / ${{g.dd_limit_pct || 18}}%`, pct: Math.min(100, Number(ps.drawdown_pct || 0) / Math.max(1, Number(g.dd_limit_pct || 18)) * 100), col: 'var(--amber)' }},
+      {{ lbl: 'מגן ליקווידציה (Buffer)', txt: `×${{g.liq_buffer_mult || 2.2}} ATR · SL ${{g.sl_atr_mult || 1.7}} / TP ${{g.tp_atr_mult || 3.0}}`, pct: 70, col: 'var(--green)' }},
+    ];
+    gBox.innerHTML = gBars.map(b => `<div class="bar-row"><div class="bar-top"><span>${{esc(b.lbl)}}</span><span class="num">${{esc(b.txt)}}</span></div><div class="bar-track"><div class="bar-fill" style="width:${{b.pct.toFixed(1)}}%;background:${{b.col}}"></div></div></div>`).join('');
+  }}
+
+  const pos = ps.positions || [];
+  const posEl = document.getElementById('perps-pos-tbody');
+  if (posEl) posEl.innerHTML = pos.length ? pos.map(p => {{
+    const u = Number(p.unrealized_pnl || 0);
+    const roe = Number(p.roe_pct || 0);
+    const sideCls = p.side === 'LONG' ? 'badge-ok' : 'badge-err';
+    const liqD = Number(p.liq_distance_pct || 0);
+    return `<tr class="clickable" onclick="loadPerpChart('${{esc(p.symbol)}}', true)">
+      <td style="color:var(--text);font-weight:600">${{esc(p.symbol)}} <span class="badge badge-mute">${{esc((p.exchange || '').toUpperCase())}}</span></td>
+      <td><span class="badge ${{sideCls}}">${{esc(p.side)}}</span></td>
+      <td class="num"><span class="badge badge-warn">×${{Number(p.leverage).toFixed(0)}}</span></td>
+      <td class="num">$${{fmtNum(p.margin_used, 2)}}</td>
+      <td class="num">$${{Math.round(p.notional).toLocaleString()}}</td>
+      <td class="num">${{fmtNum(p.entry_price, 4)}}</td>
+      <td class="num">${{fmtNum(p.mark_price, 4)}}</td>
+      <td class="num" style="color:var(--text-3)">${{fmtNum(p.stop_price, 4)}} / ${{fmtNum(p.target_price, 4)}}</td>
+      <td class="num" style="color:${{liqD < 4 ? 'var(--red)' : 'var(--amber)'}}">${{fmtNum(p.liquidation_price, 4)}} (${{liqD.toFixed(1)}}%)</td>
+      <td class="num ${{u >= 0 ? 'pos' : 'neg'}}">${{fmtSign(roe, 1)}}% (${{fmtSign(u, 2)}})</td>
+    </tr>`;
+  }}).join('') : '<tr><td colspan="10" style="text-align:center;color:var(--text-3);padding:18px">אין פוזיציות PERPS פתוחות כרגע</td></tr>';
+
+  const intel = ps.intel || [];
+  const q = (document.getElementById('perps-search')?.value || '').trim().toLowerCase();
+  const filt = intel.filter(r => !q || String(r.symbol || '').toLowerCase().includes(q));
+  const icEl = document.getElementById('perps-intel-cnt');
+  if (icEl) icEl.textContent = `${{filt.length}} חוזים חיים`;
+  const wlEl = document.getElementById('perps-wl');
+  if (wlEl) wlEl.innerHTML = filt.length ? filt.map(r => {{
+    const act = r.symbol === SELECTED_PERP_SYM;
+    const regCls = r.regime === 'TREND_UP' ? 'badge-ok' : (r.regime === 'TREND_DOWN' ? 'badge-err' : 'badge-info');
+    return `<div class="wl-item ${{act ? 'active' : ''}}" onclick="loadPerpChart('${{esc(r.symbol)}}', true)">
+      <div class="wl-top">
+        <div class="wl-q">${{esc(r.symbol)}} <span style="color:var(--text-3);font-weight:400">(${{esc((r.exchange || '').toUpperCase())}})</span></div>
+        <span class="badge ${{regCls}}">${{esc(r.regime || 'RANGE')}} · ×${{Number(r.rec_leverage || 10).toFixed(0)}}</span>
+      </div>
+      <div class="wl-sub">
+        <span class="num" style="color:var(--text)">$${{fmtNum(r.price, r.price > 100 ? 2 : 4)}}</span>
+        <span class="num">ADX ${{fmtNum(r.adx, 1)}}</span>
+        <span class="num">Z ${{fmtSign(r.z_score, 2)}}</span>
+        <span class="num">RSI ${{fmtNum(r.rsi, 0)}}</span>
+        <span class="num">Fund ${{r.funding_1h ? (Number(r.funding_1h)*100).toFixed(4)+'%' : '0%'}}</span>
+      </div>
+    </div>`;
+  }}).join('') : '<div style="padding:18px;text-align:center;color:var(--text-3)">טרם בוצעה סריקת PERPS — לחץ "מחזור PERPS עכשיו"</div>';
+
+  const trs = ps.recent_trades || [];
+  const tcEl = document.getElementById('perps-tr-cnt');
+  if (tcEl) tcEl.textContent = `${{trs.length}} אחרונות`;
+  const tbEl = document.getElementById('perps-trades-tbody');
+  if (tbEl) tbEl.innerHTML = trs.length ? trs.slice(0, 12).map(t => {{
+    const rz = Number(t.realized || 0);
+    return `<tr>
+      <td class="num" style="color:var(--text-3)">${{fmtDateTime(t.ts)}}</td>
+      <td style="color:var(--text)">${{esc(t.symbol)}}</td>
+      <td>${{esc(t.side)}}</td>
+      <td class="num">×${{Number(t.leverage || 1).toFixed(0)}}</td>
+      <td class="num ${{rz >= 0 ? 'pos' : 'neg'}}">${{fmtSign(rz, 2)}}</td>
+      <td style="color:var(--text-3)">${{esc((t.reason || '').slice(0, 26))}}</td>
+    </tr>`;
+  }}).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--text-3);padding:16px">אין עסקאות סגורות עדיין</td></tr>';
+
+  const lr = ps.learning_runs || [];
+  const lrEl = document.getElementById('perps-learn-tbody');
+  if (lrEl) lrEl.innerHTML = lr.length ? lr.slice(0, 8).map(r => `<tr>
+    <td class="num" style="color:var(--text-3)">${{fmtDateTime(r.ts)}}</td>
+    <td class="num">${{fmtSign(r.baseline_oos, 2)}}%</td>
+    <td class="num">${{fmtSign(r.candidate_oos, 2)}}%</td>
+    <td class="num">${{(Number(r.consistency || 0)*100).toFixed(0)}}%</td>
+    <td>${{r.applied ? '<span class="badge badge-ok">קודם</span>' : '<span class="badge badge-mute">נשמר</span>'}}</td>
+  </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:16px">טרם בוצע כיול OOS ל-PERPS</td></tr>';
+}}
+
+function drawPerpEqChart() {{
+  const canvas = document.getElementById('perps-eq-canvas');
+  if (!canvas) return;
+  const {{ ctx, w, h }} = prepCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const raw = ((STATE.perps && STATE.perps.equity_curve) || []).filter(p => typeof p.equity === 'number');
+  if (raw.length < 2) {{
+    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('עקומת הון PERPS תיבנה אוטומטית מהמחזור הבא...', w / 2, h / 2);
+    return;
+  }}
+  const pts = raw.map(p => p.equity);
+  const minV = Math.min(...pts), maxV = Math.max(...pts);
+  const pad = Math.max((maxV - minV) * 0.14, 1);
+  const lo = minV - pad, hi = maxV + pad;
+  const pxL = 12, pxR = 54, pyT = 12, pyB = 20, gw = w - pxL - pxR, gh = h - pyT - pyB;
+  const up = pts[pts.length - 1] >= pts[0];
+  const stroke = up ? '#10b981' : '#ef4444';
+  const meta = document.getElementById('perps-eq-meta');
+  if (meta) meta.textContent = `${{pts[0].toFixed(2)}} -> ${{pts[pts.length-1].toFixed(2)}} (${{fmtSign(pts[pts.length-1]-pts[0])}})`;
+  const X = i => pxL + (i / (pts.length - 1)) * gw;
+  const Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
+  ctx.beginPath();
+  pts.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
+  ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
+}}
+
+function drawPerpPriceChart() {{
+  const canvas = document.getElementById('perps-price-canvas');
+  if (!canvas) return;
+  const {{ ctx, w, h }} = prepCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+  const ch = CURRENT_PERP_CHART || {{}};
+  const cs = ch.candles || [];
+  const tEl = document.getElementById('perps-chart-title');
+  const sEl = document.getElementById('perps-chart-sub');
+  if (tEl) tEl.textContent = `${{ch.symbol || SELECTED_PERP_SYM}} Perpetual (${{ch.timeframe || '1h'}})`;
+  if (sEl && ch.intel && ch.intel.symbol) {{
+    sEl.textContent = `${{(ch.intel.exchange || '').toUpperCase()}} · ${{ch.intel.regime || ''}} · ADX ${{fmtNum(ch.intel.adx, 1)}} · Z ${{fmtSign(ch.intel.z_score, 2)}} · מינוף מומלץ ×${{Number(ch.intel.rec_leverage || 10).toFixed(0)}}`;
+  }}
+  if (cs.length < 2) {{
+    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('אין עדיין נרות לחוזה זה — לחץ "משוך חי"', w / 2, h / 2);
+    return;
+  }}
+  const vals = cs.map(c => Number(c.close));
+  const ov = ch.overlays || {{}};
+  const all = [...vals];
+  if (ov.stop) all.push(Number(ov.stop));
+  if (ov.target) all.push(Number(ov.target));
+  if (ov.liq) all.push(Number(ov.liq));
+  const minV = Math.min(...all), maxV = Math.max(...all);
+  const pad = Math.max((maxV - minV) * 0.12, maxV * 0.002);
+  const lo = minV - pad, hi = maxV + pad;
+  const pxL = 14, pxR = 66, pyT = 14, pyB = 20, gw = w - pxL - pxR, gh = h - pyT - pyB;
+  const X = i => pxL + (i / (vals.length - 1)) * gw;
+  const Y = v => pyT + gh - ((v - lo) / (hi - lo)) * gh;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.fillStyle = '#64748b'; ctx.font = '10px monospace';
+  for (let i = 0; i <= 4; i++) {{
+    const y = pyT + gh * (i / 4);
+    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
+    const v = hi - (hi - lo) * (i / 4);
+    ctx.fillText(v > 100 ? v.toFixed(1) : v.toFixed(4), w - pxR + 6, y + 3);
+  }}
+  const hLn = (v, col, lbl) => {{
+    if (!v) return;
+    const y = Y(Number(v));
+    if (y < pyT || y > pyT + gh) return;
+    ctx.save(); ctx.setLineDash([4, 4]); ctx.strokeStyle = col;
+    ctx.beginPath(); ctx.moveTo(pxL, y); ctx.lineTo(w - pxR, y); ctx.stroke();
+    ctx.fillStyle = col; ctx.fillText(lbl, pxL + 6, y - 4);
+    ctx.restore();
+  }};
+  if (ov.entry) {{
+    hLn(ov.target, '#10b981', 'TP ' + Number(ov.target).toFixed(4));
+    hLn(ov.entry, '#94a3b8', 'ENTRY ×' + Number(ov.leverage || 1).toFixed(0));
+    hLn(ov.stop, '#f59e0b', 'SL ' + Number(ov.stop).toFixed(4));
+    hLn(ov.liq, '#ef4444', 'LIQ ' + Number(ov.liq).toFixed(4));
+  }}
+  ctx.beginPath();
+  vals.forEach((v, i) => i === 0 ? ctx.moveTo(X(i), Y(v)) : ctx.lineTo(X(i), Y(v)));
+  ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 2; ctx.stroke();
 }}
 
 function renderHeader() {{
@@ -1492,6 +1817,7 @@ function drawRsiChart() {{
 
 window.addEventListener('resize', () => {{
   if (ACTIVE_TAB === 'overview') drawEquityChart();
+  if (ACTIVE_TAB === 'perps') {{ drawPerpEqChart(); drawPerpPriceChart(); }}
   if (ACTIVE_TAB === 'markets') {{ drawPriceChart(); drawRsiChart(); }}
 }});
 

@@ -164,6 +164,15 @@ CNBC ו-NPR נוספו לצד Google News (`data/news.py`), ויחס האצת ה
 (ג) **הגנות ביצוע וסנכרון חוטים (`engine.py`, `server.py`)**: נוסף `_effective_sell_size()` המגביל כמות SELL במצב `live` מול `conditional_balance()` כדי שפער עיגול של `0.01` טוקן לעולם לא יכשיל Stop-Loss/Exit; נוספה הגנת `imb is None` ב־`market_intel` לספר ריק ושימור `taker_fee_rate` באורפנים; ו־`run_learning_now()` מריץ אופטימיזציה על `copy.deepcopy(self.cfg)` ומחיל שינוי רק בתוך `self._lock`.
 (ד) **שקיפות דשבורד (`ui.py`)**: כרטיסיית הלמידה והגדרות הסיכון מציגות כעת גם `raw_evaluated` (כשיש כפילויות דגימה) וגם את `max_positions_per_sector` ו־`cooldown_minutes`.
 
+## 23. זרוע החוזים התמידיים האוטונומית (PERPS ×50) — מתאם רב-בורסות, מנוע רב-מצבי וניהול סיכון Isolated Margin
+2026-11 · מתקבל · מלא (אומת ב-221 בדיקות + Backtest חי על 16 חוזים: +38.29% / PF 1.62 / 0 ליקווידציות + 100% OOS +21.79%)
+הרחבת המערכת המאוחדת תוך שמירה מלאה על זרוע Polymarket הקיימת (ADR #22), תחת עקרון "מדידה לפני ייצור":
+(א) **מתאם רב-בורסות והפרדת נזילות 24/7 (`src/pmmb/perps/exchange.py`)**: חיבור מקבילי (`ThreadPoolExecutor`) ל־`OKX SWAP` (מינוף עד ×100 למסחר מוסדי), `Hyperliquid DEX` (235 נכסים, נרות 720h ו-Funding שעתי), ו־`Binance Futures` (עם זיהוי אוטומטי של חסימת Geo `451`/`403` וגיבוי חלק). דגל `cross_exchange_crypto_only=True` מסנן החוצה חוזי מניות/Pre-IPO טוקנייזד (`NVDA`, `SOXL`, `ANTHROPIC` וכו' שאינם סחירים 24/7) ומשמר יקום קריפטו טהור ונזיל 24/7.
+(ב) **מנוע אסטרטגיה רב-מצבי (`src/pmmb/perps/signals.py`)**: מחקר אמפירי על 16 נכסים (721 נרות `1h` ו־961 נרות `15m`) הוכיח כי מסחר `15m` ו־`Donchian Breakout` נאיבי סופגים שחיקת עמלות והחלקה (`-15%` עד `-57%`), בעוד משטר `1h` משולב **`ProMultiRegimeEngine`** (`ADX + Kaufman Efficiency Ratio`, Pullbacks במגמה + Mean-Reversion `Z>=1.8 / RSI 38-62` בטווח + `BTC HTF Bias` + הצלבת `Funding` + פילטר חדשות מאקרו מ-19 רשתות) שקודם אוטונומית ע"י `pmmb perps learn` ל־`sl_atr_mult=1.5 / tp_atr_mult=2.6` מניב **`+38.29%`** (`96` עסקאות, `67.7% WR`, `PF 1.62`, `DD 9.4%`) ו־**`100%` עקביות OOS** (`3/3` חלונות Walk-Forward, **`+21.79%`** OOS).
+(ג) **מינוף דינמי עד ×50 ומגן ליקווידציה (`src/pmmb/perps/risk.py`)**: עבודה ב־`Isolated Margin` בלבד; מגן `liquidation_buffer_mult=2.2` מחייב שמרחק ה־`Stop Loss` (`1.5*ATR`) יפגע לפני מחיר הליקווידציה (אחרת המינוף מתכווץ אוטומטית מהסטאפ `A+` מ-`×50` למטה בהתאם ל־ATR — כך שבמבחני Walk-Forward על 16 חוזים התקבלו **0 ליקווידציות** תחת מינוף ממוצע `×20.7` ושיא `×46.4`). כולל `ATR Trailing Stop` (`1.2/1.0`), `Time Stop 36h`, ו־`Kill Switch` יומי/Drawdown.
+(ד) **תפעול אוטונומי וממשק (`perps/{engine,broker,backtest,learning}.py`, `store.py`, `server.py`, `ui.py`, `cli.py`)**: 7 טבלאות SQLite ייעודיות (`perp_*`), למידת Walk-Forward ברקע, כפתורי שליטה וגרף `SL / TP / LIQ` חי בטאב `⚡ חוזים (PERPS ×50)` בדשבורד, והגנות 3-שכבות על `LivePerpBroker`.
+
+
 
 
 

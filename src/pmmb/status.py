@@ -361,6 +361,7 @@ def build_command_center_data(
             }
             out["market_intel"] = store.recent_market_intel(limit=60)
             out["autopilot"] = store.recent_autopilot_runs(limit=25)
+            out["perps"] = build_perps_status(cfg, store, reports_dir=reports_dir)
         finally:
             store.close()
 
@@ -506,6 +507,164 @@ def build_command_center_data(
         },
     }
     return out
+
+
+def build_perps_chart_series(store: Store, cfg, symbol: str, limit: int = 160) -> dict:
+    """גרף Perps חי + קווי SL / TP / Liquidation / Entry."""
+    tf = cfg.perps.signal.timeframe
+    candles = store.get_perp_candles(symbol.upper(), timeframe=tf, limit=limit)
+    pos = store._conn.execute(
+        "SELECT * FROM perp_positions WHERE symbol=? AND mode=? AND size > 0 AND closed_at IS NULL",
+        (symbol.upper(), cfg.perps.mode),
+    ).fetchone()
+    intel = store._conn.execute("SELECT * FROM perp_intel WHERE symbol=?", (symbol.upper(),)).fetchone()
+    overlays: dict = {}
+    if pos:
+        overlays = {
+            "side": pos["side"],
+            "leverage": float(pos["leverage"]),
+            "entry": float(pos["entry_price"]),
+            "stop": float(pos["stop_price"]),
+            "target": float(pos["target_price"]),
+            "liq": float(pos["liquidation_price"]),
+            "strategy": str(pos["strategy"] or ""),
+        }
+    return {
+        "symbol": symbol.upper(),
+        "timeframe": tf,
+        "candles": candles,
+        "overlays": overlays,
+        "intel": dict(intel) if intel else {},
+    }
+
+
+def build_perps_status(cfg, store: Store, *, reports_dir: str | Path = "reports") -> dict:
+    """בונה תמונת מצב שלמה לזרוע החוזים התמידיים (PERPS עד ×50)."""
+    pc = cfg.perps
+    mode = pc.mode
+    now = datetime.now(tz=timezone.utc)
+    day_start = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+    st_state = store.load_perp_portfolio_state(mode, pc.risk.starting_cash, now=now)
+    intel_rows = store.recent_perp_intel(limit=40)
+    mark_map = {str(r["symbol"]): float(r["price"]) for r in intel_rows if r.get("price")}
+
+    open_positions = []
+    unr_total = 0.0
+    used_margin = 0.0
+    tot_notional = 0.0
+    for p in st_state["positions"]:
+        mk = mark_map.get(p.symbol, p.entry_price)
+        unr = p.unrealized_pnl(mk)
+        roe = p.roe_pct(mk)
+        liq_dist = ((mk - p.liquidation_price) / mk * 100.0) if p.side == "LONG" else ((p.liquidation_price - mk) / mk * 100.0)
+        unr_total += unr
+        used_margin += p.margin_used
+        tot_notional += p.notional
+        open_positions.append({
+            "symbol": p.symbol,
+            "exchange": p.exchange,
+            "side": p.side,
+            "size": round(p.size, 6),
+            "entry_price": round(p.entry_price, 6),
+            "mark_price": round(mk, 6),
+            "notional": round(p.notional, 2),
+            "leverage": round(p.leverage, 1),
+            "margin_used": round(p.margin_used, 2),
+            "liquidation_price": round(p.liquidation_price, 6),
+            "liq_distance_pct": round(liq_dist, 2),
+            "stop_price": round(p.stop_price, 6),
+            "target_price": round(p.target_price, 6),
+            "unrealized_pnl": round(unr, 2),
+            "roe_pct": round(roe, 1),
+            "strategy": p.strategy,
+            "regime": p.regime,
+            "funding": round(p.accumulated_funding, 4),
+            "age_hours": round((now - p.opened_at).total_seconds() / 3600.0, 1),
+        })
+
+    equity = round(st_state["cash"] + used_margin + unr_total, 2)
+    avg_lev = round(tot_notional / used_margin, 1) if used_margin > 0 else 0.0
+    max_lev_open = max((p["leverage"] for p in open_positions), default=0.0)
+
+    c = store._conn
+    closes = c.execute(
+        """SELECT ts, symbol, exchange, side, price, notional, leverage, realized, funding, fee, reason
+           FROM perp_fills WHERE mode=? AND action IN ('CLOSE','LIQUIDATION')
+           ORDER BY ts DESC, id DESC LIMIT 40""",
+        (mode,),
+    ).fetchall()
+    all_closes = c.execute(
+        "SELECT ts, realized, funding, fee FROM perp_fills WHERE mode=? AND action IN ('CLOSE','LIQUIDATION')",
+        (mode,),
+    ).fetchall()
+    all_fees = float((c.execute("SELECT COALESCE(SUM(fee),0) s FROM perp_fills WHERE mode=?", (mode,)).fetchone()["s"]) or 0.0)
+    all_fund = float((c.execute("SELECT COALESCE(SUM(funding),0) s FROM perp_fills WHERE mode=?", (mode,)).fetchone()["s"]) or 0.0)
+
+    wins = sum(1 for r in all_closes if float(r["realized"] or 0.0) > 0)
+    gp = sum(float(r["realized"] or 0.0) for r in all_closes if float(r["realized"] or 0.0) > 0)
+    gl = abs(sum(float(r["realized"] or 0.0) for r in all_closes if float(r["realized"] or 0.0) <= 0))
+    pf = round(gp / gl, 2) if gl > 0 else (99.0 if gp > 0 else 0.0)
+
+    eq_rows = list(reversed(c.execute(
+        "SELECT ts, equity, margin_used, avg_lev FROM perp_equity WHERE mode=? ORDER BY ts DESC LIMIT 120",
+        (mode,),
+    ).fetchall()))
+    eq_curve = [{"ts": int(r["ts"]), "equity": float(r["equity"]), "margin": float(r["margin_used"]), "lev": float(r["avg_lev"])} for r in eq_rows]
+
+    pk = max(st_state["peak_equity"], equity)
+    dd_pct = round((pk - equity) / pk * 100.0, 2) if pk > 0 else 0.0
+
+    bt_md = ""
+    for fn in ("perps_backtest.md", "perps_learning.md"):
+        p_md = Path(reports_dir) / fn
+        if p_md.exists():
+            try:
+                bt_md += p_md.read_text(encoding="utf-8")[:2500] + "\n"
+            except Exception:
+                pass
+
+    default_sym = open_positions[0]["symbol"] if open_positions else (intel_rows[0]["symbol"] if intel_rows else "BTC")
+    return {
+        "enabled": pc.enabled,
+        "mode": mode,
+        "timeframe": pc.signal.timeframe,
+        "max_leverage": pc.risk.max_leverage,
+        "dynamic_leverage": pc.risk.dynamic_leverage,
+        "exchanges": list(pc.exchange.enabled_exchanges),
+        "equity": equity,
+        "cash": round(st_state["cash"], 2),
+        "margin_used": round(used_margin, 2),
+        "notional": round(tot_notional, 2),
+        "avg_leverage": avg_lev,
+        "max_leverage_open": max_lev_open,
+        "unrealized_pnl": round(unr_total, 2),
+        "today_pnl": round(st_state["realized_pnl_today"], 2),
+        "overall_pnl": round(st_state["realized_pnl"], 2),
+        "drawdown_pct": dd_pct,
+        "closed_trades": len(all_closes),
+        "win_rate_pct": round(wins / len(all_closes) * 100.0, 1) if all_closes else 0.0,
+        "profit_factor": pf,
+        "fees_paid": round(all_fees, 2),
+        "funding_net": round(all_fund, 3),
+        "positions": open_positions,
+        "recent_trades": [dict(r) for r in closes],
+        "intel": intel_rows,
+        "equity_curve": eq_curve,
+        "learning_runs": store.recent_perp_learning_runs(limit=10),
+        "default_chart": build_perps_chart_series(store, cfg, default_sym),
+        "reports_md": bt_md,
+        "guards": {
+            "max_margin_pct": round(pc.risk.max_total_margin_pct * 100, 0),
+            "used_margin_pct": round(used_margin / equity * 100, 1) if equity > 0 else 0.0,
+            "daily_loss_limit": round(equity * pc.risk.max_daily_loss_pct, 2),
+            "dd_limit_pct": round(pc.risk.max_drawdown_pct * 100, 1),
+            "liq_buffer_mult": pc.risk.liquidation_buffer_mult,
+            "sl_atr_mult": pc.risk.sl_atr_mult,
+            "tp_atr_mult": pc.risk.tp_atr_mult,
+            "positions_room": max(0, pc.risk.max_open_positions - len(open_positions)),
+        },
+    }
 
 
 def sparkline(points: list[dict], *, w: int = 260, h: int = 56) -> str:

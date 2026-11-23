@@ -186,6 +186,149 @@ CREATE TABLE IF NOT EXISTS autopilot_runs (
     details TEXT DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_ap_ts ON autopilot_runs(ts);
+
+-- ============================================================
+--  זרוע חוזים תמידיים (PERPS) עד מינוף 50x
+-- ============================================================
+CREATE TABLE IF NOT EXISTS perp_candles (
+    symbol    TEXT NOT NULL,
+    exchange  TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    ts        INTEGER NOT NULL,
+    open      REAL NOT NULL,
+    high      REAL NOT NULL,
+    low       REAL NOT NULL,
+    close     REAL NOT NULL,
+    volume    REAL NOT NULL,
+    PRIMARY KEY (symbol, timeframe, ts)
+);
+CREATE INDEX IF NOT EXISTS idx_perp_c_ts ON perp_candles(ts);
+
+CREATE TABLE IF NOT EXISTS perp_signals (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts        INTEGER NOT NULL,
+    symbol    TEXT NOT NULL,
+    exchange  TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    regime    TEXT NOT NULL,
+    strategy  TEXT NOT NULL,
+    score     REAL NOT NULL,
+    tier      TEXT DEFAULT 'B',
+    leverage  REAL DEFAULT 10.0,
+    price     REAL NOT NULL,
+    stop_px   REAL,
+    tp_px     REAL,
+    reason    TEXT,
+    features  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_perp_sig_ts ON perp_signals(ts);
+
+CREATE TABLE IF NOT EXISTS perp_fills (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts           INTEGER NOT NULL,
+    mode         TEXT NOT NULL,
+    symbol       TEXT NOT NULL,
+    exchange     TEXT NOT NULL,
+    side         TEXT NOT NULL,      -- LONG / SHORT
+    action       TEXT NOT NULL,      -- OPEN / CLOSE / LIQUIDATION
+    price        REAL NOT NULL,
+    size         REAL NOT NULL,
+    notional     REAL NOT NULL,
+    leverage     REAL NOT NULL,
+    margin_delta REAL DEFAULT 0,
+    fee          REAL DEFAULT 0,
+    funding      REAL DEFAULT 0,
+    realized     REAL DEFAULT 0,
+    reason       TEXT,
+    order_id     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_perp_fills_ts ON perp_fills(ts);
+
+CREATE TABLE IF NOT EXISTS perp_positions (
+    symbol            TEXT PRIMARY KEY,
+    exchange          TEXT NOT NULL,
+    mode              TEXT NOT NULL,
+    side              TEXT NOT NULL,
+    size              REAL NOT NULL,
+    entry_price       REAL NOT NULL,
+    notional          REAL NOT NULL,
+    leverage          REAL NOT NULL,
+    margin_used       REAL NOT NULL,
+    liquidation_price REAL NOT NULL,
+    stop_price        REAL NOT NULL,
+    target_price      REAL NOT NULL,
+    highest_price     REAL NOT NULL,
+    lowest_price      REAL NOT NULL,
+    atr               REAL DEFAULT 0,
+    strategy          TEXT DEFAULT '',
+    regime            TEXT DEFAULT '',
+    entry_score       REAL DEFAULT 0,
+    accumulated_funding REAL DEFAULT 0,
+    fees_paid         REAL DEFAULT 0,
+    opened_at         INTEGER NOT NULL,
+    last_funding_ts   INTEGER DEFAULT 0,
+    closed_at         INTEGER,
+    exit_reason       TEXT,
+    realized_pnl      REAL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS perp_equity (
+    ts          INTEGER NOT NULL,
+    mode        TEXT NOT NULL,
+    equity      REAL NOT NULL,
+    cash        REAL NOT NULL,
+    margin_used REAL NOT NULL,
+    notional    REAL NOT NULL,
+    positions   INTEGER NOT NULL,
+    avg_lev     REAL DEFAULT 0,
+    PRIMARY KEY (ts, mode)
+);
+
+CREATE TABLE IF NOT EXISTS perp_intel (
+    symbol            TEXT PRIMARY KEY,
+    exchange          TEXT NOT NULL,
+    price             REAL NOT NULL,
+    mark_price        REAL,
+    spread_bps        REAL DEFAULT 0,
+    bid_depth_usd     REAL DEFAULT 0,
+    ask_depth_usd     REAL DEFAULT 0,
+    imbalance         REAL DEFAULT 0,
+    volume_24h_usd    REAL DEFAULT 0,
+    open_interest_usd REAL DEFAULT 0,
+    funding_1h        REAL DEFAULT 0,
+    okx_funding_1h    REAL,
+    hl_funding_1h     REAL,
+    max_leverage      REAL DEFAULT 10.0,
+    rec_leverage      REAL DEFAULT 10.0,
+    regime            TEXT DEFAULT 'RANGE',
+    strategy          TEXT DEFAULT 'meanrev',
+    adx               REAL,
+    er                REAL,
+    rsi               REAL,
+    z_score           REAL,
+    atr_pct           REAL,
+    score             REAL DEFAULT 0,
+    setup_tier        TEXT DEFAULT 'B',
+    news_impact       REAL DEFAULT 0,
+    status            TEXT DEFAULT 'WATCH',
+    reason            TEXT DEFAULT '',
+    updated_at        INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS perp_learning_runs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts            INTEGER NOT NULL,
+    mode          TEXT NOT NULL,
+    baseline_oos  REAL,
+    candidate_oos REAL,
+    consistency   REAL,
+    oos_trades    INTEGER,
+    baseline_cfg  TEXT,
+    candidate_cfg TEXT,
+    applied       INTEGER DEFAULT 0,
+    summary       TEXT,
+    details       TEXT
+);
 """
 
 
@@ -1028,3 +1171,256 @@ class Store:
                 "details": json.loads(r["details"] or "{}"),
             })
         return out
+
+    # ==================================================================
+    #  זרוע PERPS — שמירה, שחזור פוזיציות/מרג'ין, נרות, מודיעין ולמידה
+    # ==================================================================
+    def insert_perp_candles(
+        self, symbol: str, exchange: str, timeframe: str,
+        rows: list[tuple[int, float, float, float, float, float]],
+    ) -> None:
+        if not rows:
+            return
+        with self.tx() as c:
+            c.executemany(
+                "INSERT OR REPLACE INTO perp_candles(symbol, exchange, timeframe, ts, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?,?,?)",
+                [(symbol, exchange, timeframe, int(ts), float(o), float(h), float(l), float(cl), float(v)) for ts, o, h, l, cl, v in rows],
+            )
+
+    def get_perp_candles(self, symbol: str, timeframe: str = "1h", limit: int = 300) -> list[dict[str, Any]]:
+        rows = list(reversed(self._conn.execute(
+            "SELECT ts, open, high, low, close, volume FROM perp_candles WHERE symbol=? AND timeframe=? ORDER BY ts DESC LIMIT ?",
+            (symbol, timeframe, limit),
+        ).fetchall()))
+        return [dict(r) for r in rows]
+
+    def record_perp_signal(self, s) -> None:
+        with self.tx() as c:
+            c.execute(
+                """INSERT INTO perp_signals(ts, symbol, exchange, direction, regime, strategy, score, tier,
+                       leverage, price, stop_px, tp_px, reason, features)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    int(s.ts.timestamp()), s.symbol, s.exchange, s.direction, s.regime, s.strategy,
+                    round(float(s.score), 4), s.tier, round(float(s.recommended_leverage), 1),
+                    float(s.price), s.stop_price, s.take_profit_price, s.reason,
+                    json.dumps(s.features, ensure_ascii=False),
+                ),
+            )
+
+    def upsert_perp_position(self, p, mode: str) -> None:
+        with self.tx() as c:
+            c.execute(
+                """INSERT INTO perp_positions(
+                       symbol, exchange, mode, side, size, entry_price, notional, leverage,
+                       margin_used, liquidation_price, stop_price, target_price,
+                       highest_price, lowest_price, atr, strategy, regime, entry_score,
+                       accumulated_funding, fees_paid, opened_at, last_funding_ts, closed_at, exit_reason, realized_pnl)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL,NULL,0)
+                   ON CONFLICT(symbol) DO UPDATE SET
+                     exchange=excluded.exchange, mode=excluded.mode, side=excluded.side,
+                     size=excluded.size, entry_price=excluded.entry_price, notional=excluded.notional,
+                     leverage=excluded.leverage, margin_used=excluded.margin_used,
+                     liquidation_price=excluded.liquidation_price, stop_price=excluded.stop_price,
+                     target_price=excluded.target_price, highest_price=excluded.highest_price,
+                     lowest_price=excluded.lowest_price, atr=excluded.atr, strategy=excluded.strategy,
+                     regime=excluded.regime, entry_score=excluded.entry_score,
+                     accumulated_funding=excluded.accumulated_funding, fees_paid=excluded.fees_paid,
+                     opened_at=excluded.opened_at, last_funding_ts=excluded.last_funding_ts,
+                     closed_at=NULL, exit_reason=NULL,
+                     realized_pnl=CASE WHEN perp_positions.closed_at IS NOT NULL THEN 0 ELSE perp_positions.realized_pnl END""",
+                (
+                    p.symbol, p.exchange, mode, p.side, p.size, p.entry_price, p.notional, p.leverage,
+                    p.margin_used, p.liquidation_price, p.stop_price, p.target_price,
+                    p.highest_price, p.lowest_price, p.atr, p.strategy, p.regime, p.entry_score,
+                    p.accumulated_funding, p.fees_paid, int(p.opened_at.timestamp()), int(p.last_funding_ts),
+                ),
+            )
+
+    def close_perp_position(self, symbol: str, reason: str, realized_pnl: float) -> None:
+        with self.tx() as c:
+            c.execute(
+                "UPDATE perp_positions SET size=0, margin_used=0, closed_at=?, exit_reason=?, realized_pnl=? WHERE symbol=?",
+                (int(datetime.now(tz=timezone.utc).timestamp()), reason, round(float(realized_pnl), 6), symbol),
+            )
+
+    def record_perp_fill(self, f, mode: str) -> None:
+        with self.tx() as c:
+            c.execute(
+                """INSERT INTO perp_fills(ts, mode, symbol, exchange, side, action, price, size,
+                       notional, leverage, margin_delta, fee, funding, realized, reason, order_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    int(f.ts.timestamp()), mode, f.symbol, f.exchange, f.side, f.action,
+                    f.price, f.size, f.notional, f.leverage, f.margin_delta, f.fee, f.funding,
+                    f.realized, f.reason, f.order_id,
+                ),
+            )
+
+    def snapshot_perp_equity(
+        self, mode: str, equity: float, cash: float, margin_used: float,
+        notional: float, positions: int, avg_lev: float,
+    ) -> None:
+        with self.tx() as c:
+            c.execute(
+                "INSERT OR REPLACE INTO perp_equity(ts, mode, equity, cash, margin_used, notional, positions, avg_lev) VALUES (?,?,?,?,?,?,?,?)",
+                (int(datetime.now(tz=timezone.utc).timestamp()), mode, round(equity, 4), round(cash, 4),
+                 round(margin_used, 4), round(notional, 4), int(positions), round(avg_lev, 2)),
+            )
+
+    def load_perp_portfolio_state(self, mode: str, starting_cash: float, now: datetime | None = None) -> dict[str, Any]:
+        from ..perps.models import PerpPosition
+
+        now = now or datetime.now(tz=timezone.utc)
+        day_start = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+        pos_rows = self._conn.execute(
+            "SELECT * FROM perp_positions WHERE mode=? AND size > 0 AND closed_at IS NULL ORDER BY opened_at",
+            (mode,),
+        ).fetchall()
+        positions: list[PerpPosition] = []
+        for r in pos_rows:
+            positions.append(PerpPosition(
+                symbol=str(r["symbol"]), exchange=str(r["exchange"]), side=str(r["side"]),
+                size=float(r["size"]), entry_price=float(r["entry_price"]), notional=float(r["notional"]),
+                leverage=float(r["leverage"]), margin_used=float(r["margin_used"]),
+                liquidation_price=float(r["liquidation_price"]), stop_price=float(r["stop_price"]),
+                target_price=float(r["target_price"]), highest_price=float(r["highest_price"]),
+                lowest_price=float(r["lowest_price"]), atr=float(r["atr"] or 0.0),
+                strategy=str(r["strategy"] or ""), regime=str(r["regime"] or ""),
+                entry_score=float(r["entry_score"] or 0.0),
+                accumulated_funding=float(r["accumulated_funding"] or 0.0),
+                fees_paid=float(r["fees_paid"] or 0.0),
+                opened_at=datetime.fromtimestamp(int(r["opened_at"]), tz=timezone.utc),
+                last_funding_ts=int(r["last_funding_ts"] or int(r["opened_at"])),
+            ))
+
+        fill_rows = self._conn.execute(
+            "SELECT action, margin_delta, fee, funding, realized, ts FROM perp_fills WHERE mode=? ORDER BY ts, id",
+            (mode,),
+        ).fetchall()
+        if fill_rows:
+            cash = starting_cash
+            realized_total = 0.0
+            realized_today = 0.0
+            for fr in fill_rows:
+                cash += float(fr["margin_delta"] or 0.0) - float(fr["fee"] or 0.0) + float(fr["funding"] or 0.0)
+                rz = float(fr["realized"] or 0.0)
+                realized_total += rz
+                if int(fr["ts"]) >= day_start:
+                    realized_today += rz
+        else:
+            cash = starting_cash
+            realized_total = 0.0
+            realized_today = 0.0
+
+        pk_row = self._conn.execute(
+            "SELECT COALESCE(MAX(equity), 0) AS pk FROM perp_equity WHERE mode=?", (mode,)
+        ).fetchone()
+        peak = max(starting_cash, float(pk_row["pk"] or 0.0))
+        return {
+            "positions": positions,
+            "cash": round(cash, 6),
+            "realized_pnl": round(realized_total, 6),
+            "realized_pnl_today": round(realized_today, 6),
+            "peak_equity": round(peak, 6),
+        }
+
+    def recent_perp_exits(self, mode: str, since_ts: int) -> dict[str, int]:
+        rows = self._conn.execute(
+            """SELECT symbol, MAX(ts) AS last_ts
+               FROM perp_fills
+               WHERE mode=? AND action IN ('CLOSE', 'LIQUIDATION') AND ts >= ?
+               GROUP BY symbol""",
+            (mode, int(since_ts)),
+        ).fetchall()
+        return {str(r["symbol"]): int(r["last_ts"]) for r in rows}
+
+    def upsert_perp_intel(self, rows: list[dict[str, Any]]) -> int:
+        if not rows:
+            return 0
+        with self.tx() as c:
+            c.executemany(
+                """INSERT INTO perp_intel(
+                       symbol, exchange, price, mark_price, spread_bps, bid_depth_usd, ask_depth_usd,
+                       imbalance, volume_24h_usd, open_interest_usd, funding_1h, okx_funding_1h, hl_funding_1h,
+                       max_leverage, rec_leverage, regime, strategy, adx, er, rsi, z_score, atr_pct,
+                       score, setup_tier, news_impact, status, reason, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(symbol) DO UPDATE SET
+                     exchange=excluded.exchange, price=excluded.price, mark_price=excluded.mark_price,
+                     spread_bps=excluded.spread_bps, bid_depth_usd=excluded.bid_depth_usd, ask_depth_usd=excluded.ask_depth_usd,
+                     imbalance=excluded.imbalance, volume_24h_usd=excluded.volume_24h_usd,
+                     open_interest_usd=excluded.open_interest_usd, funding_1h=excluded.funding_1h,
+                     okx_funding_1h=excluded.okx_funding_1h, hl_funding_1h=excluded.hl_funding_1h,
+                     max_leverage=excluded.max_leverage, rec_leverage=excluded.rec_leverage,
+                     regime=excluded.regime, strategy=excluded.strategy, adx=excluded.adx, er=excluded.er,
+                     rsi=excluded.rsi, z_score=excluded.z_score, atr_pct=excluded.atr_pct,
+                     score=excluded.score, setup_tier=excluded.setup_tier, news_impact=excluded.news_impact,
+                     status=excluded.status, reason=excluded.reason, updated_at=excluded.updated_at""",
+                [
+                    (
+                        str(r["symbol"]), str(r["exchange"]), float(r["price"]), r.get("mark_price"),
+                        float(r.get("spread_bps") or 0.0), float(r.get("bid_depth_usd") or 0.0), float(r.get("ask_depth_usd") or 0.0),
+                        r.get("imbalance"), float(r.get("volume_24h_usd") or 0.0), float(r.get("open_interest_usd") or 0.0),
+                        float(r.get("funding_1h") or 0.0), r.get("okx_funding_1h"), r.get("hl_funding_1h"),
+                        float(r.get("max_leverage") or 10.0), float(r.get("rec_leverage") or 10.0),
+                        str(r.get("regime") or "RANGE"), str(r.get("strategy") or "meanrev"),
+                        r.get("adx"), r.get("er"), r.get("rsi"), r.get("z_score"), r.get("atr_pct"),
+                        float(r.get("score") or 0.0), str(r.get("setup_tier") or "B"), float(r.get("news_impact") or 0.0),
+                        str(r.get("status") or "WATCH"), str(r.get("reason") or "")[:120],
+                        int(r.get("updated_at") or datetime.now(tz=timezone.utc).timestamp()),
+                    )
+                    for r in rows
+                ],
+            )
+        return len(rows)
+
+    def recent_perp_intel(self, limit: int = 40) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            """SELECT * FROM perp_intel
+               ORDER BY CASE status WHEN 'OPEN' THEN 0 WHEN 'BUY' THEN 1 WHEN 'SELL' THEN 1 WHEN 'NEAR' THEN 2 ELSE 3 END,
+               score DESC, volume_24h_usd DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def record_perp_learning_run(
+        self,
+        *,
+        mode: str,
+        baseline_oos: float,
+        candidate_oos: float,
+        consistency: float,
+        oos_trades: int,
+        baseline_cfg: dict[str, Any],
+        candidate_cfg: dict[str, Any],
+        applied: bool,
+        summary: str,
+        details: dict[str, Any] | None = None,
+    ) -> int:
+        with self.tx() as c:
+            cur = c.execute(
+                """INSERT INTO perp_learning_runs(ts, mode, baseline_oos, candidate_oos, consistency, oos_trades,
+                       baseline_cfg, candidate_cfg, applied, summary, details)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    int(datetime.now(tz=timezone.utc).timestamp()), mode, round(float(baseline_oos), 4),
+                    round(float(candidate_oos), 4), round(float(consistency), 4), int(oos_trades),
+                    json.dumps(baseline_cfg, ensure_ascii=False), json.dumps(candidate_cfg, ensure_ascii=False),
+                    1 if applied else 0, summary, json.dumps(details or {}, ensure_ascii=False),
+                ),
+            )
+            return int(cur.lastrowid or 0)
+
+    def recent_perp_learning_runs(self, limit: int = 12) -> list[dict[str, Any]]:
+        rows = self._conn.execute("SELECT * FROM perp_learning_runs ORDER BY ts DESC, id DESC LIMIT ?", (limit,)).fetchall()
+        return [{
+            "id": int(r["id"]), "ts": int(r["ts"]), "mode": r["mode"],
+            "baseline_oos": r["baseline_oos"], "candidate_oos": r["candidate_oos"],
+            "consistency": r["consistency"], "oos_trades": r["oos_trades"],
+            "baseline_cfg": json.loads(r["baseline_cfg"] or "{}"),
+            "candidate_cfg": json.loads(r["candidate_cfg"] or "{}"),
+            "applied": bool(r["applied"]), "summary": r["summary"],
+            "details": json.loads(r["details"] or "{}"),
+        } for r in rows]

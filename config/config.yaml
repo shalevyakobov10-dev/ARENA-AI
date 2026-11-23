@@ -1,129 +1,172 @@
-# ============================================================
-#  PMMB — Polymarket Momentum Bot
-#  אסטרטגיה B: סיגנל / מומנטום
-#  כל הפרמטרים כאן — אין צורך לגעת בקוד כדי לכייל
-# ============================================================
-
 execution:
-  # paper  = סימולציה מלאה מול ספר הפקודות האמיתי (ברירת מחדל)
-  # live   = פקודות אמיתיות ב-CLOB (דורש .env + PMMB_LIVE_CONFIRM)
   mode: paper
-  starting_cash: 1000.0        # USDC לחשבון paper
-  slippage_bps: 10             # החלקה על כל מילוי (מעל המחיר הטוב)
-  taker_fee_bps: 0             # פולימרקט גובה 0 על רוב השווקים; עדכן לפי feeSchedule
-  max_slippage_bps: 150        # אם הספר דק מדי — לא נכנסים
-  order_type: FAK              # FAK = Fill-And-Kill, GTC = עומדת
-
+  starting_cash: 1000.0
+  slippage_bps: 10
+  taker_fee_bps: 0
+  max_slippage_bps: 150
+  order_type: FAK
 universe:
-  # סינון השווקים שנסרוק (Gamma API)
-  max_markets: 120             # כמה שווקים לסרוק בכל מחזור
-  min_volume_24h: 3500         # נזילות יומית מינימלית (מבטיח עומק שווקי מאקרו/פוליטיקה איכותיים)
+  max_markets: 120
+  min_volume_24h: 3500
   min_liquidity: 2000
-  max_spread: 0.025            # ספרד מקסימלי 2.5 סנט (מעל זה נאכלת תוחלת של 5 סנט)
-  max_taker_fee_rate: 0.02     # עמלת טייקר מקסימלית 2% (שווקי 5% שחקו OOS בבקטסט)
-  price_band: [0.12, 0.88]     # לא נוגעים בקצוות לוטו (<12¢ שם ספרד=20% מהערך)
-  min_hours_to_resolution: 6   # יציאה כפויה לפני סגירה (לא מחזיקים אירוע בינארי)
-  min_entry_hours_to_resolution: 24  # לא פותחים פוזיציה חדשה אם נותר פחות מ-24ש' לסגירה
-  max_hours_to_resolution: 1080 # 45 ימים (מאזן אמפירי מיטבי: +5.47% בתיק, 100% OOS)
-  # החרגה סקטוריאלית — מבוססת מדידה אמפירית:
-  # crypto: 8% hit; sports: 0% win / -15.10 USDC / עמלת 5%; culture: ציוצים אקראיים.
-  exclude_sectors: ["crypto", "sports", "culture"]
-  exclude_tags: []             # אופציונלי: תגיות Gamma החוצה
+  max_spread: 0.025
+  max_taker_fee_rate: 0.02
+  price_band:
+  - 0.12
+  - 0.88
+  min_hours_to_resolution: 6
+  min_entry_hours_to_resolution: 24
+  max_hours_to_resolution: 1080
+  exclude_sectors:
+  - crypto
+  - sports
+  - culture
+  exclude_tags: []
   exclude_slug_contains: []
   require_order_book: true
-
 signal:
-  # מנוע הסיגנל: meanrev (מומלץ, מבוסס מדידה) או momentum (האסטרטגיה המקורית)
   engine: meanrev
   meanrev:
-    lookback_candles: 24        # חלון 24 שעות (מאומת walk-forward תחת ספרד מלא)
-    z_entry: 1.8                # סף חריגות — נבחר בחלונות OOS עם ספרד מלא
-    z_max: 6.5                  # מעל זה: זעזוע פונדמנטלי; בטווח 5-6.5 עם הגנת חדשות זהו אובר-שוטינג רווחי (WF +53.5 / 100%)
-    reversion_ratio: 0.55       # מכויל: צפי/מציאות = 0.90 באופק 48ש'
+    lookback_candles: 24
+    z_entry: 1.8
+    z_max: 6.5
+    reversion_ratio: 0.55
     max_room_pct: 0.6
-    allow_short: false          # כרגע רק ירידות חדות (buy the dip)
+    allow_short: false
     horizon_hours: 24
-    rsi_max: 40.0               # קונפלואנס RSI<=40 (מגדיל Sharpe ל-6.18 ו-OOS ל-+49.22)
-    max_spread_to_edge: 0.75    # יחס עלות/תוחלת מוקשח (Edge >= 1.33×Spread): +17.95% תיק, PF 2.00, Fixed OOS +63.70
-    confluence_boost: true      # דירוג A+ / A / B לפי עומק Z + RSI + נזילות ספרד
-  # ---- פרמטרים של מנוע המומנטום (engine: momentum) ----
-  candle_fidelity_min: 60      # רזולוציה: 60 דק' — תואם לאופק שנמדד באבחון
-  lookback_candles: 144        # חלון לחישוב (144 נרות שעתיים = 6 ימים)
+    rsi_max: 40.0
+    max_spread_to_edge: 0.75
+    confluence_boost: true
+  candle_fidelity_min: 60
+  lookback_candles: 144
   ema_fast: 9
   ema_slow: 26
-  breakout_window: 20          # פריצה של N נרות
-  momentum_window: 12          # מומנטום על N נרות
-  vol_window: 30               # חלון לתנודתיות
-  min_score: 0.55              # סף |score| לכניסה (0..1) — מתחת לזה האות נחלש
-  min_edge: 0.005              # EV מינימלי לעסקה אחרי עלויות (הסתברות)
-  confirm_candles: 2           # הסיגנל צריך להימשך N נרות (הפחתת רעש)
-  trend_filter: true           # מסחר רק בכיוון ה-EMA האיטי
-  allow_short: true            # "שורט" = קניית טוקן ה-NO / מכירת YES
+  breakout_window: 20
+  momentum_window: 12
+  vol_window: 30
+  min_score: 0.55
+  min_edge: 0.005
+  confirm_candles: 2
+  trend_filter: true
+  allow_short: true
   exit:
-    stop_mode: abs             # נקודות הסתברות קבועות (ה-pct הפסיד תחת ספרד אמיתי)
-    take_profit: 0.06          # +6 סנט בהסתברות — מאושר WF +53.5..+55.3 (100%) ו-Portfolio +7.44% / PF 2.19
-    stop_loss: 0.07            # -7 סנט בהסתברות (Sharpe=9.22, MaxDD=1.75%)
-    time_stop_hours: 48        # כיול: באופק 48ש' התיקון מתמצה
-    exit_on_flip: false        # meanrev לא מייצר סיגנל הופכי (allow_short=false)
-
+    stop_mode: abs
+    take_profit: 0.06
+    stop_loss: 0.07
+    time_stop_hours: 48
+    exit_on_flip: false
 risk:
-  risk_per_trade_pct: 0.02     # 2% מההון לסיכון בעסקה
-  kelly_fraction: 0.65         # כויל אמפירית ב-WF (1.5c): מונע חנק גודל בעסקאות קצרות, Calmar 4.46, WF +133+
-  max_position_pct: 0.10       # תקרה לפוזיציה בודדת
-  max_total_exposure_pct: 0.40 # חשיפה כוללת מקסימלית
-  max_open_positions: 5        # אופטימלי מול 6: PF 2.11 vs 1.69 (Calmar גבוה יותר)
-  max_positions_per_event: 1   # מונע ריכוזית באותו אירוע אב (כגון בחירות/תאריכים)
-  max_positions_per_sector: 2  # פיזור מגזרי קשיח (מקס' 2 מ-5 באותו סקטור): PF 2.00, +17.95% תיק
-  max_daily_loss_pct: 0.05     # עצירה יומית
-  max_drawdown_pct: 0.20       # kill switch
-  cooldown_minutes: 360        # 6 שעות צינון אחרי יציאה — חותך DD מ-6.94% ל-4.07% ומונע קנייה חוזרת בסכין נופלת!
-  min_order_size: 5.0          # מינימום של פולימרקט (USDC)
-  max_price_impact_pct: 0.02   # לא מזיזים את הספר ביותר מ-2%
-  drawdown_throttle_pct: 0.05  # מעל 5% ירידה מהשיא מקטינים גודל כניסות אוטומטית (0.65x)
-
+  risk_per_trade_pct: 0.02
+  kelly_fraction: 0.65
+  max_position_pct: 0.1
+  max_total_exposure_pct: 0.4
+  max_open_positions: 5
+  max_positions_per_event: 1
+  max_positions_per_sector: 2
+  max_daily_loss_pct: 0.05
+  max_drawdown_pct: 0.2
+  cooldown_minutes: 360
+  min_order_size: 5.0
+  max_price_impact_pct: 0.02
+  drawdown_throttle_pct: 0.05
 data:
-  gamma_base_url: "https://gamma-api.polymarket.com"
-  clob_base_url: "https://clob.polymarket.com"
+  gamma_base_url: https://gamma-api.polymarket.com
+  clob_base_url: https://clob.polymarket.com
   http_timeout: 15
   max_retries: 3
-  rate_limit_rps: 8            # בקשות/שנייה ל-CLOB
+  rate_limit_rps: 8
   history_cache_ttl_sec: 120
-  db_path: "pmmb.db"
-
+  db_path: pmmb.db
 logging:
   level: INFO
-  file: "logs/pmmb.log"
+  file: logs/pmmb.log
   json_console: false
-
 news:
-  enabled: true                  # פיד חדשות שווקים חיות (BBC, CNBC, NPR, Google News)
-  refresh_interval_sec: 180      # רענון כל 3 דקות
-  block_on_catalyst: true        # מונע "סכין נופלת" כשמזוהה כתבת קטליזטור שבירה על השוק
-  spike_window_hours: 4.0        # חלון בדיקת חדשות טריות
-  min_spike_articles: 2          # מס' כתבות תואמות בזמן קצר כדי לסמן גל חדשות
-  spike_impact_threshold: 0.65   # כתבה בודדת בעלת חומרה גבוהה (breaking/announced/...)
-  volume_spike_ratio: 6.0        # זינוק נפח 24ש' פי N מהשבוע מוגדר כאות זהירות
-  max_market_queries: 12         # מקס' שאילתות פרטניות לשווקים פתוחים/מועמדים
-  emergency_exit_impact: 0.85    # יציאה יזומה מפוזיציה פתוחה בקטליזטור שלילי שובר-שוק
+  enabled: true
+  refresh_interval_sec: 180
+  block_on_catalyst: true
+  spike_window_hours: 4.0
+  min_spike_articles: 2
+  spike_impact_threshold: 0.65
+  volume_spike_ratio: 6.0
+  max_market_queries: 12
+  emergency_exit_impact: 0.85
   emergency_exit_sentiment: -0.55
-
 learning:
-  enabled: true                  # מנוע למידה עצמית מתמיד (מעקב אותות + Walk-Forward)
-  auto_apply_paper: true         # במצב paper: עדכון אוטומטי רק אם OOS עבר שיפור מובהק
-  allow_auto_apply_live: false   # במצב live: לעולם לא משנה פרמטרים לבד (רק ממליץ)
-  interval_sec: 3600             # מחזור אבולוציה כל שעה
+  enabled: true
+  auto_apply_paper: true
+  allow_auto_apply_live: false
+  interval_sec: 3600
   max_markets: 35
   min_oos_trades: 25
   min_consistency: 0.66
-  min_improvement_pct: 0.05      # דורש שיפור של >=5% מעל ה-Baseline לפני שינוי
+  min_improvement_pct: 0.05
   min_live_signals_for_alert: 12
-
+perps:
+  enabled: true
+  mode: paper
+  interval_sec: 120.0
+  slippage_bps: 3.5
+  taker_fee_bps: 3.5
+  maker_fee_bps: 1.0
+  use_news_filter: true
+  news_block_impact: 0.8
+  news_exit_impact: 0.85
+  news_exit_sentiment: -0.55
+  auto_learn: true
+  learn_interval_sec: 3600.0
+  exchange:
+    enabled_exchanges:
+    - okx
+    - hyperliquid
+    - binance
+    preferred_exchange: auto
+    min_volume_24h_usd: 10000000.0
+    min_open_interest_usd: 5000000.0
+    max_spread_bps: 15.0
+    max_assets: 24
+    cross_exchange_crypto_only: true
+    symbols: []
+    http_timeout: 10.0
+  signal:
+    timeframe: 1h
+    lookback_candles: 160
+    adx_trend_threshold: 25.0
+    er_trend_threshold: 0.32
+    z_entry: 1.8
+    z_max: 5.0
+    rsi_oversold: 38.0
+    rsi_overbought: 62.0
+    min_score: 0.56
+    htf_macro_bias: true
+    allow_short: true
+    max_funding_hourly_against: 0.0005
+  risk:
+    starting_cash: 1000.0
+    max_leverage: 50.0
+    dynamic_leverage: true
+    liquidation_buffer_mult: 2.2
+    risk_per_trade_pct: 0.015
+    max_margin_per_position_pct: 0.25
+    max_total_margin_pct: 0.45
+    max_open_positions: 4
+    max_positions_per_direction: 4
+    sl_atr_mult: 1.5
+    tp_atr_mult: 2.6
+    trailing_enabled: true
+    trailing_trigger_atr: 1.2
+    trailing_dist_atr: 1.0
+    time_stop_hours: 36.0
+    cooldown_bars: 6
+    max_daily_loss_pct: 0.05
+    max_drawdown_pct: 0.15
+    default_mmr: 0.005
 autopilot:
-  enabled: true                  # תפעול אוטונומי מלא של הבוט (Reconcile, גיבוי, דוחות)
-  trade_interval_sec: 180        # מחזור סריקה ומסחר כל 3 דקות
-  stream_interval_sec: 60        # הזרמת גרפים וספרי פקודות כל דקה
-  reconcile_every_cycles: 5      # בדיקת שלמות DB כל 5 מחזורים
-  auto_fix_paper: true           # תיקון אוטומטי של פערים ב-paper
-  backup_interval_sec: 14400     # גיבוי חם אוטומטי כל 4 שעות
+  enabled: true
+  trade_interval_sec: 180
+  stream_interval_sec: 60
+  reconcile_every_cycles: 5
+  auto_fix_paper: true
+  backup_interval_sec: 14400
   backup_keep: 14
-  reports_interval_sec: 1800     # עדכון דוח יומי ומוכנות כל 30 דקות
+  reports_interval_sec: 1800

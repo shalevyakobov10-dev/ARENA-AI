@@ -31,7 +31,7 @@ from .runtime import (
     clear_halt,
     write_halt,
 )
-from .status import build_chart_series, build_command_center_data, build_status, status_html
+from .status import build_chart_series, build_command_center_data, build_perps_chart_series, build_status, status_html
 from .ui import command_center_html
 
 log = logging.getLogger(__name__)
@@ -57,9 +57,12 @@ class _TraderManager:
         self.cfg = cfg
         self._lock = threading.Lock()
         self._learn_lock = threading.Lock()
+        self._perps_lock = threading.Lock()
+        self._perps_learn_lock = threading.Lock()
         self._stop_ev = threading.Event()
         self._thread: threading.Thread | None = None
         self._learn_thread: threading.Thread | None = None
+        self._perps_learn_thread: threading.Thread | None = None
         self.cycles = 0
         self.stream_ticks = 0
         self.news_fetches = 0
@@ -71,6 +74,10 @@ class _TraderManager:
         self.last_backup_ts = 0
         self.last_reports_ts = 0
         self.last_error = ""
+        self.perps_cycles = 0
+        self.perps_last_ts = 0
+        self.perps_last_learn_ts = 0
+        self.perps_last_error = ""
         self._seen_pos_alerts: set[str] = set()
         self.interval_sec = float(cfg.autopilot.trade_interval_sec)
         self.stream_interval_sec = float(cfg.autopilot.stream_interval_sec)
@@ -93,6 +100,11 @@ class _TraderManager:
             "last_backup_ts": self.last_backup_ts,
             "last_reports_ts": self.last_reports_ts,
             "last_error": self.last_error,
+            "perps_enabled": bool(self.cfg.perps.enabled),
+            "perps_cycles": self.perps_cycles,
+            "perps_last_ts": self.perps_last_ts,
+            "perps_last_learn_ts": self.perps_last_learn_ts,
+            "perps_last_error": self.perps_last_error,
             "interval_sec": self.interval_sec,
         }
 
@@ -251,6 +263,76 @@ class _TraderManager:
                 eng.close()
                 plock.release()
 
+    def run_perps_cycle(self) -> dict:
+        if self.cfg.perps.mode != "paper":
+            raise PermissionError("הרצת Perps מהממשק מותרת במצב paper בלבד")
+        with self._perps_lock:
+            from .perps.engine import PerpEngine
+
+            try:
+                plock = ProcessLock("pmmb-perps-paper").acquire()
+            except ProcessLockError as exc:
+                raise RuntimeError(str(exc)) from exc
+            eng = PerpEngine(self.cfg)
+            try:
+                st = eng.run_once()
+                self.perps_cycles += 1
+                self.perps_last_ts = int(time.time())
+                self.perps_last_error = ""
+                eq = eng._equity()
+                used_m = sum(p.margin_used for p in eng.positions.values())
+                return {
+                    "message": f"מחזור PERPS הסתיים: כניסות {st.entries}, יציאות {st.exits}, הון {eq:.2f}",
+                    "output": (
+                        f"נסרקו {st.scanned} חוזים | סיגנלים {st.signalled} | "
+                        f"כניסות {st.entries} | יציאות {st.exits} | שגיאות {st.errors}\n"
+                        f"הון {eq:.2f} | מרג'ין {used_m:.2f} | פוזיציות {len(eng.positions)}"
+                    ),
+                }
+            except Exception as exc:
+                self.perps_last_error = str(exc)
+                raise
+            finally:
+                eng.close()
+                plock.release()
+
+    def run_perps_learning_now(self, *, apply_changes: bool = True) -> dict:
+        from .perps.learning import run_perp_self_learning_cycle
+
+        with self._perps_learn_lock:
+            store = Store(self.cfg.data.db_path)
+            try:
+                cfg_copy = copy.deepcopy(self.cfg)
+                rep = run_perp_self_learning_cycle(cfg_copy, store, apply_changes=apply_changes)
+                if rep.applied:
+                    with self._perps_lock:
+                        for k in ("z_entry", "adx_trend_threshold"):
+                            if k in rep.candidate_cfg:
+                                setattr(self.cfg.perps.signal, k, float(rep.candidate_cfg[k]))
+                        for k in ("sl_atr_mult", "tp_atr_mult"):
+                            if k in rep.candidate_cfg:
+                                setattr(self.cfg.perps.risk, k, float(rep.candidate_cfg[k]))
+                self.perps_last_learn_ts = rep.ts
+                return {
+                    "message": rep.summary,
+                    "output": json.dumps(rep.candidate_cfg, ensure_ascii=False, indent=2),
+                }
+            finally:
+                store.close()
+
+    def _trigger_perps_learning_bg(self) -> None:
+        if self._perps_learn_thread is not None and self._perps_learn_thread.is_alive():
+            return
+
+        def _bg() -> None:
+            try:
+                self.run_perps_learning_now(apply_changes=True)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("למידת Perps ברקע נכשלה: %s", exc)
+
+        self._perps_learn_thread = threading.Thread(target=_bg, daemon=True, name="pmmb-perps-learn-bg")
+        self._perps_learn_thread.start()
+
     def run_maintenance_now(self, *, force_backup: bool = True, force_reports: bool = True) -> dict:
         """מריץ חבילת תחזוקה מלאה של הטייס האוטומטי: אימות/תיקון DB, גיבוי חם ודוחות יומיים."""
         from .autopilot import run_auto_backup, run_auto_reconcile, run_auto_reports
@@ -291,8 +373,10 @@ class _TraderManager:
             from .autopilot import run_auto_backup, run_auto_reconcile, run_auto_reports
 
             next_trade = 0.0
+            next_perps = 0.0
             next_stream = 0.0
             next_learn = time.time() + min(120.0, float(self.cfg.learning.interval_sec))
+            next_perps_learn = time.time() + min(180.0, float(self.cfg.perps.learn_interval_sec))
             next_backup = time.time() + 90.0
             next_reports = time.time() + 45.0
             reconcile_every = max(1, int(self.cfg.autopilot.reconcile_every_cycles))
@@ -316,6 +400,18 @@ class _TraderManager:
                     elif now >= next_stream:
                         self.refresh_news_and_stream(include_markets=False)
                         next_stream = time.time() + self.stream_interval_sec
+
+                    if self.cfg.perps.enabled and self.cfg.perps.mode == "paper" and now >= next_perps:
+                        try:
+                            self.run_perps_cycle()
+                        except Exception as pexc:  # noqa: BLE001
+                            self.perps_last_error = str(pexc)
+                            log.warning("מחזור Perps בלולאה: %s", pexc)
+                        next_perps = time.time() + max(30.0, float(self.cfg.perps.interval_sec))
+
+                    if self.cfg.perps.enabled and self.cfg.perps.auto_learn and now >= next_perps_learn:
+                        self._trigger_perps_learning_bg()
+                        next_perps_learn = time.time() + max(600.0, float(self.cfg.perps.learn_interval_sec))
 
                     if self.cfg.learning.enabled and now >= next_learn:
                         self._trigger_learning_bg()
@@ -356,6 +452,32 @@ class _TraderManager:
         if self._thread is not None and self._thread.is_alive():
             self._thread.join(timeout=2.5)
         return {"message": "לולאת המסחר והשידור הרציף נעצרה", **self.state()}
+
+
+def _build_perps_chart_payload(cfg, symbol: str, *, live: bool = False) -> dict:
+    store = Store(cfg.data.db_path)
+    try:
+        if live and os.getenv("PMMB_DISABLE_LIVE_NEWS") != "1":
+            try:
+                from .perps.exchange import MultiPerpExchange
+                from .perps.models import PerpInstrument
+
+                ex = MultiPerpExchange(cfg.perps.exchange)
+                inst = PerpInstrument(
+                    symbol=symbol.upper(), exchange=cfg.perps.exchange.preferred_exchange if cfg.perps.exchange.preferred_exchange != "auto" else "okx",
+                    exchange_symbol=f"{symbol.upper()}-USDT-SWAP", max_leverage=50.0, mark_price=1.0,
+                )
+                cs = ex.get_candles(inst, interval=cfg.perps.signal.timeframe, lookback=160)
+                if cs:
+                    store.insert_perp_candles(
+                        symbol.upper(), inst.exchange, cfg.perps.signal.timeframe,
+                        [(c.ts, c.open, c.high, c.low, c.close, c.volume) for c in cs],
+                    )
+            except Exception as exc:
+                log.debug("רענון גרף Perps חי נכשל (%s): %s", symbol, exc)
+        return build_perps_chart_series(store, cfg, symbol, limit=160)
+    finally:
+        store.close()
 
 
 def _build_chart_payload(cfg, token_id: str, *, live: bool = False) -> dict:
@@ -479,6 +601,14 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     res = {"ok": True, **trader.run_maintenance_now()}
                 elif path == "/api/paper-cycle":
                     res = {"ok": True, **trader.run_single_cycle()}
+                elif path == "/api/perps/cycle":
+                    res = {"ok": True, **trader.run_perps_cycle()}
+                elif path == "/api/perps/learn":
+                    res = {"ok": True, **trader.run_perps_learning_now(apply_changes=bool(body.get("apply", True)))}
+                elif path == "/api/perps/toggle":
+                    cfg.perps.enabled = bool(body.get("enabled", not cfg.perps.enabled))
+                    res = {"ok": True, "enabled": cfg.perps.enabled,
+                           "message": f"זרוע PERPS {'הופעלה' if cfg.perps.enabled else 'הושהתה'}"}
                 elif path == "/api/trader/start":
                     res = {"ok": True, **trader.start(float(body.get("interval_sec") or 180))}
                 elif path == "/api/trader/stop":
@@ -529,6 +659,12 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     live_flag = query.get("live", ["0"])[0] == "1"
                     chart = _build_chart_payload(cfg, tid, live=live_flag)
                     return self._send(200, json.dumps(chart, ensure_ascii=False).encode(),
+                                      "application/json; charset=utf-8", head_only=head_only)
+                if path == "/api/perps/chart":
+                    sym = (query.get("symbol", ["BTC"])[0] or "BTC").strip().upper()
+                    live_flag = query.get("live", ["0"])[0] == "1"
+                    pchart = _build_perps_chart_payload(cfg, sym, live=live_flag)
+                    return self._send(200, json.dumps(pchart, ensure_ascii=False).encode(),
                                       "application/json; charset=utf-8", head_only=head_only)
                 if path == "/lite":
                     st = build_status(cfg, max_age_sec=max_age_sec)

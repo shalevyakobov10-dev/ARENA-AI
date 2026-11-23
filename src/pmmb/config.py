@@ -207,6 +207,90 @@ class AutopilotConfig:
 
 
 @dataclass
+class PerpsExchangeConfig:
+    enabled_exchanges: list[str] = field(default_factory=lambda: ["okx", "hyperliquid", "binance"])
+    preferred_exchange: str = "auto"   # auto | okx | hyperliquid | binance
+    min_volume_24h_usd: float = 10_000_000.0
+    min_open_interest_usd: float = 5_000_000.0
+    max_spread_bps: float = 15.0
+    max_assets: int = 24
+    cross_exchange_crypto_only: bool = True
+    symbols: list[str] = field(default_factory=list)
+    http_timeout: float = 10.0
+
+
+@dataclass
+class PerpsSignalConfig:
+    timeframe: str = "1h"
+    lookback_candles: int = 160
+    adx_trend_threshold: float = 25.0
+    er_trend_threshold: float = 0.32
+    z_entry: float = 1.8
+    z_max: float = 5.0
+    rsi_oversold: float = 38.0
+    rsi_overbought: float = 62.0
+    min_score: float = 0.56
+    htf_macro_bias: bool = True
+    allow_short: bool = True
+    max_funding_hourly_against: float = 0.0005
+
+
+@dataclass
+class PerpsRiskConfig:
+    starting_cash: float = 1000.0
+    max_leverage: float = 50.0
+    dynamic_leverage: bool = True
+    liquidation_buffer_mult: float = 2.2
+    risk_per_trade_pct: float = 0.015
+    max_margin_per_position_pct: float = 0.25
+    max_total_margin_pct: float = 0.45
+    max_open_positions: int = 4
+    max_positions_per_direction: int = 4
+    sl_atr_mult: float = 1.5
+    tp_atr_mult: float = 2.6
+    trailing_enabled: bool = True
+    trailing_trigger_atr: float = 1.2
+    trailing_dist_atr: float = 1.0
+    time_stop_hours: float = 36.0
+    cooldown_bars: int = 6
+    max_daily_loss_pct: float = 0.05
+    max_drawdown_pct: float = 0.15
+    default_mmr: float = 0.005
+
+    def validate(self) -> None:
+        if not 1.0 <= self.max_leverage <= 100.0:
+            raise ConfigError(f"perps.risk.max_leverage לא חוקי: {self.max_leverage}")
+        if not 0.0 < self.risk_per_trade_pct <= 0.10:
+            raise ConfigError("perps.risk.risk_per_trade_pct צריך להיות בין 0 ל-0.10")
+        if self.liquidation_buffer_mult < 1.2:
+            raise ConfigError("perps.risk.liquidation_buffer_mult חייב להיות >= 1.2 להגנה מליקווידציה")
+
+
+@dataclass
+class PerpsConfig:
+    enabled: bool = True
+    mode: str = "paper"               # paper | live
+    interval_sec: float = 120.0
+    slippage_bps: float = 3.5
+    taker_fee_bps: float = 3.5
+    maker_fee_bps: float = 1.0
+    use_news_filter: bool = True
+    news_block_impact: float = 0.80
+    news_exit_impact: float = 0.85
+    news_exit_sentiment: float = -0.55
+    auto_learn: bool = True
+    learn_interval_sec: float = 3600.0
+    exchange: PerpsExchangeConfig = field(default_factory=PerpsExchangeConfig)
+    signal: PerpsSignalConfig = field(default_factory=PerpsSignalConfig)
+    risk: PerpsRiskConfig = field(default_factory=PerpsRiskConfig)
+
+    def validate(self) -> None:
+        if self.mode not in {"paper", "live"}:
+            raise ConfigError(f"perps.mode לא חוקי: {self.mode}")
+        self.risk.validate()
+
+
+@dataclass
 class Config:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     universe: UniverseConfig = field(default_factory=UniverseConfig)
@@ -217,6 +301,7 @@ class Config:
     news: NewsConfig = field(default_factory=NewsConfig)
     learning: LearningConfig = field(default_factory=LearningConfig)
     autopilot: AutopilotConfig = field(default_factory=AutopilotConfig)
+    perps: PerpsConfig = field(default_factory=PerpsConfig)
 
     # ---- טעינה ----
     @classmethod
@@ -255,6 +340,7 @@ class Config:
         self.execution.validate()
         self.signal.validate()
         self.risk.validate()
+        self.perps.validate()
 
 
 # --------------------------------------------------------------------------

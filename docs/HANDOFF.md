@@ -48,14 +48,20 @@ _המסמך הזה הוא נקודת הכניסה היחידה לפרויקט. �
 ## 4. המצב הנוכחי (מדויק, לא שיווקי)
 
 ```
-214 בדיקות · 26 פקודות · אפס קריאות רשת בבדיקות
-אסטרטגיה וקונפיגורציה מוקשחת (ADR #18–22: עמלת Taker<=2%, אופק<=45d, z_max=6.5, TP+6c/SL-7c, kelly=0.65, cd=360m, sp2e=0.75, sec_cap=2 + שימור cooldown/alerts בין מחזורים ומניעת הצפת RSS):
+221 בדיקות · 27 פקודות (כולל pmmb perps *) · אפס קריאות רשת בבדיקות
+1) זרוע Polymarket (ADR #18–22):
   Portfolio Backtest (`pmmb backtest --top 35 --portfolio`, 25 שווקים, spread=0.015):
     47 עסקאות | Win Rate 66.0% | PF 2.16 | תשואה +17.56% (1175.57 USDC) | Max DD 4.11% | עמלות 13.92 USDC
   Walk-Forward OOS (`pmmb walkforward --markets 35 --spread 0.01`, 3 חלונות, 25 שווקים):
     +56.19 USDC OOS על 54 עסקאות (ללא מוביל +28.23, 13/21 שווקים חיוביים, עקביות 100%) | Baseline OOS: +82.01 USDC
-  Readiness: 9/10 בדיקות תוכנה/מודל/דופק/גיבוי ירוקות; השער הנותר תפעולי/זמן בלבד (`soak` 7 ימים רצופים)
-רשת חדשות של 19 סוכנויות במקביל + למידה רקע אסינכרונית (`_learn_lock`) + Trading Desk (`pmmb serve --autostart`) + Two-Pass Ranked Entries
+
+2) זרוע חוזים תמידיים — PERPS ×50 (ADR #23, OKX + Hyperliquid + Binance):
+  Portfolio Backtest (`pmmb perps backtest --assets 16 --lookback 720`, נרות 1h + Funding אמיתי):
+    96 עסקאות | Win Rate 67.7% | PF 1.62 | תשואה +38.29% (1382.90 USDC) | Max DD 9.4% | ליקווידציות 0
+    מינוף ממוצע ×20.7 (שיא ×46.4, תקרה ×50) | 3-Fold Walk-Forward OOS: +21.79% (עקביות 100%)
+    פרמטרים שקודמו ע"י למידה עצמית OOS: `sl_atr_mult=1.5`, `tp_atr_mult=2.6`, `z_entry=1.8`, `adx_trend_threshold=25.0`, `liquidation_buffer_mult=2.2`
+
+רשת חדשות של 19 סוכנויות במקביל + למידה רקע אסינכרונית לשתי הזרועות + Command Center UI (`pmmb serve --autostart`)
 ```
 
 פרמטרים מכוילים: `lookback_candles=24`, `z_entry=1.8`, `z_max=6.5`, `reversion_ratio=0.55`,

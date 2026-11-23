@@ -73,6 +73,19 @@ def run_auto_reports(
     r_dir.mkdir(parents=True, exist_ok=True)
     r_path = r_dir / "readiness.md"
     r_path.write_text(readiness_markdown(checks, Thresholds()), encoding="utf-8")
+    # סיכום זרוע PERPS משולב בדוח התקופתי
+    try:
+        from .status import build_perps_status
+
+        ps = build_perps_status(cfg, store, reports_dir=reports_dir)
+        (r_dir / "perps_status.md").write_text(
+            f"# דוח Perps חי\n- הון: {ps['equity']:.2f} USDC | פוזיציות: {len(ps['positions'])} "
+            f"| מרג'ין מנוצל: {ps['margin_used']:.2f} | מינוף ממוצע: {ps['avg_leverage']:.1f}x\n"
+            f"- סה\"כ עסקאות סגורות: {ps['closed_trades']} | PnL ממומש: {ps['overall_pnl']:+.2f} | Funding: {ps['funding_net']:+.3f}\n",
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
     passed = sum(1 for c in checks if c.status == "ok")
     msg = f"דוחות עודכנו ({passed}/{len(checks)} בדיקות מוכנות עברו)"
     store.record_autopilot_run(
