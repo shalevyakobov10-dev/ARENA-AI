@@ -33,8 +33,15 @@ PY
 say "לא בריא: $reason — מפעיל מחדש"
 
 # systemd (אם קיים) ואחרת launchctl (macOS)
+SERVICE="${PMMB_SERVICE:-pmmb-bot}"
 if command -v systemctl >/dev/null 2>&1; then
-  systemctl restart pmmb-bot 2>/dev/null && say "systemctl restart pmmb-bot"
+  if systemctl list-unit-files --type=service 2>/dev/null | grep -q "^${SERVICE}\\.service"; then
+    systemctl restart "$SERVICE" 2>/dev/null && say "systemctl restart $SERVICE"
+  elif systemctl list-unit-files --type=service 2>/dev/null | grep -q "^pmmb-server\\.service"; then
+    systemctl restart pmmb-server 2>/dev/null && say "systemctl restart pmmb-server"
+  else
+    systemctl restart "$SERVICE" 2>/dev/null && say "systemctl restart $SERVICE"
+  fi
 elif command -v launchctl >/dev/null 2>&1; then
   launchctl kickstart -k "gui/$(id -u)/com.pmmb.bot" 2>/dev/null && say "launchctl kickstart"
 else
