@@ -159,3 +159,25 @@ def test_evaluate_live_signals_resolves_sector_from_market_intel(tmp_path):
     assert row is not None and row["sector"] == "macro"
     store.close()
 
+
+def test_signal_outcome_stats_deduplicates_same_hour_repeats(tmp_path):
+    """הבוט שומר אותות כל 3 דק'; הסטטיסטיקה מאחדת דגימות חוזרות באותה שעה כדי לא לנפח שוק בודד."""
+    store = Store(tmp_path / "dedup.db")
+    now = int(time.time())
+    hour_base = (now // 3600 - 12) * 3600
+    for offset in (60, 240, 420):
+        store.record_signal(Signal(
+            "c1", "tok-rep", "LONG", 0.8, 0.55, 0.45, 0.05, "dip z=-2.5",
+            features={"z": -2.5},
+            created_at=datetime.fromtimestamp(hour_base + offset, tz=timezone.utc),
+        ))
+    store.insert_ticks([("tok-rep", hour_base + 7 * 3600, 0.50)])
+    n_upd = evaluate_live_signals(store, now_ts=now)
+    assert n_upd == 3
+    stats = store.signal_outcome_stats(days=30)
+    assert stats["raw_evaluated"] == 3
+    assert stats["total_evaluated"] == 1
+    assert stats["actionable"]["n"] == 1
+    store.close()
+
+

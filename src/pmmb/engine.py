@@ -194,12 +194,31 @@ class Engine:
         self._intel_rows = []
         self._refresh_news_if_due(markets)
 
+        pending_entries: list[tuple[Market, Signal, Book, dict]] = []
         for mk in markets:
             try:
-                self._process_market(mk, stats)
+                prep = self._prepare_market(mk, stats)
+                if prep is not None:
+                    pending_entries.append(prep)
             except Exception as exc:  # לא מפילים את כל המחזור בגלל שוק אחד
                 stats.errors += 1
                 log.exception("שגיאה בעיבוד %s: %s", mk.slug, exc)
+
+        # --- שלב 1.5: מעקב / סגירה מבוקרת לפוזיציות שיצאו מרשימת היקום (מפנה מקום לפני כניסות) ---
+        self._close_orphans(stats)
+
+        # --- שלב 2: כניסות מתועדפות לפי איכות סטאפ (score, edge, מחזור) ---
+        pending_entries.sort(
+            key=lambda item: (-float(item[1].score), -float(item[1].edge), -float(item[0].volume_24h))
+        )
+        for mk, signal, yes_book, intel_row in pending_entries:
+            try:
+                entry_outcome = self._handle_entry(mk, signal, yes_book, stats)
+                intel_row["status"] = entry_outcome[0]
+                intel_row["reason"] = entry_outcome[1]
+            except Exception as exc:
+                stats.errors += 1
+                log.exception("שגיאה בכניסה ל-%s: %s", mk.slug, exc)
 
         if self._intel_rows:
             try:
@@ -228,9 +247,6 @@ class Engine:
             )
         except Exception as exc:          # noqa: BLE001
             log.debug("ניטור פוזיציות מול חדשות דולג: %s", exc)
-
-        # --- מעקב / סגירה מבוקרת לפוזיציות שיצאו מרשימת היקום ---
-        self._close_orphans(stats)
 
         marks = self._last_marks
         snap = self.portfolio.snapshot(marks)
@@ -295,16 +311,18 @@ class Engine:
                     pass
 
     # ==================================================================
-    #  שוק בודד
+    #  שוק בודד (שלב 1: הערכה + יציאות; שלב 2: כניסות מתועדפות)
     # ==================================================================
-    def _process_market(self, mk: Market, stats: CycleStats) -> None:
+    def _prepare_market(
+        self, mk: Market, stats: CycleStats
+    ) -> tuple[Market, Signal, Book, dict] | None:
         cfg = self.cfg
 
         # --- ספר הפקודות קודם: הוא נדרש גם לסיגנל וגם לאיסוף הדאטה ---
         yes_book = self.clob.get_book(mk.yes_token_id)
         if yes_book is None:
             stats.skip("אין ספר פקודות")
-            return
+            return None
         if cfg.data.record_books:
             self.store.record_book(mk.yes_token_id, int(utcnow().timestamp()), yes_book)
 
@@ -321,7 +339,7 @@ class Engine:
         )
         if len(candles) < self.signals.min_candles:
             stats.skip("אין מספיק היסטוריה")
-            return
+            return None
 
         prices = [c.price for c in candles]
         self.store.insert_ticks([(mk.yes_token_id, c.ts, c.price) for c in candles])
@@ -346,16 +364,15 @@ class Engine:
         # ---------- יציאות קודם ----------
         self._handle_exit(mk, signal, yes_book, stats)
 
-        # ---------- כניסות ----------
+        # ---------- הכנת רשומת מודיעין (תעודכן אם תבוצע כניסה בשלב 2) ----------
         entry_outcome = ("WATCH", signal.reason)
         if signal.direction == "FLAT":
             stats.skip(f"סיגנל: {signal.reason}")
             if any(p.condition_id == mk.condition_id for p in self.portfolio.positions.values()):
                 entry_outcome = ("OPEN", "פוזיציה פתוחה במעקב")
-        else:
-            entry_outcome = self._handle_entry(mk, signal, yes_book, stats)
+        elif any(p.condition_id == mk.condition_id for p in self.portfolio.positions.values()):
+            entry_outcome = ("OPEN", "פוזיציה פתוחה במעקב")
 
-        # ---------- איסוף מודיעין רב-ממדי מלא של השוק ----------
         chg_1h = round(prices[-1] - prices[-2], 4) if len(prices) >= 2 else None
         chg_6h = round(prices[-1] - prices[-7], 4) if len(prices) >= 7 else None
         chg_24h = round(prices[-1] - prices[-25], 4) if len(prices) >= 25 else None
@@ -381,7 +398,7 @@ class Engine:
             )
             n_cnt, n_imp = nm_info.article_count, nm_info.max_impact
 
-        self._intel_rows.append({
+        intel_row = {
             "condition_id": mk.condition_id,
             "token_id": mk.yes_token_id,
             "question": mk.question,
@@ -407,7 +424,20 @@ class Engine:
             "status": entry_outcome[0],
             "reason": entry_outcome[1],
             "updated_at": int(utcnow().timestamp()),
-        })
+        }
+        self._intel_rows.append(intel_row)
+
+        if signal.direction == "FLAT":
+            return None
+        return (mk, signal, yes_book, intel_row)
+
+    def _process_market(self, mk: Market, stats: CycleStats) -> None:
+        prep = self._prepare_market(mk, stats)
+        if prep is not None:
+            mk_i, sig, y_book, intel_row = prep
+            entry_outcome = self._handle_entry(mk_i, sig, y_book, stats)
+            intel_row["status"] = entry_outcome[0]
+            intel_row["reason"] = entry_outcome[1]
 
     # ------------------------------------------------------------------
     def _handle_entry(self, mk: Market, signal: Signal, yes_book: Book, stats: CycleStats) -> tuple[str, str]:

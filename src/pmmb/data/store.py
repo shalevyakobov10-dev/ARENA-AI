@@ -646,11 +646,18 @@ class Store:
 
     def signal_outcome_stats(self, days: int = 30) -> dict[str, Any]:
         since = int(datetime.now(tz=timezone.utc).timestamp() - days * 86400)
-        rows = list(self._conn.execute(
+        raw_rows = list(self._conn.execute(
             """SELECT * FROM signal_outcomes
-               WHERE ts >= ? AND (realized_6h IS NOT NULL OR realized_24h IS NOT NULL OR realized_48h IS NOT NULL)""",
+               WHERE ts >= ? AND (realized_6h IS NOT NULL OR realized_24h IS NOT NULL OR realized_48h IS NOT NULL)
+               ORDER BY ts ASC, evaluated_at ASC""",
             (since,),
         ).fetchall())
+        # דדופליקציה לפי (token_id, direction, שעה): הבוט דוגם כל 3 דק' ואינו אמור לספור את אותו אות 10 פעמים
+        dedup_map: dict[tuple[str, str, int], sqlite3.Row] = {}
+        for r in raw_rows:
+            key = (str(r["token_id"] or ""), str(r["direction"] or ""), int(r["ts"] or 0) // 3600)
+            dedup_map[key] = r
+        rows = list(dedup_map.values())
 
         def _agg(subset: list[sqlite3.Row]) -> dict[str, Any]:
             r6 = [float(r["realized_6h"]) for r in subset if r["realized_6h"] is not None]
@@ -699,6 +706,7 @@ class Store:
 
         return {
             "total_evaluated": len(rows),
+            "raw_evaluated": len(raw_rows),
             "actionable": _agg(actionable),
             "by_z_bucket": {k: _agg(v) for k, v in buckets.items() if v},
             "by_sector": {k: _agg(v) for k, v in sorted(by_sector.items())},

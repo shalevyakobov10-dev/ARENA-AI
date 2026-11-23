@@ -149,3 +149,23 @@ def test_engine_news_catalyst_blocks_falling_knife(tmp_path, cfg):
     st2 = eng2.run_once()
     eng2.close()
     assert st2.entries == 1
+
+
+def test_news_rejects_generic_single_word_false_positives_and_catches_corporate_catalysts():
+    now = int(time.time())
+    # מילים גנריות ("announces", "reported") לא משדכות כתבות לא קשורות לשווקים
+    false_arts = [
+        NewsArticle(id="f1", ts=now - 300, title="India announces a $1.6 billion aid package for flood recovery", impact=0.56, sentiment=1.0),
+        NewsArticle(id="f2", ts=now - 300, title="Sinner to undergo knee surgery, Italian media reported", impact=0.20, sentiment=-0.5),
+    ]
+    m_iran = match_market_news("US announces end of Iranian blockade by December?", false_arts, now_ts=now, min_articles=1, impact_threshold=0.0)
+    m_huang = match_market_news("Will 3 Jensen Huang affairs be reported before 2027?", false_arts, now_ts=now, min_articles=1, impact_threshold=0.0)
+    assert m_iran.article_count == 0
+    assert m_huang.article_count == 0
+
+    # אירועי אמת פיננסיים/משפטיים מזוהים כקטליזטורים בעלי impact גבוה
+    s1, i1 = score_headline("Nvidia reinstates former CEO Jensen Huang despite China espionage scandal")
+    s2, i2 = score_headline("Exclusive | SEC Is Probing Nvidia Amid CEO Departure")
+    assert i1 >= 0.65 and s1 < 0
+    assert i2 >= 0.45 and s2 < 0
+

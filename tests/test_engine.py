@@ -174,3 +174,55 @@ def test_engine_works_with_meanrev_engine(cfg, store):
     assert stats.entries == 1, f"meanrev לא נכנס: {stats.skipped}"
     pos = next(iter(eng.portfolio.positions.values()))
     assert pos.avg_price > 0
+
+
+def test_engine_prioritizes_higher_quality_candidate_across_markets(cfg, store):
+    """כשנותר מקום פנוי אחד, האינג'ין בוחר קודם את השוק עם הציון וה-edge הגבוהים יותר ולא את הראשון ביקום."""
+    cfg.signal.engine = "meanrev"
+    cfg.signal.meanrev.lookback_candles = 12
+    cfg.signal.meanrev.z_entry = 1.2
+    cfg.signal.meanrev.z_max = 10.0
+    cfg.signal.meanrev.reversion_ratio = 0.6
+    cfg.signal.meanrev.rsi_max = 0.0
+    cfg.signal.meanrev.max_spread_to_edge = 0.0
+    cfg.signal.min_score = 0.3
+    cfg.signal.min_edge = 0.005
+    cfg.risk.max_open_positions = 1
+    cfg.news.enabled = False
+
+    def _raw(cid, slug, ytid, ntid, vol):
+        m = _gamma_market(yes_price=0.45, question=f"Will {slug} happen?")
+        m["conditionId"] = cid
+        m["slug"] = slug
+        m["clobTokenIds"] = json.dumps([ytid, ntid])
+        m["volume24hr"] = str(vol)
+        return m
+
+    raw_a = _raw("0xA", "mkt-a-weak", "yes-a", "no-a", 500_000)   # ראשון ברשימת הנפח אבל אות חלש
+    raw_b = _raw("0xB", "mkt-b-strong", "yes-b", "no-b", 100_000) # שני ברשימה אבל אות חזק בהרבה
+
+    base = [0.55 + (0.004 if i % 2 else -0.004) for i in range(44)]
+    series_a = base + [0.535, 0.525, 0.520]   # טבילה מתונה (edge קטן)
+    series_b = base + [0.500, 0.460, 0.430]   # טבילה עמוקה (edge וציון גבוהים)
+
+    class _MultiClob:
+        def get_history(self, tid, **_kw):
+            pxs = series_a if tid == "yes-a" else series_b
+            return [Candle(ts=1_700_000_000 + i * 3600, price=p) for i, p in enumerate(pxs)]
+
+        def get_book(self, tid):
+            px = series_a[-1] if tid == "yes-a" else series_b[-1]
+            bid, ask = round(px - 0.005, 4), round(px + 0.005, 4)
+            return Book(token_id=tid, best_bid=bid, best_ask=ask, bid_size=1000, ask_size=1000,
+                        bids=[(bid, 1000)], asks=[(ask, 1000)])
+
+        def estimate_fill(self, bk, side, notional, **_kw):
+            ref = bk.best_ask if side == "BUY" else bk.best_bid
+            return ref, notional / ref
+
+    eng = Engine(cfg, store=store, clob=_MultiClob(), gamma=FakeGamma([raw_a, raw_b]))
+    stats = eng.run_once()
+    assert stats.entries == 1
+    assert "yes-b" in eng.portfolio.positions
+    assert "yes-a" not in eng.portfolio.positions
+

@@ -44,7 +44,7 @@ signal:
     allow_short: false          # כרגע רק ירידות חדות (buy the dip)
     horizon_hours: 24
     rsi_max: 40.0               # קונפלואנס RSI<=40 (מגדיל Sharpe ל-6.18 ו-OOS ל-+49.22)
-    max_spread_to_edge: 1.1     # מסנן עלויות: לא קונים כשהספרד אוכל >110% מה-edge הצפוי
+    max_spread_to_edge: 0.75    # יחס עלות/תוחלת מוקשח (Edge >= 1.33×Spread): +17.95% תיק, PF 2.00, Fixed OOS +63.70
     confluence_boost: true      # דירוג A+ / A / B לפי עומק Z + RSI + נזילות ספרד
   # ---- פרמטרים של מנוע המומנטום (engine: momentum) ----
   candle_fidelity_min: 60      # רזולוציה: 60 דק' — תואם לאופק שנמדד באבחון
@@ -73,7 +73,7 @@ risk:
   max_total_exposure_pct: 0.40 # חשיפה כוללת מקסימלית
   max_open_positions: 5        # אופטימלי מול 6: PF 2.11 vs 1.69 (Calmar גבוה יותר)
   max_positions_per_event: 1   # מונע ריכוזית באותו אירוע אב (כגון בחירות/תאריכים)
-  max_positions_per_sector: 3  # פיזור בין סקטורים שונים
+  max_positions_per_sector: 2  # פיזור מגזרי קשיח (מקס' 2 מ-5 באותו סקטור): PF 2.00, +17.95% תיק
   max_daily_loss_pct: 0.05     # עצירה יומית
   max_drawdown_pct: 0.20       # kill switch
   cooldown_minutes: 360        # 6 שעות צינון אחרי יציאה — חותך DD מ-6.94% ל-4.07% ומונע קנייה חוזרת בסכין נופלת!

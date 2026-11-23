@@ -69,6 +69,11 @@ _STOP_WORDS = frozenset({
     "level", "target", "series", "match", "game", "season", "round", "total", "spread",
     "points", "quarter", "month", "week", "today", "tomorrow", "general", "state", "city",
     "rate", "rates", "increase", "decrease", "change", "continue", "continues", "through",
+    "reported", "report", "reports", "announces", "announced", "announce", "closure",
+    "listed", "leader", "leaders", "affairs", "leaving", "leave", "finish", "finished",
+    "meeting", "diplomatic", "effective", "publicly", "testify", "searched", "person",
+    "people", "million", "billion", "percent", "administration", "official", "officials",
+    "stocks", "sources", "terms", "becomes", "calling", "ordered", "underway",
 })
 
 _HIGH_IMPACT = frozenset({
@@ -78,20 +83,26 @@ _HIGH_IMPACT = frozenset({
     "cancelled", "canceled", "bankrupt", "bankruptcy", "acquired", "merger", "ipo",
     "approved", "vetoed", "rejected", "confirmed", "surges", "plunges", "crashes", "collapses",
     "assassination", "coup", "impeached", "default", "halt", "halted", "verdict", "guilty",
+    "probe", "probing", "investigation", "espionage", "scandal", "reinstates", "reinstated",
+    "returns as ceo", "step down", "steps down", "ousted", "fired", "sacked", "subpoena",
+    "testify", "testifies", "indictment", "blockade", "airspace", "shutdown", "soars",
+    "jumps", "tariff", "tariffs",
 })
 
 _POS_WORDS = frozenset({
     "wins", "won", "leads", "leading", "approved", "passes", "passed", "confirmed",
     "surges", "rises", "rally", "deal", "ceasefire", "agreement", "recovery", "beats",
     "nominated", "endorsed", "boost", "growth", "stronger", "victory",
+    "reinstates", "reinstated", "returns", "soars", "jumps", "reopens", "lifted",
 })
 
 _NEG_WORDS = frozenset({
     "loses", "lost", "drops", "resigns", "resigned", "resignation", "withdraw", "withdraws",
     "injured", "injury", "out", "rejected", "vetoed", "crashes", "plunges", "collapses",
     "indicted", "arrested", "fails", "failed", "crisis", "war", "escalation", "sanctions",
-    "bankrupt", "default", "scandal", "probe", "delay", "delayed", "cancelled", "canceled",
-    "slumps", "falls", "guilty", "warns", "downgrade",
+    "bankrupt", "default", "scandal", "probe", "probing", "investigation", "espionage",
+    "ousted", "fired", "sacked", "subpoena", "indictment", "shutdown", "blockade",
+    "delay", "delayed", "cancelled", "canceled", "slumps", "falls", "guilty", "warns", "downgrade",
 })
 
 
@@ -216,9 +227,11 @@ def match_market_news(
     impact_threshold: float = 0.65,
 ) -> NewsMatch:
     """מתאים כתבות טריות לשוק ומכריע אם קיים קטליזטור חדשותי שובר."""
-    kws = [k.lower() for k in extract_keywords(question, max_words=5)]
-    if not kws:
+    raw_kws = extract_keywords(question, max_words=5)
+    if not raw_kws:
         return NewsMatch()
+    kws = [k.lower() for k in raw_kws]
+    proper_kws = {k.lower() for k in raw_kws if k[0].isupper() or k.isupper()}
     now_ts = int(now_ts or time.time())
     cutoff = int(now_ts - window_hours * 3600)
     min_hits = 1 if len(kws) == 1 else 2
@@ -240,7 +253,9 @@ def match_market_news(
             continue
         matched_kws = [k for k, pat in kw_pats if pat.search(title)]
         hits = len(matched_kws)
-        if hits >= min_hits or (hits == 1 and any(len(k) >= 7 for k in matched_kws)):
+        # מילה יחידה תקפה רק אם היא שם ישות ייחודי (אות גדולה בשאלה) באורך >= 7 או שיש רק מילת מפתח אחת
+        single_proper = hits == 1 and any(len(k) >= 7 and k in proper_kws for k in matched_kws)
+        if hits >= min_hits or single_proper:
             matched.append((ts, impact, sent, title))
 
     if not matched:
@@ -348,8 +363,10 @@ class NewsClient:
             tid = (getattr(mk, "yes_token_id", "") or "")[:12]
             try:
                 for art in self.fetch_query(q, category=cat, limit=5):
-                    if tid and tid not in art.matched_tokens:
-                        art.matched_tokens = f"{art.matched_tokens},{tid}".strip(",")
+                    if tid and q_text:
+                        chk = match_market_news(q_text, [art], window_hours=168, min_articles=1, impact_threshold=0.0)
+                        if chk.article_count > 0 and tid not in art.matched_tokens:
+                            art.matched_tokens = f"{art.matched_tokens},{tid}".strip(",")
                     seen[art.id] = art
                 if self._client is None:
                     time.sleep(0.25)

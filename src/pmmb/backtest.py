@@ -372,6 +372,9 @@ class Backtester:
                 port.realized_pnl_today = 0.0
             last_day = day
 
+            pending_entries: list[tuple[Signal, Market, float, float]] = []
+
+            # שלב 1: הערכת אותות וביצוע יציאות תחילה (לפינוי סלוטים ומזומן לפני כניסות)
             for mk, idx in by_ts[ts]:
                 prices = series[mk.condition_id]
                 p = prices[idx]
@@ -408,54 +411,57 @@ class Backtester:
                             pnl_pct=round(net / max(sz * entry_px, 1e-9) * 100, 2),
                             reason=f"{mk.slug[:20]}: {reason}", score=round(pos.entry_score, 3),
                         ))
+                elif sig.direction != "FLAT":
+                    pending_entries.append((sig, mk, p, hs))
 
-                # --- כניסה ---
-                if sig.direction != "FLAT" and not any(
-                    x.condition_id == mk.condition_id for x in port.positions.values()
-                ):
-                    if rm._cooldown_until.get(mk.condition_id) and now < rm._cooldown_until[mk.condition_id]:
-                        continue
-                    ask = min(0.999, p + hs)
-                    epx = min(0.999, ask * (1 + slip) + ask * fee_bps)
-                    lo, hi = cfg.universe.price_band
-                    if not (max(0.01, lo) <= epx <= min(0.99, hi)):
-                        continue
-                    snap = port.snapshot(marks)
-                    open_events: dict[str, int] = {}
-                    open_sectors: dict[str, int] = {}
-                    for op in port.positions.values():
-                        if op.event_id:
-                            open_events[op.event_id] = open_events.get(op.event_id, 0) + 1
-                        sec = meta.get(op.token_id, {}).get("sector")
-                        if sec:
-                            open_sectors[sec] = open_sectors.get(sec, 0) + 1
-                    dec = rm.evaluate_entry(
-                        sig, mk, snap, price=epx, tick=0.001,
-                        min_order_size=cfg.risk.min_order_size,
-                        open_events=open_events, open_sectors=open_sectors,
-                    )
-                    if dec.approved:
-                        ef = taker_fee(dec.size, epx, mk.taker_fee_rate)
-                        if dec.size * epx + ef <= port.cash:
-                            port.apply_fill(Fill(mk.yes_token_id, mk.condition_id, "BUY",
-                                                 epx, dec.size, fee=ef, ts=now))
-                            pos = port.position_for(mk.yes_token_id)
-                            if pos is not None:
-                                pos.opened_at = now
-                                pos.entry_score = sig.score
-                                pos.event_id = mk.event_id
-                                pos.question = mk.question
-                                pos.stop_price, pos.target_price = stop_and_target(
-                                    epx, "LONG", cfg.signal.exit.stop_loss,
-                                    cfg.signal.exit.take_profit, 0.001,
-                                    mode=cfg.signal.exit.stop_mode,
-                                )
-                            meta[mk.yes_token_id] = {
-                                "entry_fee": ef, "sector": mk.sector,
-                                "fee_rate": mk.taker_fee_rate,
-                            }
-                            fees_total += ef
-                            taker_fills += 1
+            # שלב 2: כניסות מתועדפות לפי איכות אות (ציון ו-edge) תואם Engine.run_once
+            pending_entries.sort(key=lambda item: (-float(item[0].score), -float(item[0].edge), -float(item[1].volume_24h)))
+            for sig, mk, p, hs in pending_entries:
+                if any(x.condition_id == mk.condition_id for x in port.positions.values()):
+                    continue
+                if rm._cooldown_until.get(mk.condition_id) and now < rm._cooldown_until[mk.condition_id]:
+                    continue
+                ask = min(0.999, p + hs)
+                epx = min(0.999, ask * (1 + slip) + ask * fee_bps)
+                lo, hi = cfg.universe.price_band
+                if not (max(0.01, lo) <= epx <= min(0.99, hi)):
+                    continue
+                snap = port.snapshot(marks)
+                open_events: dict[str, int] = {}
+                open_sectors: dict[str, int] = {}
+                for op in port.positions.values():
+                    if op.event_id:
+                        open_events[op.event_id] = open_events.get(op.event_id, 0) + 1
+                    sec = meta.get(op.token_id, {}).get("sector")
+                    if sec:
+                        open_sectors[sec] = open_sectors.get(sec, 0) + 1
+                dec = rm.evaluate_entry(
+                    sig, mk, snap, price=epx, tick=0.001,
+                    min_order_size=cfg.risk.min_order_size,
+                    open_events=open_events, open_sectors=open_sectors,
+                )
+                if dec.approved:
+                    ef = taker_fee(dec.size, epx, mk.taker_fee_rate)
+                    if dec.size * epx + ef <= port.cash:
+                        port.apply_fill(Fill(mk.yes_token_id, mk.condition_id, "BUY",
+                                             epx, dec.size, fee=ef, ts=now))
+                        pos = port.position_for(mk.yes_token_id)
+                        if pos is not None:
+                            pos.opened_at = now
+                            pos.entry_score = sig.score
+                            pos.event_id = mk.event_id
+                            pos.question = mk.question
+                            pos.stop_price, pos.target_price = stop_and_target(
+                                epx, "LONG", cfg.signal.exit.stop_loss,
+                                cfg.signal.exit.take_profit, 0.001,
+                                mode=cfg.signal.exit.stop_mode,
+                            )
+                        meta[mk.yes_token_id] = {
+                            "entry_fee": ef, "sector": mk.sector,
+                            "fee_rate": mk.taker_fee_rate,
+                        }
+                        fees_total += ef
+                        taker_fills += 1
 
             snap = port.snapshot(marks)
             rm.update_peak(snap.equity)
