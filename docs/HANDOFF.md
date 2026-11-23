@@ -1,129 +1,144 @@
-# HANDOFF — קרא את זה ראשון
+# HANDOFF — תדריך מלא והעברת הקשר לצ'אט חדש
 
-_המסמך הזה הוא נקודת הכניסה היחידה לפרויקט. אם אתה סוכן AI שנוגע בקוד הזה,
-קרא אותו לפני שאתה נוגע בשורה. האחרון שעדכן: Arena (2026-11-22)._
-
----
-
-## 1. מה הבוט הזה, בדיוק
-
-בוט מסחר על Polymarket שנבנה בסדר הזה: **מודדים, אחר כך בונים.**
-כל אסטרטגיה שקיימת כאן שרדה מדידה. כל אסטרטגיה שמתה — מתועדת כאן כדי
-שאף אחד לא יבנה אותה שוב.
-
-- מנוע ברירת מחדל: **mean-reversion** (היפוך לממוצע) על נרות שעה.
-- מצב: **paper** כברירת מחדל. live מוגן ב-3 שכבות.
-- אופק: 48 שעות. כניסה LONG על טבילה חריגה, יציאה ב-TP 10c / SL 12c / time stop.
+_מסמך הכניסה והאמת היחיד של הפרויקט (`polymarket-momentum-bot` / PMMB Command Center). אם אתה סוכן AI או מפתח בצ'אט חדש — קרא מסמך זה לפני נגיעה בקוד. עודכן לאחרונה: 2026-11-23 (commit `94168b4` -> העברה לצ'אט חדש)._
 
 ---
 
-## 2. מה נמדד ומת — **אל תבנה את אלה מחדש**
+## 1. תמונת מצב כללית — מה המערכת הזו?
 
-| השערה | תוצאה | איפה מתועד |
+מערכת מסחר דו־זרועית אוטונומית מלאה עם דשבורד בזמן אמת (`Command Center`):
+1. **זרוע 1 — Polymarket CLOB (שווקי חיזוי)**:
+   - מנוע Mean-Reversion (`src/pmmb/engine.py`) על נרות שעה עם סריקת שווקים מקבילית (`ThreadPoolExecutor`), שערים מבוססי עלויות אמיתיות (ספרד + עמלת טייקר מדויקת), גידור סקטוריאלי וזמינות, ו־Kill Switch (`pmmb halt` / `resume`).
+2. **זרוע 2 — חוזים תמידיים `PERPS ×50` (OKX + Hyperliquid + fallback ל־Binance/Gate)**:
+   - מנוע רב־נכסי (`src/pmmb/perps/engine.py`, 16 נכסים מובילים) המשלב שני משטרי אותות (`pullback` ו־`breakout` לפי ADX), פילטר Funding/OI/News Alpha, ו**הקצאת סיכון מדורגת (`Tiered Risk Allocation`)** (`A+ 1.30×`, `A 1.10×`, `B 0.85×`) עם שמירת מרחק בטוח ממחיר חיסול (`liquidation_buffer_mult=2.2`, תקרת מינוף `50×`).
+3. **ליבה אוטונומית ומתפתחת עצמאית (`Autopilot + Auto-Evolution + Self-Healing`)**:
+   - סריקת זרמי מחירים, הזנת חדשות מוסדיות (22+ פידים + News Alpha), למידה רציפה מבוקרת **Walk-Forward Out-Of-Sample** לשתי הזרועות כל 20 דקות (`perps/learning.py` + `learning.py`), תחזוקת DB אוטונומית כל 30 דקות (`PRAGMA optimize`, `wal_checkpoint`, `reconcile`, דוחות, גיבויים, `reports/autonomous_status.json`), והתאוששות עצמית של התהליך (`scripts/run_autonomous.sh` + `scripts/watchdog.sh`).
+
+---
+
+## 2. מדדים ותוצאות מאומתות נכון ל־2026-11-23 (Live Server + Backtests)
+
+- **מצב Live Paper נוכחי (`http://127.0.0.1:8787`, PID רץ תחת `scripts/run_autonomous.sh`)**:
+  - **הון משולב**: `$1,963.87` (`Polymarket $951.06` · `PERPS $1,012.81` · התחלה `$2,000.00`).
+  - **בדיקות אוטומטיות**: **`229 passed`** (`pytest -q`, אפס קריאות רשת) + בדיקת JS runtime מלאה (`node --check` + DOM VM על `404KB` HTML).
+  - **DB ומצב סינכרון**: `pmmb.db` בגודל `~9.4 MB`, `pmmb reconcile` = `0` פערים, גיבויים חמים קיימים ב־`backups/`, מוכנות ל־Live = `7/11` (נכשל רק קריטריון `soak`: כרגע 3 מתוך 7 ימי הרצה נקיים, וחסר `PMMB_PRIVATE_KEY` עבור Live אמיתי).
+- **ביצועי Walk-Forward מאומתים — PERPS ×50 (`16` נכסים, `1h`, 720 נרות, Tiered Risk)**:
+  - **30 יום מלא (`Full`)**: **`+155.19%`**, Win Rate **`66.4%`**, Profit Factor **`1.61`**, Max Drawdown **`22.8%`**, **`0` ליקווידציות**.
+  - **Walk-Forward Out-Of-Sample (`3-Fold OOS`)**: **`+113.80%`**, עקביות **`100%`**, `104` עסקאות, **`0` ליקווידציות**.
+  - פרמטרים מכוילים פעילים ב־`config/config.yaml`: `tp_atr_mult: 3.4`, `sl_atr_mult: 1.5`, `trailing_trigger_atr: 1.4`, `trailing_dist_atr: 0.95`, `risk_per_trade_pct: 0.03`, `max_total_margin_pct: 0.59`, `z_entry: 1.8`, `adx_trend_threshold: 25.0`, `max_open_positions: 7`, `max_positions_per_direction: 4`, `cooldown_bars: 6`, `learn_interval_sec: 1200.0`.
+- **ביצועי Walk-Forward — Polymarket**:
+  - OOS היסטורי שמור ב־`reports/walkforward.json`: **`+74.68 USDC`** על 37 עסקאות, עקביות `67%`, עמלות במודל `13.02 USDC` על 56 עסקאות.
+  - פרמטרים ב־`config/config.yaml`: `take_profit: 0.06`, `stop_loss: 0.07`, `z_entry: 1.8`, `interval_sec: 1200`.
+
+---
+
+## 3. מה נוסה ונפסל — **אסור להחזיר את אלה**
+
+| השערה / ניסוי שנפסל | תוצאה שנמדדה | איפה נשמר / הסיבה |
 |---|---|---|
-| **מומנטום** (המשך מגמה) | מת. corr שלילי חזק | README שלב 1 |
-| **SHORT / קניית NO** | גרוע יותר מ-LONG | config `allow_short: false` |
-| **ארביטראז'** (YES+NO<1) | **לא קיים.** min ask(Y)+ask(N)=1.0010 על 71 שווקים; כל סל negRisk 1.004–1.049 | session memory |
-| **הטיית פייבוריט/לונגשוט** | לא מובהקת גם בהרחבה: EV +0.0022 על 367 שווקים כלולים (650 שנסרקו) | `scripts/research_bias.py` |
-| **trend guard** | נדחה בכל החלונות | שלב 4 |
-| **החרגת politics** | **הרגה את ה-OOS** (+38.45 → +5.24) | שלב 6 |
-| **כניסה פסיבית (מייקר)** | **מפסידה.** 362 → 269 → 149 ככל שממתינים יותר | `reports/execution.md` |
-| **crypto לסקטור** | נטו 8% hit, −0.27 — הוחרג | `universe.exclude_sectors` |
-| **Trailing Break-Even Stop** | קיצץ win rate (75%→69.2%) ותשואה (+3.11%→+2.98%) עקב ניעור מוקדם | ADR #17 |
+| **מומנטום קלאסי ב-Polymarket** | מת (מתאם שלילי) | `docs/DECISIONS.md` |
+| **SHORT / קניית NO ב-Polymarket** | מוריד תשואה | `allow_short: false` |
+| **ארביטראז' YES+NO<1 או negRisk** | לא קיים בשווקים אמיתיים (`>1.001`) | נמדד על 71 שווקים |
+| **הטיית Favorite/Longshot** | EV `+0.0022` — לא עובר עמלה/ספרד | `scripts/research_bias.py` |
+| **החרגת סקטור `politics`** | הפילה OOS מ־`+38.45` ל־`+5.24` | תיעוד שלב 6 |
+| **כניסת Maker פסיבית ב-Polymarket** | מאבדת מילוי ומורידה רווח (`362→149`) | `reports/execution.md` |
+| **החרגת Crypto אומץ** | הוחרג ב-Polymarket (`exclude_sectors`) | `config/config.yaml` |
+| **Break-Even Lock דינמי ב-PERPS** (`1.00–1.25 ATR`) | פוגע ברווחי מגמה (הפיל מ־`+141%`/`+96% OOS` ל־`+82–117%`/`+55–74% OOS`, עקביות ירדה ל־`67%`) | נבדק ישירות על 16 נכסים |
+| **צמצום PERPS ל־`max_open=5` / `cooldown=4` / `tight_trail(1.1/0.85)`** | הוריד OOS ל־`+38.8%..+62.4%` | נמדד ונפסל |
 
 ---
 
-## 3. שלוש אמיתות שהעבודה הזו הסתמכה עליהן
+## 4. פירוט השדרוגים האחרונים (לפי סדר הקומיטים)
 
-1. **העמלות אמיתיות.** `fee = C × rate × p × (1 − p)`, **מייקרים פטורים**,
-   **geopolitics פטור לגמרי**. 91 מ-100 שווקים מובילים עם `feesEnabled: true`.
-   ⇒ העמלה נכנסת ל-`friction` בתוך הסיגנל. אסור לחזור לתת לה `0`.
-2. **היסטוריה של שוק סגור** ניתנת לשליפה רק עם `startTs`/`endTs`
-   (`interval=max` מחזיר אפס שורות — מלכודת).
-3. **`outcomePrices[0]` אינו YES.** חלק מהשווקים מסדרים `["No","Yes"]`.
-   תמיד למפות דרך `outcomes.index("yes")`.
+- **`417738f`**: עיצוב Obsidian Glass Pro UI + אסטרטגיית `breakout` ב־PERPS + כיול Walk-Forward.
+- **`01fdfdf`**:
+  - Tiered Risk Allocation ב־PERPS (`1.30 / 1.10 / 0.85`).
+  - סריקת CLOB מקבילית עם `ThreadPoolExecutor` ב־`src/pmmb/engine.py`.
+  - גרף `combined_equity_curve`, API למסחר ידני (`POST /api/trade/order`), עריכת SL/TP (`POST /api/positions/sltp`), סגירת פוזיציה/הכל (`POST /api/positions/close`, `/close-all`), ספר פקודות חי L2 (`GET /api/perps/book`), עדכון קונפיג חי (`POST /api/config/update`), ו־`_TraderManager(config_path=...)`.
+- **`94168b4`** (הגרסה העדכנית הפעילה כעת):
+  - **תשתית אוטונומית**:
+    - `run_autonomous_housekeeping` ב־`src/pmmb/autopilot.py` (`PRAGMA optimize`, WAL checkpoint, reconcile, reports, `reports/autonomous_status.json`).
+    - `_TraderManager` ב־`src/pmmb/server.py` עם מעקב חיות (`uptime_sec`, `housekeeping_cycles`, `perps_learn_cycles`, `auto_recoveries`), התאוששות אוטומטית משגיאות לולאה, תחזוקה תקופתית כל 1800 שניות, ו־`evolve_and_maintain_now()`.
+    - נקודות קצה חדשות: **`GET /api/analytics/performance`** ו־**`POST /api/autonomous/evolve`**.
+    - סקריפטי הפעלה אוטונומיים: `scripts/run_autonomous.sh` (לולאת auto-heal + preflight `reconcile`/`backup`) ו־`scripts/watchdog.sh` מעודכן.
+  - **כיול והרחבת למידה**:
+    - `src/pmmb/perps/learning.py`: רשת של 7 מועמדי Walk-Forward וכתיבה אוטומטית של `reports/perp_walkforward.json` בכל מחזור למידה.
+    - `config/config.yaml`: כיול מנצח `tp_atr_mult=3.4`, `risk_per_trade_pct=0.03`, `max_total_margin_pct=0.59`, `learning.interval_sec=1200`.
+  - **פיצ'רים חדשים ב־UI (`src/pmmb/ui.py` ו־`src/pmmb/status.py`)**:
+    - `build_performance_analytics`: חישוב Profit Factor חי, Win Rate, Avg Win/Loss, רווח יומי לפי זרוע, ופירוט לפי אסטרטגיה ונכס.
+    - מצב גרף 3 בדף הבית: **`רווח יומי (עמודות)`** (`drawDailyBars` + Tooltip אינטראקטיבי).
+    - פאנל **`Performance Attribution`** בטאב המחקר.
+    - סרגל שליטה **`מנוע אוטונומיה והתפתחות עצמית רציפה`** בטאב ההגדרות (כולל כפתור `הרץ אבולוציה ותחזוקה מלאה עכשיו`).
 
 ---
 
-## 4. המצב הנוכחי (מדויק, לא שיווקי)
+## 5. מפת קבצים מרכזיים ונקודות API
 
+- **ליבת התוכנה**:
+  - `config/config.yaml` — הגדרות מערכת ופרמטרים מכוילים (נערך גם בלייב ע"י הממשק/הלמידה).
+  - `src/pmmb/engine.py` — זרוע Polymarket (Prefetch מקבילי, סיגנלים, ניהול פוזיציות).
+  - `src/pmmb/perps/{engine.py,signals.py,risk.py,exchange.py,backtest.py,learning.py}` — זרוע ה־`PERPS ×50`.
+  - `src/pmmb/autopilot.py` — מחזורי סריקה, למידה ותחזוקת DB אוטונומית (`run_autonomous_housekeeping`).
+  - `src/pmmb/status.py` — איסוף מצב חי, `build_performance_analytics`, `build_command_center_data`.
+  - `src/pmmb/server.py` — שרת HTTP + `_TraderManager` + כל נקודות ה־API.
+  - `src/pmmb/ui.py` — דשבורד HTML/Canvas/JS מקומי לחלוטין (אפס קישורי `http://`/`https://` בקוד הדשבורד).
+  - `src/pmmb/readiness.py` — שער המעבר ל־Live (7 ימי paper, Walk-Forward, עמלות, סיכון).
+- **סקריפטים תפעוליים**:
+  - `scripts/run_autonomous.sh` — הפעלת השרת האוטונומי עם התאוששות וגיבוי.
+  - `scripts/watchdog.sh` — בדיקת חיות והרמה מחדש ברקע.
+  - `scripts/setup_remote.sh` & `scripts/push_to_github.sh` — חיבור ודחיפה ל־GitHub בצורה מאובטחת (ללא שמירת טוקנים בדיסק).
+- **נקודות API מרכזיות בשרת (`:8787`)**:
+  - `GET /`, `GET /healthz`, `GET /api/state`, `GET /api/analytics/performance`, `GET /api/perps/book?symbol=...`, `GET /api/export/trades.csv`
+  - `POST /api/trade/order`, `POST /api/positions/sltp`, `POST /api/positions/close`, `POST /api/positions/close-all`
+  - `POST /api/config/update`, `POST /api/autonomous/evolve`, `POST /api/trader/toggle`, `POST /api/learn/run`, `POST /api/backup`, `POST /api/halt`, `POST /api/resume`
+
+---
+
+## 6. חוקי ברזל טכניים ואינווריאנטים בבדיקות (חשוב מאוד!)
+
+1. **תאימות בדיקות `tests/test_perps.py` ו־`tests/test_status.py`**:
+   - ב־`ui.py`: חובה לשמור על מחרוזות נדרשות (כמו `"PMMB Command Center"`, `"Walk-Forward"`, `"התיק והמסחר שלי"`, `"שווקים, PERPS וחדשות"`, `"מוכנות, סיכונים והגדרות"`, `"הפוזיציות הפתוחות שלי"`, `"יומן טייס אוטומטי"`, `"PERPS ×50"`, `"sub-perps"`, `"combined-hero"`, `"spot-overlay"`, `"perps-thesis-box"`, `"perps-sim-res"`), **אסור** שתופענה כתובות `http://` או `https://` בתוך ה־HTML המיוצר, ו**אסור** להשתמש באימוג'ים `("📡", "📊", "🛑", "📰", "🧠", "⚙️")`.
+   - ב־`PerpsRiskConfig` (ברירת מחדל של dataclass, לא YAML): להשאיר `tp_atr_mult=2.6`, `sl_atr_mult=1.5`, `max_leverage=50.0`, `liquidation_buffer_mult=2.2`.
+   - ב־`readiness.Thresholds`: להשאיר `max_daily_loss_pct=0.10`, `max_drawdown_pct=0.30`, `max_exposure_pct=0.60`, `max_risk_per_trade_pct=0.05`.
+2. **תמיד להריץ before commit/push**:
+   - `/usr/local/bin/pytest -q` (חייב להיות ירוק ללא רשת).
+   - `node --check` + בדיקת DOM VM על ה־JS של `src/pmmb/ui.py` (שים לב: stub את `setInterval` אחרת `node` ימתין לנצח).
+3. **זהירות עם תהליכים והרצות**:
+   - אל תריץ `pkill -f "pmmb serve"` מתוך `bash` — זה הורג את מעטפת ה־shell של הפקודה עצמה; סנן PIDs בפייתון עם `os.getpid()`.
+   - קומיט ב־Git בסביבה זו דורש `-c user.name=... -c user.email=...` אם לא הוגדר גלובלית.
+
+---
+
+## 7. מה פתוח לשלבים הבאים (Roadmap מומלץ לצ'אט החדש)
+
+1. **סנכרון עם GitHub**:
+   - ל־Arena אין מחבר מובנה ל־GitHub (`unsupported`), ולריפו חסר כרגע `origin`.
+   - בעת העבודה ממחשב אישי או מ־GitHub Codespaces/סביבה עם טוקן: להריץ `GITHUB_TOKEN=... ./scripts/push_to_github.sh <repo-url>`.
+2. **השלמת שער המעבר ל־Live (`pmmb readiness`)**:
+   - השלמת `soak` של 7 ימי Paper רציפים (כרגע 3/7 ימים).
+   - הגדרת מפתחות Telegram (`PMMB_TG_TOKEN` / `CHAT_ID`) להתראות והפעלה מרחוק, ומפתחות ארנק/בורסה (`PMMB_PRIVATE_KEY` וכו') רק אחרי שה־readiness ירוק `11/11`.
+3. **מחקר אלפא ואופטימיזציות נוספות**:
+   - איסוף Order Book Imbalance (`pmmb collect` / L2 snapshots) ובחינת מילוי פסיבי מול Trade API v2.
+   - פירוק אוטומטי ב־DB/אנליטיקה בין אסטרטגיות PERPS (`pullback` מול `breakout`) בעמודת `reason`/`strategy` של הטבלאות והצגתן ב־`Performance Attribution`.
+   - הרצת אסטרטגיות רב־זמניות (4h trend filter לסינון עסקאות נגד מגמת־על ב־1h) — בכפוף למבחן Walk-Forward OOS חיובי.
+   - בדיקות אינטגרציה ואבטחה לפני Live אמיתי (Rate limits, slip guard, ניטור עומסי CPU/זמן תגובה).
+
+---
+
+## 8. פרומפט מוכן להדבקה ישירה לצ'אט החדש
+
+העתק והדבק את הטקסט הבא בתחילת הצ'אט החדש (וודא שהקוד / הריפו זמין לו דרך GitHub או העלאת קבצים):
+
+```text
+אנחנו ממשיכים את הפיתוח של הפרויקט `polymarket-momentum-bot` (PMMB Command Center).
+קרא בבקשה מיד את הקבצים הבאים בסדר הזה לפני שאתה משנה שורה בקוד:
+1. `docs/HANDOFF.md` (מסמך התדרוך המלא המעודכן נכון לקומיט `94168b4`)
+2. `docs/DECISIONS.md` ו־`config/config.yaml`
+3. הרץ `/usr/local/bin/pytest -q` ובדוק את `git log -n 5 --oneline` ו־`pmmb status`.
+
+תקציר ההקשר העדכני:
+- מדובר בבוט מסחר אוטונומי דו־זרועי (Polymarket CLOB + PERPS ×50 ב־OKX/Hyperliquid) עם שרת `0.0.0.0:8787`, דשבורד Obsidian Glass Pro, לולאות למידה רציפות מגובות Walk-Forward OOS (כל 20 דק'), תחזוקת DB אוטונומית (`run_autonomous_housekeeping` כל 30 דק'), וסקריפט supervisor אוטונומי (`scripts/run_autonomous.sh`).
+- ב־Walk-Forward האחרון (16 נכסים, `tp_atr_mult=3.4`, `risk_per_trade_pct=0.03`, `max_total_margin_pct=0.59`, Tiered Risk): PERPS השיג `+155.19%` מלא / `+113.80%` OOS עם `100%` עקביות ו־`0` ליקווידציות. `229` טסטים עוברים ב־`pytest`.
+- מבקש ממך לא לפגוע באסטרטגיות שמתו (מתועדות ב־`docs/HANDOFF.md`), לא לדלג על מבחני Walk-Forward לפני שינוי פרמטרים, ולשמור על כל האינווריאנטים של הבדיקות.
+המטרה שלנו בצ'אט החדש היא: [כתוב כאן מה תרצה לעשות הלאה — למשל: להמשיך שדרוגים, לחבר ל-GitHub/Live, או להוסיף אסטרטגיות חדשות].
 ```
-225 בדיקות · 27 פקודות (כולל pmmb perps *) · אפס קריאות רשת בבדיקות
-1) זרוע Polymarket (ADR #18–22, 25–26):
-  Portfolio Backtest (`pmmb backtest --top 35 --portfolio`, 25 שווקים, spread=0.015):
-    47 עסקאות | Win Rate 66.0% | PF 2.16 | תשואה +17.56% (1175.57 USDC) | Max DD 4.11% | עמלות 13.92 USDC
-  Walk-Forward OOS (`pmmb walkforward --markets 35 --spread 0.01`, 3 חלונות, 25 שווקים):
-    +56.19 USDC OOS על 54 עסקאות (ללא מוביל +28.23, 13/21 שווקים חיוביים, עקביות 100%) | Baseline OOS: +82.01 USDC
-
-2) זרוע חוזים תמידיים — PERPS ×50 (ADR #23–26, OKX + Hyperliquid + Binance):
-  Portfolio Backtest (`pmmb perps backtest --assets 16 --lookback 720`, נרות 1h + Funding אמיתי):
-    94 עסקאות | Win Rate 67.0% | PF 1.68 | תשואה +43.77% (1437.67 USDC) | Max DD 9.61% | ליקווידציות 0
-    מינוף ממוצע ×20.5 (שיא ×46.4, תקרה ×50) | 3-Fold Walk-Forward OOS: +29.77% (עקביות 100%, לעומת +6.83% ב-24 נכסים)
-    פרמטרים מקובעים: `max_assets=16`, `sl_atr_mult=1.5`, `tp_atr_mult=2.6`, `trailing_trigger_atr=1.4`, `trailing_dist_atr=0.95`, `z_entry=1.8`, `adx_trend_threshold=25.0`, `liquidation_buffer_mult=2.2`
-
-רשת חדשות של 22+ פידים מוסדיים + מיקרו-למידה רציפה כל 5 דק' (Polymarket + PERPS החל מ-15 דק' + News Alpha) + כיול OOS כל 30 דק' + Apple Pro UI (`⌘K` Spotlight, Combined NAV, Perps Thesis, What-If Strategy Lab)
-```
-
-פרמטרים מכוילים: `lookback_candles=24`, `z_entry=1.8`, `z_max=6.5`, `reversion_ratio=0.55`,
-`rsi_max=40.0`, `max_spread_to_edge=0.75`, `min_score=0.55`, `min_edge=0.005` (נמדד **אחרי** ספרד ועמלה),
-`max_taker_fee_rate=0.02`, `max_hours_to_resolution=1080`, `price_band=[0.12, 0.88]`,
-`stop_mode=abs`, TP +0.06, SL -0.07, `time_stop_hours=48`, `kelly_fraction=0.65`, `cooldown_minutes=360`,
-`max_open_positions=5`, `max_positions_per_sector=2`, `drawdown_throttle_pct=0.05`.
-
----
-
-## 5. חוקי הברזל — אל תפר אותם
-
-1. **`make test` ירוק לפני כל push.** אין יוצאי דופן. הבדיקות לא נוגעות ברשת.
-2. **paper נשאר ברירת מחדל.** `live` דורש `mode: live` + מפתחות + אישור מפורש.
-3. **כל החרגת סקטור או שינוי פרמטר — רק עם הוכחת walk-forward.**
-   politics נראתה גרועה בטבלה והחרגתה הרגה את ה-OOS. הטבלה משקרת, ה-OOS לא.
-4. **מיגרציות DB הן תוספתיות בלבד** (`_migrate()`), כל עוד אין גרסה חיה.
-5. **אף פעם לא לדווח PnL בלי עמלות.** הדוח חייב להראות `fees_paid`.
-6. **deliverables בעברית.** קוד ומזהים באנגלית, הסברים בעברית.
-
----
-
-## 6. איפה עוד יש כסף על הרצפה (רעיונות לא ממומשים, לפי סדר עדיפות)
-
-1. **מילוי פסיבי אמיתי** — למדוד עם Trade API v2
-   (`data-api.polymarket.com/v2/trades?condition=<id>`), לא עם נרות שעה.
-   המדידה הנוכחית מכוונת **לרעת** הפסיבי, ולכן המסקנה שמרנית ולא סופית.
-2. **imbalance** — התשתית קיימת (`books` table, `pmmb imbalance`), אבל יש
-   רק 2 דקות דאטה. צריך שעות של `pmmb collect` לפני שאפשר לשפוט.
-3. **maker rebates** — `rebateRate: 0.15`. לא נמדד בכלל. אם פוזיציה מחזיקה
-   48 שעות, אולי שווה לספק נזילות סביב הפוזיציה.
-4. **bias study** — הורחב ל-650 שווקים (367 כלולים): EV=+0.0022 — לא עובר עלות סבב.
-5. **סקטור culture** — נטו +0.0499 אבל n=9. רעש, לא ממצא.
-
----
-
-## 7. איך מריצים
-
-```bash
-pip install -e ".[dev]"
-make test            # 124 בדיקות
-pmmb paper --cycles 1
-pmmb status          # בריאות + הון + פוזיציות
-pmmb serve           # דשבורד לטלפון על :8787
-pmmb readiness       # שער המעבר ל-live (exit 0 = מוכן)
-pmmb reconcile       # סנכרון DB מול החשבון/הבורסה (--fix לתקן)
-pmmb backup          # גיבוי חם ומאומת של SQLite
-pmmb halt / resume   # עצירת חירום מתמדת
-pmmb telegram        # לולאת פקודות לטלפון (/status, /positions, /halt)
-```
-
-פריסה עצמאית: `deploy/README.md` (systemd / launchd / docker).
-
----
-
-## 7.5 שער ה-live
-
-`pmmb readiness` חוסם מעבר ל-live עד ש: עמלות מתומחרות ונגבו בפועל,
-walk-forward חיובי ועקבי (≥66%), 7 ימי paper עם דופק, ≤3 שגיאות ERROR,
-וגבולות סיכון שפויים. **אין לעקוף אותו.**
-
-## 8. איך מתאמים איתנו
-
-ראה `docs/COORDINATION.md`. בקצרה: ענף לכל סוכן, `docs/claims.json` לבעלות
-על קבצים, יומן ב-`docs/journal/`, ו-`scripts/sync.sh` שעושה את הכל בטוח.
