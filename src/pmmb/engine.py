@@ -635,11 +635,26 @@ class Engine:
         for token_id, pos in list(self.portfolio.positions.items()):
             if pos.condition_id in self.markets:
                 continue
-            book = self.clob.get_book(token_id)
+            orphan_hours: float | None = None
+            orphan_closed = False
+            gamma_http = getattr(self.gamma, "http", None)
+            if pos.condition_id and gamma_http is not None:
+                try:
+                    res = gamma_http.get("/markets", params={"condition_ids": pos.condition_id})
+                    raw_mk = res[0] if isinstance(res, list) and res else None
+                    if isinstance(raw_mk, dict):
+                        orphan_closed = bool(raw_mk.get("closed"))
+                        parsed = Market.from_gamma(raw_mk)
+                        if parsed is not None:
+                            orphan_hours = parsed.hours_to_resolution
+                except Exception:  # noqa: BLE001
+                    pass
+
+            book = None if orphan_closed else self.clob.get_book(token_id)
             if book is not None and book.best_bid is not None:
                 mark = book.best_bid
                 self._last_marks[token_id] = mark
-                reason = self.risk.evaluate_exit(pos, mark)
+                reason = self.risk.evaluate_exit(pos, mark, hours_to_resolution=orphan_hours)
                 if reason is None and self.cfg.news.enabled and self._news_articles and pos.question:
                     from .data.news import match_market_news
 

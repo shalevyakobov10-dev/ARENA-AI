@@ -33,7 +33,7 @@ def grid_for(engine_name: str, stop_mode: str = "pct") -> list[dict]:
                 for z in (1.7, 1.8, 2.0)
                 for lb in (12, 24)
                 for rsi in (40.0, 45.0)
-                for tp, sl in ((0.05, 0.07), (0.05, 0.08))
+                for tp, sl in ((0.05, 0.07), (0.06, 0.07))
             ]
         return [
             {"z_entry": z, "reversion_ratio": r, "min_score": ms,

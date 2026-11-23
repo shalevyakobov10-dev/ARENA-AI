@@ -38,7 +38,7 @@ signal:
   meanrev:
     lookback_candles: 24        # חלון 24 שעות (מאומת walk-forward תחת ספרד מלא)
     z_entry: 1.8                # סף חריגות — נבחר בחלונות OOS עם ספרד מלא
-    z_max: 5.0                  # מעל זה: ידיעה חדשה (לא עודף) — לא נכנסים
+    z_max: 6.5                  # מעל זה: זעזוע פונדמנטלי; בטווח 5-6.5 עם הגנת חדשות זהו אובר-שוטינג רווחי (WF +53.5 / 100%)
     reversion_ratio: 0.55       # מכויל: צפי/מציאות = 0.90 באופק 48ש'
     max_room_pct: 0.6
     allow_short: false          # כרגע רק ירידות חדות (buy the dip)
@@ -61,8 +61,8 @@ signal:
   allow_short: true            # "שורט" = קניית טוקן ה-NO / מכירת YES
   exit:
     stop_mode: abs             # נקודות הסתברות קבועות (ה-pct הפסיד תחת ספרד אמיתי)
-    take_profit: 0.05          # +5 סנט בהסתברות — שורד ספרד ועמלות בכל מחיר
-    stop_loss: 0.07            # -7 סנט בהסתברות (PF=2.10, Sharpe=6.18, 100% OOS)
+    take_profit: 0.06          # +6 סנט בהסתברות — מאושר WF +53.5..+55.3 (100%) ו-Portfolio +7.44% / PF 2.19
+    stop_loss: 0.07            # -7 סנט בהסתברות (Sharpe=9.22, MaxDD=1.75%)
     time_stop_hours: 48        # כיול: באופק 48ש' התיקון מתמצה
     exit_on_flip: false        # meanrev לא מייצר סיגנל הופכי (allow_short=false)
 

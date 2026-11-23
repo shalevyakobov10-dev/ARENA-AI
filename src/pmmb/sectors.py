@@ -30,7 +30,7 @@ RULES: list[tuple[str, str]] = [
                     r"sanctions|airspace|hostage|blockade|truce)\b"),
     ("tech", r"\b(openai|gpt|nvidia|apple|google|tesla|spacex|meta|microsoft|ai\b|"
              r"model|launch|iphone|starship)\b"),
-    ("culture", r"\b(tweet|tweets|elon|kanye|taylor swift|album|movie|box office|oscar|"
+    ("culture", r"\b(tweet|tweets|truth[- ]social|elon|kanye|taylor swift|album|movie|box office|oscar|"
                 r"grammy|celebrity|affair|arrest|resign|gta|xqc|twitch|streamer|mrbeast|youtuber)\b"),
 ]
 

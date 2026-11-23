@@ -48,20 +48,20 @@ _המסמך הזה הוא נקודת הכניסה היחידה לפרויקט. �
 ## 4. המצב הנוכחי (מדויק, לא שיווקי)
 
 ```
-204 בדיקות · 26 פקודות · אפס קריאות רשת בבדיקות
-אסטרטגיה וקונפיגורציה מוקשחת (ADR #18: סינון עמלת Taker <= 2%, אופק <= 45d, החרגת crypto/sports/culture):
-  Portfolio Backtest (`pmmb backtest --top 35 --portfolio`, 21 שווקים, spread=0.015):
-    43 עסקאות | Win Rate 62.8% | PF 2.10 | תשואה +5.51% (1055.07 USDC) | Max DD 2.33% | עמלות 6.18 USDC
-  Walk-Forward OOS (`pmmb walkforward --markets 35 --spread 0.01`, 3 חלונות, 18 שווקים):
-    +27.85 USDC OOS על 56 עסקאות (ללא מוביל +20.76, 13/16 שווקים חיוביים, עקביות 67%)
+206 בדיקות · 26 פקודות · אפס קריאות רשת בבדיקות
+אסטרטגיה וקונפיגורציה מוקשחת (ADR #18–19: סינון עמלת Taker <= 2%, אופק <= 45d, z_max=6.5, TP +6c / SL -7c):
+  Portfolio Backtest (`pmmb backtest --top 35 --portfolio`, 27 שווקים, spread=0.015):
+    58 עסקאות | Win Rate 63.8% | PF 2.45 | תשואה +8.32% (1083.24 USDC) | Max DD 1.56% | עמלות 6.76 USDC
+  Walk-Forward OOS (`pmmb walkforward --markets 35 --spread 0.01`, 3 חלונות, 24 שווקים):
+    +60.55 USDC OOS על 65 עסקאות (ללא מוביל +46.84, 14/21 שווקים חיוביים, עקביות 100%)
   Readiness: 9/10 בדיקות תוכנה/מודל/דופק/גיבוי ירוקות; השער הנותר תפעולי/זמן בלבד (`soak` 7 ימים רצופים)
 רשת חדשות של 19 סוכנויות במקביל + למידה רקע אסינכרונית (`_learn_lock`) + Trading Desk (`pmmb serve --autostart`)
 ```
 
-פרמטרים מכוילים: `lookback_candles=24`, `z_entry=1.8`, `reversion_ratio=0.55`,
+פרמטרים מכוילים: `lookback_candles=24`, `z_entry=1.8`, `z_max=6.5`, `reversion_ratio=0.55`,
 `rsi_max=40.0`, `max_spread_to_edge=1.1`, `min_score=0.55`, `min_edge=0.005` (נמדד **אחרי** ספרד ועמלה),
 `max_taker_fee_rate=0.02`, `max_hours_to_resolution=1080`, `price_band=[0.12, 0.88]`,
-`stop_mode=abs`, TP +0.05 (סנט בהסתברות), SL -0.07, `drawdown_throttle_pct=0.05`.
+`stop_mode=abs`, TP +0.06 (סנט בהסתברות), SL -0.07, `time_stop_hours=48`, `drawdown_throttle_pct=0.05`.
 
 ---
 

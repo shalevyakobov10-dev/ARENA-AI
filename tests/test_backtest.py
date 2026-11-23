@@ -114,3 +114,14 @@ def test_portfolio_backtest_enforces_event_and_position_caps(cfg, market):
     assert res_uncapped.taker_fills == res_capped.taker_fills * 2
 
 
+def test_backtest_enforces_price_band(cfg, market):
+    """הבקטסט אוכף price_band של היקום בכניסה בדיוק כמו המנוע החי."""
+    cfg.universe.price_band = [0.20, 0.80]
+    bt = _NoNet(cfg)
+    # סדרה עולה בטווח 0.05..0.18 (כולה מתחת ל-price_band[0]=0.20)
+    candles = _candles(_series(0.05, 0.18, 160))
+    res = Backtester.run(bt, market, candles, label="below-band", spread=0.01)
+    assert res.n_trades == 0
+
+
+

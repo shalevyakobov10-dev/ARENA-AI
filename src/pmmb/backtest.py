@@ -153,7 +153,8 @@ class Backtester:
             כי הזמנה מגבלה שמולאה לא שילמה עמלת טאקר.
             """
             nonlocal cash, fees_total, pos, passive_fills, taker_fills
-            if not (0.01 < entry_px < 0.99):
+            lo, hi = cfg.universe.price_band
+            if not (max(0.01, lo) <= entry_px <= min(0.99, hi)):
                 return False
             stop, target = stop_and_target(
                 entry_px, "LONG", cfg.signal.exit.stop_loss,
@@ -414,7 +415,8 @@ class Backtester:
                         continue
                     ask = min(0.999, p + hs)
                     epx = min(0.999, ask * (1 + slip) + ask * fee_bps)
-                    if not (0.01 < epx < 0.99):
+                    lo, hi = cfg.universe.price_band
+                    if not (max(0.01, lo) <= epx <= min(0.99, hi)):
                         continue
                     snap = port.snapshot(marks)
                     open_events: dict[str, int] = {}

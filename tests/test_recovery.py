@@ -347,4 +347,50 @@ def test_orphan_position_exits_on_target_or_stop(cfg, tmp_path):
     eng.close()
 
 
+def test_orphan_position_exits_before_resolution(cfg, tmp_path):
+    """פוזיציה מחוץ לסריקה יוצאת לפני פדיון (< min_hours_to_resolution) גם ללא פגיעת SL/TP."""
+    from pmmb.models import Fill
+
+    cfg.signal.engine = "momentum"
+    cfg.universe.min_hours_to_resolution = 6
+    store = Store(tmp_path / "orphan_exp.db")
+    store.upsert_position(Position(
+        token_id="yes-exp", condition_id="0xexp", direction="LONG",
+        size=40.0, avg_price=0.50, stop_price=0.40, target_price=0.60,
+        opened_at=utcnow(), question="Near resolution outside universe?",
+    ), "paper")
+    store.record_fill(Fill("yes-exp", "0xexp", "BUY", 0.50, 40.0), "paper")
+
+    class _ExpOrphanClob(_FakeClob):
+        def get_book(self, token_id):
+            if token_id == "yes-exp":
+                from pmmb.data.clob import Book
+                return Book(token_id="yes-exp", best_bid=0.49, best_ask=0.51,
+                            bid_size=200.0, ask_size=200.0,
+                            bids=[(0.49, 200.0)], asks=[(0.51, 200.0)])
+            return super().get_book(token_id)
+
+    class _ExpOrphanGamma(_FakeGamma):
+        def __init__(self, markets):
+            super().__init__(markets)
+            exp_mk = _gamma_market("0xexp", "exp", hours=3)
+
+            class _FakeHttp:
+                def get(self, path, params=None):
+                    if params and params.get("condition_ids") == "0xexp":
+                        return [exp_mk]
+                    return []
+
+            self.http = _FakeHttp()
+
+    eng = Engine(cfg, store=store, clob=_ExpOrphanClob([0.5] * 140),
+                 gamma=_ExpOrphanGamma([_gamma_market("0xother", "other")]),
+                 state_dir=str(tmp_path / "s"))
+    st = eng.run_once()
+    assert st.exits == 1
+    assert "yes-exp" not in eng.portfolio.positions
+    eng.close()
+
+
+
 
