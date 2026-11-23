@@ -34,7 +34,14 @@ from .runtime import (
     clear_halt,
     write_halt,
 )
-from .status import build_chart_series, build_command_center_data, build_perps_chart_series, build_status, status_html
+from .status import (
+    build_chart_series,
+    build_command_center_data,
+    build_performance_analytics,
+    build_perps_chart_series,
+    build_status,
+    status_html,
+)
 from .ui import command_center_html
 
 log = logging.getLogger(__name__)
@@ -78,9 +85,14 @@ class _TraderManager:
         self.last_backup_ts = 0
         self.last_reports_ts = 0
         self.last_error = ""
+        self.started_at = int(time.time())
         self.perps_cycles = 0
         self.perps_last_ts = 0
         self.perps_last_learn_ts = 0
+        self.perps_learn_cycles = 0
+        self.housekeeping_cycles = 0
+        self.last_housekeeping_ts = 0
+        self.auto_recoveries = 0
         self.perps_last_error = ""
         self._seen_pos_alerts: set[str] = set()
         self.interval_sec = float(cfg.autopilot.trade_interval_sec)
@@ -116,16 +128,21 @@ class _TraderManager:
     def state(self) -> dict:
         return {
             "running": self.running,
+            "uptime_sec": max(0, int(time.time()) - self.started_at),
             "cycles": self.cycles,
             "stream_ticks": self.stream_ticks,
             "news_fetches": self.news_fetches,
             "learn_cycles": self.learn_cycles,
+            "perps_learn_cycles": self.perps_learn_cycles,
+            "housekeeping_cycles": self.housekeeping_cycles,
+            "auto_recoveries": self.auto_recoveries,
             "last_news_ts": self.last_news_ts,
             "last_stream_ts": self.last_stream_ts,
             "last_learn_ts": self.last_learn_ts,
             "last_reconcile_ts": self.last_reconcile_ts,
             "last_backup_ts": self.last_backup_ts,
             "last_reports_ts": self.last_reports_ts,
+            "last_housekeeping_ts": self.last_housekeeping_ts,
             "last_error": self.last_error,
             "perps_enabled": bool(self.cfg.perps.enabled),
             "perps_cycles": self.perps_cycles,
@@ -345,13 +362,16 @@ class _TraderManager:
             store = Store(self.cfg.data.db_path)
             try:
                 cfg_copy = copy.deepcopy(self.cfg)
-                rep = run_perp_self_learning_cycle(cfg_copy, store, apply_changes=apply_changes)
+                rep = run_perp_self_learning_cycle(
+                    cfg_copy, store, apply_changes=apply_changes, config_path=self.config_path
+                )
+                self.perps_learn_cycles += 1
                 if rep.applied:
                     with self._perps_lock:
                         for k in ("z_entry", "adx_trend_threshold"):
                             if k in rep.candidate_cfg:
                                 setattr(self.cfg.perps.signal, k, float(rep.candidate_cfg[k]))
-                        for k in ("sl_atr_mult", "tp_atr_mult"):
+                        for k in ("sl_atr_mult", "tp_atr_mult", "trailing_trigger_atr", "trailing_dist_atr"):
                             if k in rep.candidate_cfg:
                                 setattr(self.cfg.perps.risk, k, float(rep.candidate_cfg[k]))
                 self.perps_last_learn_ts = rep.ts
@@ -361,6 +381,46 @@ class _TraderManager:
                 }
             finally:
                 store.close()
+
+    def evolve_and_maintain_now(self) -> dict:
+        """
+        הרצת אבולוציה ותחזוקה אוטונומית מלאה בלחיצה אחת:
+          1. תחזוקת DB (PRAGMA optimize, WAL checkpoint, אימות פוזיציות, דוחות).
+          2. גיבוי חם.
+          3. למידת מכונה לשתי הזרועות (Polymarket + PERPS ×50) אם במצב paper.
+        """
+        from .autopilot import run_auto_backup, run_autonomous_housekeeping
+
+        if self.cfg.execution.mode != "paper":
+            raise PermissionError("אבולוציה אוטונומית מהממשק מותרת במצב paper בלבד")
+
+        results: dict[str, str] = {}
+        store = Store(self.cfg.data.db_path)
+        try:
+            with self._lock:
+                hk = run_autonomous_housekeeping(self.cfg, store)
+            self.housekeeping_cycles += 1
+            self.last_housekeeping_ts = int(time.time())
+            self.last_reconcile_ts = self.last_housekeeping_ts
+            self.last_reports_ts = self.last_housekeeping_ts
+            results["housekeeping"] = hk["summary"]
+
+            bk = run_auto_backup(self.cfg, store)
+            self.last_backup_ts = int(time.time())
+            results["backup"] = bk["summary"]
+        finally:
+            store.close()
+
+        if self.cfg.perps.enabled and self.cfg.perps.mode == "paper":
+            pl = self.run_perps_learning_now(apply_changes=True)
+            results["perps_learning"] = pl.get("message", "")
+        pl_poly = self.run_learning_now(apply_changes=True)
+        results["poly_learning"] = pl_poly.get("message", "")
+        self.invalidate_cache()
+        return {
+            "message": " | ".join(v for v in results.values() if v),
+            "results": results,
+        }
 
     def close_position(self, arm: str, key: str, reason: str = "סגירה ידנית מהטרמינל") -> dict:
         """סוגר פוזיציה פתוחה ידנית ב-Polymarket או ב-PERPS (במצב paper בלבד מהדפדפן)."""
@@ -587,7 +647,12 @@ class _TraderManager:
         self.last_error = ""
 
         def _loop() -> None:
-            from .autopilot import run_auto_backup, run_auto_reconcile, run_auto_reports
+            from .autopilot import (
+                run_auto_backup,
+                run_auto_reconcile,
+                run_auto_reports,
+                run_autonomous_housekeeping,
+            )
             from .data.news import evaluate_news_alpha
             from .perps.learning import evaluate_perp_live_signals
 
@@ -599,6 +664,7 @@ class _TraderManager:
             next_perps_learn = time.time() + min(180.0, float(self.cfg.perps.learn_interval_sec))
             next_backup = time.time() + 90.0
             next_reports = time.time() + 45.0
+            next_housekeep = time.time() + 180.0
             reconcile_every = max(1, int(self.cfg.autopilot.reconcile_every_cycles))
 
             while not self._stop_ev.is_set():
@@ -626,7 +692,8 @@ class _TraderManager:
                             self.run_perps_cycle()
                         except Exception as pexc:  # noqa: BLE001
                             self.perps_last_error = str(pexc)
-                            log.warning("מחזור Perps בלולאה: %s", pexc)
+                            self.auto_recoveries += 1
+                            log.warning("מחזור Perps בלולאה (מתאושש אוטומטית): %s", pexc)
                         next_perps = time.time() + max(30.0, float(self.cfg.perps.interval_sec))
 
                     # מיקרו-למידה רציפה כל 5 דקות (מסחר דו-זרועי + חדשות מול שוק על DB מקומי ללא רשת)
@@ -650,6 +717,19 @@ class _TraderManager:
                         self._trigger_learning_bg()
                         next_learn = time.time() + max(300.0, float(self.cfg.learning.interval_sec))
 
+                    if self.cfg.autopilot.enabled and now >= next_housekeep:
+                        st_hk = Store(self.cfg.data.db_path)
+                        try:
+                            with self._lock:
+                                run_autonomous_housekeeping(self.cfg, st_hk)
+                            self.housekeeping_cycles += 1
+                            self.last_housekeeping_ts = int(time.time())
+                            self.last_reconcile_ts = self.last_housekeeping_ts
+                            self.last_reports_ts = self.last_housekeeping_ts
+                        finally:
+                            st_hk.close()
+                        next_housekeep = time.time() + 1800.0
+
                     if self.cfg.autopilot.enabled and now >= next_backup:
                         st = Store(self.cfg.data.db_path)
                         try:
@@ -669,7 +749,8 @@ class _TraderManager:
                         next_reports = time.time() + max(300.0, float(self.cfg.autopilot.reports_interval_sec))
                 except Exception as exc:      # noqa: BLE001
                     self.last_error = str(exc)
-                    log.warning("לולאה רציפה: %s", exc)
+                    self.auto_recoveries += 1
+                    log.warning("לולאה רציפה (מתאושש אוטומטית): %s", exc)
                     next_trade = max(next_trade, time.time() + 30.0)
                 self._stop_ev.wait(15.0)
 
@@ -841,6 +922,8 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     res = {"ok": True, **trader.run_learning_now(apply_changes=bool(body.get("apply", True)))}
                 elif path == "/api/autopilot/maintain":
                     res = {"ok": True, **trader.run_maintenance_now()}
+                elif path == "/api/autonomous/evolve":
+                    res = {"ok": True, **trader.evolve_and_maintain_now()}
                 elif path == "/api/paper-cycle":
                     res = {"ok": True, **trader.run_single_cycle()}
                 elif path == "/api/perps/cycle":
@@ -973,6 +1056,18 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     st = trader.get_state_snapshot(max_age_sec=max_age_sec)
                     return self._send(200, json.dumps(st, ensure_ascii=False).encode(),
                                       "application/json; charset=utf-8", head_only=head_only)
+                if path == "/api/analytics/performance":
+                    store = Store(cfg.data.db_path)
+                    try:
+                        perf = build_performance_analytics(cfg, store)
+                    finally:
+                        store.close()
+                    return self._send(
+                        200,
+                        json.dumps({"performance": perf, "autonomous": trader.state()}, ensure_ascii=False).encode(),
+                        "application/json; charset=utf-8",
+                        head_only=head_only,
+                    )
                 if path == "/api/export/trades.csv":
                     import csv
                     import io

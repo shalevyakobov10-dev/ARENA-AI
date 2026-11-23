@@ -16,7 +16,7 @@ import yaml
 from ..config import DEFAULT_CONFIG, Config
 from ..data.news import evaluate_news_alpha
 from ..data.store import Store
-from .backtest import run_perp_walkforward
+from .backtest import run_perp_portfolio_backtest, run_perp_walkforward
 from .exchange import MultiPerpExchange
 from .signals import assess_perps_news
 
@@ -173,11 +173,13 @@ def run_perp_self_learning_cycle(
     }
 
     grid = [
+        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 3.0, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
+        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 3.2, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
+        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 3.4, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
+        {"z_entry": 1.75, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.45, "tp_atr_mult": 3.3, "trailing_trigger_atr": 1.35, "trailing_dist_atr": 0.92},
+        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.6, "tp_atr_mult": 3.4, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
+        {"z_entry": 1.9, "adx_trend_threshold": 24.0, "sl_atr_mult": 1.5, "tp_atr_mult": 3.2, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
         {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
-        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 1.0},
-        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.2, "trailing_dist_atr": 1.0},
-        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.7, "tp_atr_mult": 3.0, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
-        {"z_entry": 1.9, "adx_trend_threshold": 24.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
     ]
 
     best_wf = base_wf
@@ -238,6 +240,37 @@ def run_perp_self_learning_cycle(
         f"- **מועמד OOS:** {best_wf.oos_return_pct:+.2f}% ({best_wf.total_trades} עסקאות, עקביות {best_wf.consistency*100:.0f}%)\n",
         encoding="utf-8",
     )
+    active_wf = best_wf if applied else base_wf
+    if len(datasets) >= 3 and active_wf.total_trades > 0:
+        try:
+            bt_full = run_perp_portfolio_backtest(cfg.perps, datasets, funding_map=funding_map)
+            wf_json = {
+                "updated_at": now,
+                "assets": len(datasets),
+                "oos_return_pct": round(active_wf.oos_return_pct, 2),
+                "consistency": round(active_wf.consistency, 3),
+                "total_trades": active_wf.total_trades,
+                "total_liqs": active_wf.total_liqs,
+                "full_30d_return_pct": round(bt_full.return_pct, 2),
+                "full_30d_win_rate_pct": round(bt_full.win_rate_pct, 1),
+                "full_30d_profit_factor": round(bt_full.profit_factor, 2),
+                "full_30d_max_dd_pct": round(bt_full.max_drawdown_pct, 1),
+                "full_30d_trades": bt_full.trades,
+                "folds": [
+                    {
+                        "fold": idx + 1,
+                        "return_pct": round(f.return_pct, 2),
+                        "trades": f.trades,
+                        "win_rate_pct": round(f.win_rate_pct, 1),
+                        "liquidations": f.liquidations,
+                        "max_drawdown_pct": round(f.max_drawdown_pct, 1),
+                    }
+                    for idx, f in enumerate(active_wf.folds)
+                ],
+            }
+            (rdir / "perp_walkforward.json").write_text(json.dumps(wf_json, indent=2), encoding="utf-8")
+        except Exception:
+            pass
     return PerpLearningReport(
         ts=now, mode=cfg.perps.mode,
         baseline_oos_pct=base_wf.oos_return_pct, candidate_oos_pct=best_wf.oos_return_pct,

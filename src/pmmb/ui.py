@@ -606,8 +606,9 @@ async function savePositionLevels(arm, key, uid) {
 
 function setHomeChartMode(mode) {
   HOME_CHART_MODE = mode;
-  const bEq = $("btn-hc-eq"), bAs = $("btn-hc-asset");
+  const bEq = $("btn-hc-eq"), bDa = $("btn-hc-daily"), bAs = $("btn-hc-asset");
   if (bEq) bEq.className = "btn sm " + (mode === "equity" ? "active-mode" : "");
+  if (bDa) bDa.className = "btn sm " + (mode === "daily" ? "active-mode" : "");
   if (bAs) bAs.className = "btn sm " + (mode === "asset" ? "active-mode" : "");
   drawHomeChart();
 }
@@ -839,8 +840,9 @@ function syncSelectors() {
 async function selectHomeAsset(arm, id, live = false) {
   SELECTED_ASSET = { arm, id };
   HOME_CHART_MODE = "asset";
-  const bEq = $("btn-hc-eq"), bAs = $("btn-hc-asset");
+  const bEq = $("btn-hc-eq"), bDa = $("btn-hc-daily"), bAs = $("btn-hc-asset");
   if (bEq) bEq.className = "btn sm";
+  if (bDa) bDa.className = "btn sm";
   if (bAs) bAs.className = "btn sm active-mode";
   const hSel = $("home-asset-sel");
   if (hSel) hSel.value = arm + ":" + id;
@@ -1015,6 +1017,65 @@ function drawEquityCurve(canvas, points, tipId, hoverX) {
     ctx.fillStyle = "#38bdf8";
     ctx.beginPath(); if (typeof ctx.arc === "function") ctx.arc(cx, cy, 4, 0, Math.PI * 2); ctx.fill();
     updateTip(tipId, `<b>${fmtDateTime(pt.ts)}</b> · הון <b class="num pos">$${fmt(pt.equity)}</b> · PERPS <span class="num">$${fmt(pt.perps)}</span> · Poly <span class="num">$${fmt(pt.poly)}</span>`, true);
+  } else {
+    updateTip(tipId, "", false);
+  }
+}
+
+function drawDailyBars(canvas, days, tipId, hoverX) {
+  const s = initCanvas(canvas);
+  if (!s) return;
+  const { ctx, w, h } = s;
+  ctx.fillStyle = "#070b13";
+  ctx.fillRect(0, 0, w, h);
+
+  if (!days || !days.length) {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "13px sans-serif";
+    ctx.fillText("אין עדיין היסטוריית עסקאות סגורות לפי יום...", 22, 42);
+    return;
+  }
+  const padL = 16, padR = 58, padT = 20, padB = 26;
+  const cw = w - padL - padR, ch = h - padT - padB;
+  let lo = 0, hi = 0;
+  days.forEach((d) => { if (d.total < lo) lo = d.total; if (d.total > hi) hi = d.total; });
+  if (hi <= lo) { hi += 5; lo -= 5; }
+  const sp = hi - lo;
+  lo -= sp * 0.12;
+  hi += sp * 0.12;
+  const yOf = (v) => padT + ((hi - v) / (hi - lo)) * ch;
+  const y0 = yOf(0);
+
+  ctx.strokeStyle = "rgba(148,163,184,0.16)";
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padL, y0); ctx.lineTo(w - padR, y0); ctx.stroke();
+  ctx.font = "11px monospace";
+  ctx.fillStyle = "#64748b";
+  ctx.fillText(fmtSigned(hi, 0) + "$", w - padR + 8, padT + 6);
+  ctx.fillText("0$", w - padR + 8, y0 + 4);
+  ctx.fillText(fmtSigned(lo, 0) + "$", w - padR + 8, h - padB);
+
+  const step = cw / Math.max(1, days.length);
+  const bw = Math.max(6, Math.min(34, step * 0.65));
+  days.forEach((d, i) => {
+    const x = padL + (i + 0.5) * step - bw / 2;
+    const yv = yOf(d.total);
+    ctx.fillStyle = d.total >= 0 ? "rgba(16, 185, 129, 0.85)" : "rgba(244, 63, 94, 0.85)";
+    const top = Math.min(y0, yv);
+    const bh = Math.max(2, Math.abs(yv - y0));
+    ctx.fillRect(x, top, bw, bh);
+  });
+
+  if (hoverX != null && hoverX >= padL && hoverX <= w - padR) {
+    const idx = Math.max(0, Math.min(days.length - 1, Math.floor((hoverX - padL) / step)));
+    const d = days[idx];
+    const cx = padL + (idx + 0.5) * step;
+    ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+    ctx.lineWidth = 1;
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(cx, padT); ctx.lineTo(cx, h - padB); ctx.stroke();
+    if (typeof ctx.setLineDash === "function") ctx.setLineDash([]);
+    updateTip(tipId, `<b>${esc(d.day)}</b> · סה״כ <b class="num ${pnlCls(d.total)}">${fmtSigned(d.total)}$</b> · PERPS <span class="num">${fmtSigned(d.perps)}$</span> · Poly <span class="num">${fmtSigned(d.poly)}$</span> (${d.trades} עסקאות)`, true);
   } else {
     updateTip(tipId, "", false);
   }
@@ -1204,6 +1265,20 @@ function drawHomeChart() {
   if (!c) return;
   const stats = $("home-chart-stats");
   const curve = DATA.combined_equity_curve || [];
+  if (HOME_CHART_MODE === "daily") {
+    const days = (DATA.performance && DATA.performance.daily_pnl) || [];
+    drawDailyBars(c, days, "home-tip", CHART_CROSSHAIR.home);
+    if (stats) {
+      const pf = (DATA.performance && DATA.performance.live_pf) || 0;
+      const tot = days.reduce((s, d) => s + Number(d.total || 0), 0);
+      stats.innerHTML = `
+        <div class="chart-stat-item">ימי מסחר: <b class="num">${days.length}</b></div>
+        <div class="chart-stat-item">רווח ממומש: <b class="num ${pnlCls(tot)}">${fmtSigned(tot)}$</b></div>
+        <div class="chart-stat-item">Profit Factor חי: <b class="num cyan">${fmt(pf, 2)}</b></div>
+      `;
+    }
+    return;
+  }
   if (HOME_CHART_MODE === "equity" && curve.length >= 2) {
     drawEquityCurve(c, curve, "home-tip", CHART_CROSSHAIR.home);
     if (stats) {
@@ -1470,6 +1545,40 @@ function renderMarketsTab() {
       </tr>
     `).join("") || `<tr><td colspan="4" class="muted">אין חדשות במאגר</td></tr>`;
   }
+
+  const pf = DATA.performance || {};
+  const kpiEl = $("perf-kpis");
+  if (kpiEl) {
+    kpiEl.innerHTML = `
+      <div class="rule-box"><div class="rule-k">Profit Factor חי (סגורות)</div><div class="rule-v num cyan">${fmt(pf.live_pf, 2)}</div></div>
+      <div class="rule-box"><div class="rule-k">אחוז הצלחה חי</div><div class="rule-v num">${fmt(pf.win_rate_pct, 1)}% (${pf.wins || 0}/${pf.total_trades || 0})</div></div>
+      <div class="rule-box"><div class="rule-k">רווח ממוצע לעסקה</div><div class="rule-v num pos">+$${fmt(pf.avg_win, 2)}</div></div>
+      <div class="rule-box"><div class="rule-k">הפסד ממוצע לעסקה</div><div class="rule-v num neg">-$${fmt(pf.avg_loss, 2)}</div></div>
+    `;
+  }
+  const stBody = $("perf-strat-body");
+  if (stBody) {
+    stBody.innerHTML = (pf.by_strategy || []).map((s) => `
+      <tr>
+        <td><b>${esc(s.strategy)}</b></td>
+        <td class="num">${s.trades}</td>
+        <td class="num">${fmt(s.win_rate_pct, 1)}%</td>
+        <td class="num ${pnlCls(s.pnl)}"><b>${fmtSigned(s.pnl)}$</b></td>
+      </tr>
+    `).join("") || `<tr><td colspan="4" class="muted">ממתין לסגירת עסקאות</td></tr>`;
+  }
+  const syBody = $("perf-sym-body");
+  if (syBody) {
+    syBody.innerHTML = (pf.top_symbols || []).map((s) => `
+      <tr>
+        <td><b>${esc(s.symbol)}</b></td>
+        <td><span class="badge ${s.arm === 'perps' ? 'blue' : ''}">${s.arm === 'perps' ? 'PERPS' : 'Poly'}</span></td>
+        <td class="num">${s.trades}</td>
+        <td class="num ${pnlCls(s.pnl)}"><b>${fmtSigned(s.pnl)}$</b></td>
+      </tr>
+    `).join("") || `<tr><td colspan="4" class="muted">אין היסטוריית נכסים עדיין</td></tr>`;
+  }
+
   renderPerpsThesis();
   if (BOOK_CACHE[PERP_SYM]) renderPerpDepth(BOOK_CACHE[PERP_SYM]);
 }
@@ -1548,6 +1657,18 @@ function syncConfigForm() {
 
 function renderSettingsTab() {
   syncConfigForm();
+  const tr = DATA.trader || {};
+  const autoEl = $("autonomous-strip");
+  if (autoEl) {
+    const au = DATA.autonomous || {};
+    const upMin = Math.floor(Number(tr.uptime_sec || au.uptime_sec || 0) / 60);
+    autoEl.innerHTML = `
+      <div class="rule-box"><div class="rule-k">זמן פעילות רציף (Uptime)</div><div class="rule-v num cyan">${upMin} דק׳</div></div>
+      <div class="rule-box"><div class="rule-k">מחזורי מסחר אוטומטיים</div><div class="rule-v num">${tr.cycles || 0} Poly · ${tr.perps_cycles || 0} PERPS</div></div>
+      <div class="rule-box"><div class="rule-k">מחזורי אבולוציה ולמידה</div><div class="rule-v num pos">${tr.learn_cycles || 0} Poly · ${tr.perps_learn_cycles || au.perps_learn_cycles || 0} PERPS</div></div>
+      <div class="rule-box"><div class="rule-k">תחזוקת DB וריפוי עצמי</div><div class="rule-v num">${tr.housekeeping_cycles || au.housekeeping_cycles || 0} תחזוקות · ${fmt(au.db_size_kb, 0)} KB (${tr.auto_recoveries || 0} התאוששויות)</div></div>
+    `;
+  }
   const rd = DATA.readiness || {};
   const rdBadge = $("readiness-summary");
   if (rdBadge) {
@@ -1730,8 +1851,9 @@ _HTML_TEMPLATE = """<!doctype html>
     <div class="main-split">
       <div class="card">
         <div class="card-head">
-          <div style="display:flex;gap:6px;align-items:center">
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
             <button id="btn-hc-eq" class="btn sm active-mode" onclick="setHomeChartMode('equity')">עקומת הון התיק</button>
+            <button id="btn-hc-daily" class="btn sm" onclick="setHomeChartMode('daily')">רווח יומי (עמודות)</button>
             <button id="btn-hc-asset" class="btn sm" onclick="setHomeChartMode('asset')">גרף נכס חי</button>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
@@ -1851,7 +1973,7 @@ _HTML_TEMPLATE = """<!doctype html>
               <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
                 <label style="font-size:11.5px;color:var(--muted)">מינוף<br><input id="sim-lev" class="inp num" style="width:68px;margin-top:4px" type="number" min="2" max="50" value="50"></label>
                 <label style="font-size:11.5px;color:var(--muted)">SL (×ATR)<br><input id="sim-sl" class="inp num" style="width:68px;margin-top:4px" type="number" step="0.1" min="0.8" max="4" value="1.5"></label>
-                <label style="font-size:11.5px;color:var(--muted)">TP (×ATR)<br><input id="sim-tp" class="inp num" style="width:68px;margin-top:4px" type="number" step="0.1" min="1.2" max="6" value="2.6"></label>
+                <label style="font-size:11.5px;color:var(--muted)">TP (×ATR)<br><input id="sim-tp" class="inp num" style="width:68px;margin-top:4px" type="number" step="0.1" min="1.2" max="6" value="3.4"></label>
                 <button class="btn sm primary" onclick="runPerpsSim()">הרץ בדיקה</button>
               </div>
               <div id="perps-sim-res" class="muted" style="font-size:12.5px">הרץ סימולציה על נתוני אמת היסטוריים.</div>
@@ -1912,6 +2034,29 @@ _HTML_TEMPLATE = """<!doctype html>
         </div>
         <div id="wf-summary-cards" class="rule-grid"></div>
       </div>
+
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-head">
+          <div class="card-title">ביצועי אמת לפי אסטרטגיה ונכסים (Performance Attribution)</div>
+          <span class="badge blue">Live DB Analytics</span>
+        </div>
+        <div id="perf-kpis" class="rule-grid" style="grid-template-columns:repeat(4,minmax(0,1fr));padding-bottom:8px"></div>
+        <div class="grid-2" style="padding:10px 20px 18px;margin-bottom:0">
+          <div class="tbl-scroll" style="border:1px solid var(--border);border-radius:12px">
+            <table class="clean-tbl">
+              <thead><tr><th>אסטרטגיה</th><th>עסקאות</th><th>הצלחה</th><th>רווח/הפסד</th></tr></thead>
+              <tbody id="perf-strat-body"></tbody>
+            </table>
+          </div>
+          <div class="tbl-scroll" style="border:1px solid var(--border);border-radius:12px">
+            <table class="clean-tbl">
+              <thead><tr><th>נכס / שוק</th><th>מנוע</th><th>עסקאות</th><th>רווח/הפסד</th></tr></thead>
+              <tbody id="perf-sym-body"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-head"><div class="card-title">חדשות גלובליות המשפיעות על הבוט</div></div>
         <div class="tbl-scroll">
@@ -1929,6 +2074,17 @@ _HTML_TEMPLATE = """<!doctype html>
     <div class="card" style="margin-bottom:18px">
       <div class="card-head">
         <div>
+          <div class="card-title">מנוע אוטונומיה והתפתחות עצמית רציפה</div>
+          <div class="card-sub">ניהול עצמי של סריקות, אימות OOS, תחזוקת DB, ריפוי עצמי וגיבויים</div>
+        </div>
+        <button class="btn sm primary" onclick="runAction('/api/autonomous/evolve',{})">הרץ אבולוציה ותחזוקה מלאה עכשיו</button>
+      </div>
+      <div id="autonomous-strip" class="rule-grid"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-head">
+        <div>
           <div class="card-title">שליטה ישירה בבוט ובניהול הסיכון</div>
           <div class="card-sub">השינויים מוחלים מיד על הבוט הרץ ונשמרים אוטומטית ב־config.yaml</div>
         </div>
@@ -1936,7 +2092,7 @@ _HTML_TEMPLATE = """<!doctype html>
       </div>
       <div class="cfg-grid">
         <div class="cfg-field"><label>זרוע PERPS ×50</label><select id="cfg-perps-en" class="sel"><option value="1">פעילה</option><option value="0">מושהית</option></select></div>
-        <div class="cfg-field"><label>סיכון לעסקת PERPS (%)</label><input id="cfg-perps-risk" class="inp num" type="number" step="0.1" min="0.5" max="5.0" value="2.8"></div>
+        <div class="cfg-field"><label>סיכון לעסקת PERPS (%)</label><input id="cfg-perps-risk" class="inp num" type="number" step="0.1" min="0.5" max="5.0" value="3.0"></div>
         <div class="cfg-field"><label>מינוף מקסימלי (×2–×50)</label><input id="cfg-perps-lev" class="inp num" type="number" min="2" max="50" value="50"></div>
         <div class="cfg-field"><label>מקסימום פוזיציות PERPS</label><input id="cfg-perps-pos" class="inp num" type="number" min="1" max="8" value="4"></div>
         <div class="cfg-field"><label>תדירות סריקת PERPS (שניות)</label><input id="cfg-perps-int" class="inp num" type="number" min="30" max="600" value="60"></div>

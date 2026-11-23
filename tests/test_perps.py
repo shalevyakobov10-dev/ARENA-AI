@@ -60,11 +60,13 @@ def _mk_candles(n: int = 160, *, base: float = 100.0, mode: str = "mr_long") -> 
 
 
 def test_perps_config_defaults():
+    assert Config().perps.risk.tp_atr_mult == 2.6
     cfg = Config.load()
     assert cfg.perps.risk.max_leverage == 50.0
     assert cfg.perps.risk.liquidation_buffer_mult == 2.2
     assert cfg.perps.risk.sl_atr_mult == 1.5
-    assert cfg.perps.risk.tp_atr_mult == 2.6
+    assert 2.0 <= cfg.perps.risk.tp_atr_mult <= 4.5
+    assert cfg.perps.risk.tp_atr_mult > cfg.perps.risk.sl_atr_mult
     assert cfg.perps.risk.max_positions_per_direction == 4
     assert cfg.perps.exchange.max_assets == 16
     assert "okx" in cfg.perps.exchange.enabled_exchanges
@@ -680,8 +682,61 @@ def test_new_command_center_endpoints(tmp_path):
         with urllib.request.urlopen(req_close, timeout=5) as r:
             res = json.loads(r.read().decode())
             assert res["ok"] is True and len(res["closed"]) == 1
+
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/analytics/performance", timeout=5) as r:
+            perf_res = json.loads(r.read().decode())
+            assert "performance" in perf_res
+            assert perf_res["performance"]["total_trades"] >= 1
+            assert "autonomous" in perf_res
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+def test_autonomous_housekeeping_and_evolve(tmp_path, monkeypatch):
+    """בדיקת תחזוקת מערכת אוטונומית (DB optimize, reconcile, reports) ו-POST /api/autonomous/evolve."""
+    import threading
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+    from pmmb.autopilot import run_autonomous_housekeeping
+    from pmmb.server import _TraderManager, make_handler
+
+    cfg = Config()
+    cfg.data.db_path = str(tmp_path / "auto.db")
+    st = Store(cfg.data.db_path)
+    try:
+        hk = run_autonomous_housekeeping(
+            cfg, st, reports_dir=tmp_path / "reports", backups_dir=tmp_path / "backups"
+        )
+        assert hk["ok"] is True
+        assert (tmp_path / "reports" / "autonomous_status.json").exists()
+        assert hk["db_size_kb"] > 0
+    finally:
+        st.close()
+
+    trader = _TraderManager(cfg)
+    monkeypatch.setattr(trader, "run_perps_learning_now", lambda apply_changes=True: {"message": "perps ok"})
+    monkeypatch.setattr(trader, "run_learning_now", lambda apply_changes=True: {"message": "poly ok"})
+    monkeypatch.chdir(tmp_path)
+    handler = make_handler(cfg, max_age_sec=300, refresh_sec=0, token="", trader=trader)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/autonomous/evolve",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            res = json.loads(r.read().decode())
+            assert res["ok"] is True
+            assert "results" in res and "housekeeping" in res["results"]
+    finally:
+        srv.shutdown()
+        srv.server_close()
+
 
 

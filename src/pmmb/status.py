@@ -218,6 +218,136 @@ def build_chart_series(store, cfg, token_id: str, limit: int = 160) -> dict:
     return series
 
 
+def build_performance_analytics(cfg, store: Store) -> dict:
+    """חישוב ביצועים אמיתי ממאגר העסקאות (לפי אסטרטגיה, לפי נכס, לפי יום ו-Profit Factor חי)."""
+    c = store._conn
+    pmode = cfg.execution.mode
+    perps_mode = cfg.perps.mode
+    daily: dict[str, dict] = {}
+    strat_agg: dict[str, dict] = {}
+    sym_agg: dict[str, dict] = {}
+    gross_win = 0.0
+    gross_loss = 0.0
+    wins = 0
+    losses = 0
+
+    def _add(day_s: str, arm: str, strat: str, sym: str, pnl: float, fee: float) -> None:
+        nonlocal gross_win, gross_loss, wins, losses
+        d = daily.setdefault(day_s, {"day": day_s, "poly": 0.0, "perps": 0.0, "total": 0.0, "trades": 0})
+        if arm == "poly":
+            d["poly"] += pnl
+        else:
+            d["perps"] += pnl
+        d["total"] += pnl
+        d["trades"] += 1
+
+        st = strat_agg.setdefault(strat, {"strategy": strat, "arm": arm, "trades": 0, "wins": 0, "pnl": 0.0, "fees": 0.0})
+        st["trades"] += 1
+        if pnl > 0:
+            st["wins"] += 1
+            gross_win += pnl
+            wins += 1
+        elif pnl < 0:
+            gross_loss += abs(pnl)
+            losses += 1
+        st["pnl"] += pnl
+        st["fees"] += fee
+
+        sy = sym_agg.setdefault(sym, {"symbol": sym, "arm": arm, "trades": 0, "wins": 0, "pnl": 0.0})
+        sy["trades"] += 1
+        if pnl > 0:
+            sy["wins"] += 1
+        sy["pnl"] += pnl
+
+    # עסקאות Polymarket סגורות (SELL)
+    poly_rows = c.execute(
+        """SELECT f.ts, f.realized, f.fee, f.reason, f.token_id,
+                  COALESCE(NULLIF(p.question, ''), mi.question, f.token_id) AS question
+           FROM fills f
+           LEFT JOIN positions p ON p.token_id = f.token_id
+           LEFT JOIN market_intel mi ON mi.token_id = f.token_id
+           WHERE f.mode=? AND f.side='SELL'""",
+        (pmode,),
+    ).fetchall()
+    for r in poly_rows:
+        ts_i = int(r["ts"] or 0)
+        day_s = datetime.fromtimestamp(ts_i, tz=timezone.utc).strftime("%Y-%m-%d")
+        pnl = float(r["realized"] or 0.0)
+        fee = float(r["fee"] or 0.0)
+        q = str(r["question"] or r["token_id"])[:28]
+        _add(day_s, "poly", "Polymarket", q, pnl, fee)
+
+    # עסקאות PERPS סגורות
+    perp_rows = c.execute(
+        """SELECT ts, symbol, side, realized, fee, reason
+           FROM perp_fills WHERE mode=? AND action IN ('CLOSE','LIQUIDATION')""",
+        (perps_mode,),
+    ).fetchall()
+    for r in perp_rows:
+        ts_i = int(r["ts"] or 0)
+        day_s = datetime.fromtimestamp(ts_i, tz=timezone.utc).strftime("%Y-%m-%d")
+        pnl = float(r["realized"] or 0.0)
+        fee = float(r["fee"] or 0.0)
+        rsn = str(r["reason"] or "").lower()
+        if "ידנית" in rsn or "manual" in rsn:
+            strat = "PERPS ידני"
+        elif "פריצ" in rsn or "breakout" in rsn:
+            strat = "PERPS Breakout"
+        elif "pullback" in rsn or "מגמת" in rsn:
+            strat = "PERPS Pullback"
+        elif "meanrev" in rsn or "היפוך" in rsn:
+            strat = "PERPS MeanRev"
+        else:
+            strat = "PERPS ×50"
+        _add(day_s, "perps", strat, str(r["symbol"] or "?"), pnl, fee)
+
+    daily_list = [
+        {
+            "day": d["day"],
+            "poly": round(d["poly"], 2),
+            "perps": round(d["perps"], 2),
+            "total": round(d["total"], 2),
+            "trades": d["trades"],
+        }
+        for d in sorted(daily.values(), key=lambda x: x["day"])[-30:]
+    ]
+    strat_list = [
+        {
+            "strategy": s["strategy"],
+            "arm": s["arm"],
+            "trades": s["trades"],
+            "win_rate_pct": round(s["wins"] / s["trades"] * 100.0, 1) if s["trades"] else 0.0,
+            "pnl": round(s["pnl"], 2),
+            "fees": round(s["fees"], 2),
+        }
+        for s in sorted(strat_agg.values(), key=lambda x: -x["pnl"])
+    ]
+    top_syms = [
+        {
+            "symbol": s["symbol"],
+            "arm": s["arm"],
+            "trades": s["trades"],
+            "win_rate_pct": round(s["wins"] / s["trades"] * 100.0, 1) if s["trades"] else 0.0,
+            "pnl": round(s["pnl"], 2),
+        }
+        for s in sorted(sym_agg.values(), key=lambda x: -abs(x["pnl"]))[:10]
+    ]
+    tot_t = wins + losses
+    live_pf = round(gross_win / gross_loss, 2) if gross_loss > 0 else (99.0 if gross_win > 0 else 0.0)
+    return {
+        "daily_pnl": daily_list,
+        "by_strategy": strat_list,
+        "top_symbols": top_syms,
+        "total_trades": tot_t,
+        "wins": wins,
+        "losses": losses,
+        "win_rate_pct": round(wins / tot_t * 100.0, 1) if tot_t else 0.0,
+        "live_pf": live_pf,
+        "avg_win": round(gross_win / wins, 2) if wins else 0.0,
+        "avg_loss": round(gross_loss / losses, 2) if losses else 0.0,
+    }
+
+
 def build_command_center_data(
     cfg,
     *,
@@ -245,6 +375,20 @@ def build_command_center_data(
     out["world_pulse"] = {"total": 0, "avg_sentiment": 0.0, "catalysts": 0, "regime": "שקט", "sources": 0, "by_category": {}}
     out["telemetry"] = {"ticks": 0, "books": 0, "signals": 0, "news": 0, "intel": 0}
     out["combined_equity_curve"] = []
+    out["performance"] = {
+        "daily_pnl": [], "by_strategy": [], "top_symbols": [],
+        "total_trades": 0, "wins": 0, "losses": 0, "win_rate_pct": 0.0,
+        "live_pf": 0.0, "avg_win": 0.0, "avg_loss": 0.0,
+    }
+    ts_map = trader_state or {}
+    out["autonomous"] = {
+        "db_size_kb": round(Path(cfg.data.db_path).stat().st_size / 1024.0, 1) if Path(cfg.data.db_path).exists() else 0.0,
+        "uptime_sec": int(ts_map.get("uptime_sec") or 0),
+        "perps_learn_cycles": int(ts_map.get("perps_learn_cycles") or 0),
+        "housekeeping_cycles": int(ts_map.get("housekeeping_cycles") or 0),
+        "auto_recoveries": int(ts_map.get("auto_recoveries") or 0),
+        "last_housekeeping_ts": int(ts_map.get("last_housekeeping_ts") or 0),
+    }
     out["trader"] = trader_state or {
         "running": False, "cycles": 0, "last_error": "", "interval_sec": 180,
         "stream_ticks": 0, "news_fetches": 0, "learn_cycles": 0,
@@ -407,6 +551,7 @@ def build_command_center_data(
                         "perps": round(cur_perp, 2),
                     })
                 out["combined_equity_curve"] = comb_curve[-140:]
+            out["performance"] = build_performance_analytics(cfg, store)
         finally:
             store.close()
 

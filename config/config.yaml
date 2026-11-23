@@ -97,7 +97,7 @@ learning:
   enabled: true
   auto_apply_paper: true
   allow_auto_apply_live: false
-  interval_sec: 1800
+  interval_sec: 1200
   max_markets: 35
   min_oos_trades: 25
   min_consistency: 0.66
@@ -115,7 +115,7 @@ perps:
   news_exit_impact: 0.85
   news_exit_sentiment: -0.55
   auto_learn: true
-  learn_interval_sec: 1800.0
+  learn_interval_sec: 1200.0
   exchange:
     enabled_exchanges:
     - okx
@@ -147,13 +147,13 @@ perps:
     max_leverage: 50.0
     dynamic_leverage: true
     liquidation_buffer_mult: 2.2
-    risk_per_trade_pct: 0.028
+    risk_per_trade_pct: 0.03
     max_margin_per_position_pct: 0.25
-    max_total_margin_pct: 0.58
+    max_total_margin_pct: 0.59
     max_open_positions: 4
     max_positions_per_direction: 4
     sl_atr_mult: 1.5
-    tp_atr_mult: 2.6
+    tp_atr_mult: 3.4
     trailing_enabled: true
     trailing_trigger_atr: 1.4
     trailing_dist_atr: 0.95

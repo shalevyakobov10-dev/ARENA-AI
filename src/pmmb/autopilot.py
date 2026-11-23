@@ -155,3 +155,53 @@ def monitor_open_positions_news(
             if notifier is not None:
                 notifier.send(f"אזהרת חדשות על פוזיציה: {q[:50]} | {nm.latest_title[:80]}")
     return alerts
+
+
+def run_autonomous_housekeeping(
+    cfg,
+    store,
+    *,
+    reports_dir: str | Path = "reports",
+    backups_dir: str | Path = "backups",
+) -> dict[str, Any]:
+    """
+    מחזור תחזוקה ואופטימיזציה אוטונומית של המערכת:
+      1. PRAGMA optimize + WAL passive checkpoint למניעת ניפוח ולשימור מהירות.
+      2. אימות ותיקון פערים ב-DB (Polymarket + PERPS).
+      3. הפקת דוחות מוכנות וסיכום יומי.
+      4. שמירת דוח מצב מערכת JSON בתיקיית הדוחות.
+    """
+    import json
+    import time
+
+    now = int(time.time())
+    db_file = Path(cfg.data.db_path)
+    try:
+        store._conn.execute("PRAGMA optimize")
+        store._conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    except Exception as exc:
+        log.debug("DB optimize/checkpoint דילוג: %s", exc)
+
+    rec = run_auto_reconcile(cfg, store)
+    rep = run_auto_reports(cfg, store, reports_dir=reports_dir, backups_dir=backups_dir)
+    db_size_kb = round(db_file.stat().st_size / 1024.0, 1) if db_file.exists() else 0.0
+
+    rdir = Path(reports_dir)
+    rdir.mkdir(parents=True, exist_ok=True)
+    status_obj = {
+        "updated_at": now,
+        "db_size_kb": db_size_kb,
+        "reconcile_clean": bool(rec.get("ok")),
+        "reconcile_summary": rec.get("summary", ""),
+        "reports_passed": rep.get("passed", 0),
+        "reports_total": rep.get("total", 0),
+    }
+    try:
+        (rdir / "autonomous_status.json").write_text(json.dumps(status_obj, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+    msg = f"תחזוקה אוטונומית הושלמה: DB {db_size_kb:.1f}KB · {rec.get('summary')} · {rep.get('passed')}/{rep.get('total')} מוכנות"
+    store.record_autopilot_run("housekeeping", "ok", msg, details=status_obj)
+    return {"ok": True, "summary": msg, **status_obj}
+

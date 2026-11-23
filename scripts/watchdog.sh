@@ -45,7 +45,12 @@ if command -v systemctl >/dev/null 2>&1; then
 elif command -v launchctl >/dev/null 2>&1; then
   launchctl kickstart -k "gui/$(id -u)/com.pmmb.bot" 2>/dev/null && say "launchctl kickstart"
 else
-  say "אין systemd/launchd — לא ניתן לאתחל אוטומטית"
+  if ! pgrep -f "pmmb serve" >/dev/null 2>&1; then
+    nohup /usr/local/bin/pmmb serve --host 0.0.0.0 --port "${PMMB_PORT:-8787}" --autostart --interval 120 --refresh 30 >>logs/watchdog_restart.log 2>&1 &
+    say "אתחול רקע אוטונומי של pmmb serve בוצע"
+  else
+    say "pmmb serve כבר פעיל"
+  fi
 fi
 
 notify "🔴 PMMB לא בריא: ${reason}. ניסיתי להפעיל מחדש."
