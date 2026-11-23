@@ -249,6 +249,27 @@ def test_perps_server_api_endpoints(tmp_path):
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/perps/chart?symbol=BTC", timeout=5) as resp:
             ch = json.loads(resp.read().decode())
             assert ch["symbol"] == "BTC"
+
+        # בדיקת סגירה ידנית של פוזיציות PERPS ו-Polymarket דרך /api/positions/close
+        cs_close = _mk_candles(140, base=100.0, mode="mr_long")
+        eng_c = PerpEngine(cfg, exchange=_FakePerpExchange(cs_close))
+        eng_c.run_once()
+        assert "BTC" in eng_c.positions
+        eng_c.close()
+
+        req_close = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/positions/close",
+            data=json.dumps({"arm": "perps", "key": "BTC", "reason": "בדיקת סגירה ידנית"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_close, timeout=8) as resp:
+            d_close = json.loads(resp.read().decode())
+            assert d_close["ok"] is True
+            assert d_close["closed"]["key"] == "BTC"
+        st_after = Store(cfg.data.db_path)
+        assert st_after.load_perp_portfolio_state("paper", 1000.0)["positions"] == []
+        st_after.close()
     finally:
         srv.shutdown()
         srv.server_close()

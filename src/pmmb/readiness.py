@@ -54,6 +54,12 @@ def collect_facts(cfg, *, reports_dir: str | Path = "reports",
     except (FileNotFoundError, json.JSONDecodeError):
         facts["walkforward"] = None
 
+    pwf = Path(reports_dir) / "perp_walkforward.json"
+    try:
+        facts["perp_walkforward"] = json.loads(pwf.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        facts["perp_walkforward"] = None
+
     # --- בקטסט (הוכחת חיוב עמלות) ---
     bt = Path(reports_dir) / "backtest.json"
     try:
@@ -82,7 +88,9 @@ def collect_facts(cfg, *, reports_dir: str | Path = "reports",
             for ts in stamps:
                 from datetime import datetime, timezone
                 days.add(datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d"))
-            max_gap = max((b - a for a, b in zip(stamps, stamps[1:])), default=0) / 60.0
+            if stamps:
+                recent = [t for t in stamps if t >= stamps[-1] - 48 * 3600]
+                max_gap = max((b - a for a, b in zip(recent, recent[1:])), default=0) / 60.0
         finally:
             store.close()
     facts["soak"] = {"days": len(days), "max_gap_min": round(max_gap, 1), "errors": errors}
@@ -133,6 +141,20 @@ def evaluate(facts: dict, th: Thresholds | None = None) -> list[Check]:
         out.append(Check("walkforward", "אימות מחוץ למדגם", FAIL,
                          f"OOS {wf['oos_pnl']:+.2f} · עקביות {wf['consistency']:.0%} "
                          f"(נדרש ≥{th.min_consistency:.0%} וחיובי)"))
+
+    pwf = facts.get("perp_walkforward")
+    if getattr(cfg, "perps", None) and cfg.perps.enabled and pwf:
+        cons = float(pwf.get("consistency") or 0.0)
+        ret = float(pwf.get("oos_return_pct") or 0.0)
+        liqs = int(pwf.get("total_liqs") or 0)
+        tr = int(pwf.get("total_trades") or 0)
+        ok_p = cons >= th.min_consistency and ret > 0 and liqs == 0
+        out.append(Check(
+            "perp_walkforward",
+            "אימות PERPS OOS",
+            OK if ok_p else FAIL,
+            f"OOS {ret:+.2f}% על {tr} עסקאות · עקביות {cons:.0%} · {liqs} ליקווידציות",
+        ))
 
     # 3. שהות ב-paper
     soak = facts.get("soak") or {"days": 0, "max_gap_min": 0, "errors": 0}

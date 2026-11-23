@@ -174,6 +174,26 @@ def test_server_get_and_head_endpoints(tmp_path, cfg, monkeypatch):
             assert resp.status == 200
             ch = _json.loads(resp.read().decode("utf-8"))
             assert ch["token_id"] == "missing" and ch["ticks"] == []
+
+        # סגירת פוזיציית Polymarket ידנית מהממשק דרך /api/positions/close
+        from pmmb.execution.base import Portfolio
+        from pmmb.models import Fill as _Fill
+        st_p = Store(cfg.data.db_path)
+        pf_p = Portfolio(1000.0, mode="paper", store=st_p)
+        pf_p.apply_fill(_Fill("tok-manual-1", "cond-m1", "BUY", 0.40, 20.0, fee=0.1))
+        st_p.insert_ticks([("tok-manual-1", int(time.time()), 0.48)])
+        st_p.close()
+
+        req_pm_close = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/positions/close",
+            data=_json.dumps({"arm": "polymarket", "key": "tok-manual-1"}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req_pm_close, timeout=5) as resp:
+            d_pm = _json.loads(resp.read().decode("utf-8"))
+            assert d_pm["ok"] is True
+            assert d_pm["closed"]["key"] == "tok-manual-1"
     finally:
         httpd.shutdown()
         httpd.server_close()

@@ -282,21 +282,28 @@ class OKXPerpClient:
             return []
 
 
+_BINANCE_BLOCKED_UNTIL: float = 0.0
+
+
 class BinancePerpClient:
     BASE = "https://fapi.binance.com"
 
     def __init__(self, timeout: float = 8.0) -> None:
         self.timeout = timeout
-        self.blocked = False
+        self.blocked = time.time() < _BINANCE_BLOCKED_UNTIL
 
     def fetch_universe(self) -> dict[str, PerpInstrument]:
-        if self.blocked:
+        global _BINANCE_BLOCKED_UNTIL
+        if self.blocked or time.time() < _BINANCE_BLOCKED_UNTIL:
+            self.blocked = True
             return {}
         try:
             r = httpx.get(f"{self.BASE}/fapi/v1/ticker/24hr", timeout=self.timeout)
             if r.status_code in (403, 451):
                 self.blocked = True
-                log.info("Binance Futures חסום אזורית (%s) — ממשיך עם OKX + Hyperliquid", r.status_code)
+                if time.time() >= _BINANCE_BLOCKED_UNTIL:
+                    log.info("Binance Futures חסום אזורית (%s) — ממשיך עם OKX + Hyperliquid", r.status_code)
+                _BINANCE_BLOCKED_UNTIL = time.time() + 7200.0
                 return {}
             r.raise_for_status()
             pr = httpx.get(f"{self.BASE}/fapi/v1/premiumIndex", timeout=self.timeout)

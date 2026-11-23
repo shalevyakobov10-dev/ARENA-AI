@@ -858,5 +858,69 @@ class Engine:
         except Exception:
             self._news_articles = []
 
+    def close_position_by_token(self, token_id: str, reason: str = "סגירה ידנית מהטרמינל") -> dict:
+        """סוגר פוזיציית Polymarket פתוחה לפי token_id (או prefix) במחיר השוק."""
+        resolved_tid = (
+            token_id
+            if token_id in self.portfolio.positions
+            else next((tid for tid in self.portfolio.positions if tid.startswith(token_id)), "")
+        )
+        pos = self.portfolio.positions.get(resolved_tid)
+        if pos is None:
+            raise KeyError(f"אין פוזיציה פתוחה עבור {token_id}")
+        token_id = resolved_tid
+        book = self.clob.get_book(token_id)
+        mark = (
+            book.best_bid
+            if (book is not None and book.best_bid is not None)
+            else self._last_marks.get(token_id, pos.avg_price)
+        )
+        sell_size = self._effective_sell_size(token_id, pos.size)
+        if sell_size <= 0:
+            raise RuntimeError(f"כמות סגירה אפס עבור {token_id}")
+        order = Order(
+            token_id=token_id,
+            side="SELL",
+            price=float(mark),
+            size=sell_size,
+            fee_rate=0.02,
+            condition_id=pos.condition_id,
+            reason=f"יציאה: {reason}",
+        )
+        fill = self.broker.execute(order, book=book, aggressive=True)
+        if fill is None:
+            if book is None or book.best_bid is None:
+                from .models import Fill as _Fill
+                fill = _Fill(
+                    token_id=token_id,
+                    condition_id=pos.condition_id,
+                    side="SELL",
+                    price=float(mark),
+                    size=sell_size,
+                    fee=round(sell_size * float(mark) * 0.002, 4),
+                    ts=utcnow(),
+                    order_id="manual-close",
+                )
+                fill.reason = f"יציאה: {reason}"  # type: ignore[attr-defined]
+            else:
+                raise RuntimeError(f"סגירה נדחתה בברוקר עבור {token_id}")
+        realized = self.portfolio.apply_fill(fill)
+        self.risk.start_cooldown(pos.condition_id)
+        label = (pos.question or token_id)[:48]
+        self._notify(fmt_exit(self.cfg.execution.mode, label, fill.price, realized, reason))
+        self.store.event(
+            "exit",
+            f"סגירה ידנית: {label} — {reason}",
+            data={"price": fill.price, "size": fill.size, "realized": realized, "manual": True},
+        )
+        return {
+            "arm": "polymarket",
+            "key": token_id,
+            "label": label,
+            "price": round(fill.price, 4),
+            "size": round(fill.size, 2),
+            "realized": round(realized, 2),
+        }
+
     def close(self) -> None:
         self.store.close()

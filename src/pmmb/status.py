@@ -72,6 +72,7 @@ def build_status(cfg, *, max_age_sec: float = 300) -> dict:
                 total_unrealized += unr
             pos_list.append({
                 "token_id": tid[:12],
+                "full_token_id": tid,
                 "condition_id": (r["condition_id"] or "")[:12],
                 "question": r["question"] or tid[:16],
                 "direction": r["direction"],
@@ -401,6 +402,7 @@ def build_command_center_data(
     rdir = Path(reports_dir)
     analytics: dict = {}
     for key, fname in (("walkforward", "walkforward.json"),
+                       ("perp_walkforward", "perp_walkforward.json"),
                        ("sectors", "sectors.json"),
                        ("backtest", "backtest.json"),
                        ("learning", "learning.json")):

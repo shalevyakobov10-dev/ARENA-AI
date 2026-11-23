@@ -335,6 +335,49 @@ class _TraderManager:
             finally:
                 store.close()
 
+    def close_position(self, arm: str, key: str, reason: str = "סגירה ידנית מהטרמינל") -> dict:
+        """סוגר פוזיציה פתוחה ידנית ב-Polymarket או ב-PERPS (במצב paper בלבד מהדפדפן)."""
+        arm_l = (arm or "").strip().lower()
+        key_s = (key or "").strip()
+        if not key_s:
+            raise ValueError("חסר מזהה פוזיציה (key)")
+
+        if arm_l == "perps":
+            if self.cfg.perps.mode != "paper":
+                raise PermissionError("סגירה ידנית של PERPS מהממשק מותרת במצב paper בלבד")
+            with self._perps_lock:
+                from .perps.engine import PerpEngine
+
+                eng = PerpEngine(self.cfg)
+                try:
+                    info = eng.close_position_by_symbol(key_s, reason=reason)
+                    return {
+                        "message": f"נסגרה פוזיציה {info['label']} @ {info['price']} (נטו {info['realized']:+.2f} USDC)",
+                        "output": json.dumps(info, ensure_ascii=False, indent=2),
+                        "closed": info,
+                    }
+                finally:
+                    eng.close()
+
+        if arm_l in ("poly", "polymarket"):
+            if self.cfg.execution.mode != "paper":
+                raise PermissionError("סגירה ידנית של Polymarket מהממשק מותרת במצב paper בלבד")
+            with self._lock:
+                from .engine import Engine
+
+                eng = Engine(self.cfg)
+                try:
+                    info = eng.close_position_by_token(key_s, reason=reason)
+                    return {
+                        "message": f"נסגרה פוזיציה {info['label']} @ {info['price']:.4f} (נטו {info['realized']:+.2f} USDC)",
+                        "output": json.dumps(info, ensure_ascii=False, indent=2),
+                        "closed": info,
+                    }
+                finally:
+                    eng.close()
+
+        raise ValueError(f"זרוע לא מוכרת: {arm}")
+
     def _trigger_perps_learning_bg(self) -> None:
         if self._perps_learn_thread is not None and self._perps_learn_thread.is_alive():
             return
@@ -694,6 +737,11 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                                 "max_leverage": bt.max_leverage_used,
                             },
                         }
+                elif path == "/api/positions/close":
+                    arm = str(body.get("arm") or "")
+                    key = str(body.get("key") or "")
+                    reason = str(body.get("reason") or "סגירה ידנית מהטרמינל")
+                    res = {"ok": True, **trader.close_position(arm, key, reason=reason)}
                 elif path == "/api/perps/toggle":
                     cfg.perps.enabled = bool(body.get("enabled", not cfg.perps.enabled))
                     res = {"ok": True, "enabled": cfg.perps.enabled,
@@ -705,6 +753,12 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                 else:
                     return self._send(404, b'{"error":"not found"}', "application/json; charset=utf-8")
                 return self._send(200, json.dumps(res, ensure_ascii=False).encode(),
+                                  "application/json; charset=utf-8")
+            except KeyError as exc:
+                return self._send(404, json.dumps({"error": str(exc)}, ensure_ascii=False).encode(),
+                                  "application/json; charset=utf-8")
+            except ValueError as exc:
+                return self._send(400, json.dumps({"error": str(exc)}, ensure_ascii=False).encode(),
                                   "application/json; charset=utf-8")
             except PermissionError as exc:
                 return self._send(403, json.dumps({"error": str(exc)}, ensure_ascii=False).encode(),

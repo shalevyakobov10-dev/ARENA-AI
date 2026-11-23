@@ -476,5 +476,117 @@ class PerpEngine:
         self._notify(msg)
         self.store.event("perp_entry", msg, data={"symbol": inst.symbol, "leverage": dec.leverage, "margin": margin_used})
 
+    def close_position_by_symbol(self, symbol: str, reason: str = "סגירה ידנית מהטרמינל") -> dict[str, Any]:
+        """סוגר פוזיציית PERPS פתוחה לפי סמל נכס במחיר שוק חי (reduce_only=True)."""
+        sym = symbol.strip().upper()
+        pos = self.positions.get(sym)
+        if pos is None:
+            raise KeyError(f"אין פוזיציית PERPS פתוחה עבור {sym}")
+
+        now = utcnow()
+        inst = next((x for x in self.exchange.scan() if x.symbol == sym), None)
+        if inst is None:
+            inst = PerpInstrument(
+                symbol=pos.symbol,
+                exchange=pos.exchange,
+                exchange_symbol=f"{pos.symbol}-USDT-SWAP",
+                max_leverage=max(50.0, pos.leverage),
+                mark_price=self._last_marks.get(sym, pos.entry_price),
+            )
+        book = self.exchange.get_book(inst, levels=8)
+        mark = (
+            (book.best_bid if pos.side == "LONG" else book.best_ask)
+            if book is not None
+            else None
+        ) or inst.mark_price or self._last_marks.get(sym, pos.entry_price)
+
+        order = PerpOrder(
+            symbol=pos.symbol,
+            exchange=pos.exchange,
+            side=pos.side,
+            action="CLOSE",
+            price=float(mark),
+            size=pos.size,
+            leverage=pos.leverage,
+            reduce_only=True,
+            reason=reason,
+        )
+        fill = self.broker.execute(
+            order,
+            book=book,
+            taker_fee_bps=inst.taker_fee_bps,
+            ct_val=inst.contract_val,
+            lot_size=inst.lot_size,
+            tick_size=inst.tick_size,
+        )
+        if fill is None:
+            fill = PerpFill(
+                symbol=pos.symbol,
+                exchange=pos.exchange,
+                side=pos.side,
+                action="CLOSE",
+                price=float(mark),
+                size=pos.size,
+                notional=round(pos.size * float(mark), 4),
+                leverage=pos.leverage,
+                margin_delta=0.0,
+                fee=round(pos.size * float(mark) * inst.taker_fee_bps / 10_000.0, 4),
+                funding=pos.accumulated_funding,
+                realized=0.0,
+                reason=reason,
+                order_id=f"manual-{int(now.timestamp())}",
+                ts=now,
+            )
+
+        gross_pnl = (
+            ((fill.price - pos.entry_price) * pos.size)
+            if pos.side == "LONG"
+            else ((pos.entry_price - fill.price) * pos.size)
+        )
+        net_pnl = max(-pos.margin_used, gross_pnl - fill.fee - pos.fees_paid + pos.accumulated_funding)
+        margin_back = max(0.0, pos.margin_used + gross_pnl)
+        fill.margin_delta = round(margin_back, 4)
+        fill.realized = round(net_pnl, 4)
+        fill.funding = round(pos.accumulated_funding, 4)
+
+        self.cash += margin_back - fill.fee
+        self.realized_pnl += net_pnl
+        self.realized_pnl_today += net_pnl
+        self.store.record_perp_fill(fill, self.pcfg.mode)
+        self.store.close_perp_position(pos.symbol, reason, net_pnl)
+        del self.positions[pos.symbol]
+        self.risk.start_cooldown(pos.symbol, now)
+
+        snap_eq = self._equity()
+        used_margin = sum(p.margin_used for p in self.positions.values())
+        notional_tot = sum(p.notional for p in self.positions.values())
+        avg_lev = (notional_tot / used_margin) if used_margin > 0 else 0.0
+        self.risk.update_peak(snap_eq)
+        self.store.snapshot_perp_equity(
+            self.pcfg.mode,
+            snap_eq,
+            self.cash,
+            used_margin,
+            notional_tot,
+            len(self.positions),
+            avg_lev,
+        )
+
+        msg = (
+            f"⚡ סגירה ידנית PERPS {pos.symbol} {pos.side} ×{pos.leverage:.0f} | "
+            f"{reason} | נטו {net_pnl:+.2f} USDC"
+        )
+        log.info(msg)
+        self._notify(msg)
+        self.store.event("perp_exit", msg, data={"symbol": pos.symbol, "realized": net_pnl, "manual": True})
+        return {
+            "arm": "perps",
+            "key": sym,
+            "label": f"{pos.symbol} {pos.side} ×{pos.leverage:.0f}",
+            "price": round(fill.price, 6),
+            "size": round(fill.size, 4),
+            "realized": round(net_pnl, 2),
+        }
+
     def close(self) -> None:
         self.store.close()
