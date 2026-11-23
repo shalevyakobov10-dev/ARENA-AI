@@ -411,3 +411,79 @@ def test_perp_backtest_walkforward_and_learning(tmp_path):
         assert len(store.recent_perp_learning_runs()) == 1
     finally:
         store.close()
+
+
+def test_combined_hero_spotlight_early_eval_and_simulator(tmp_path):
+    import threading
+    from http.server import ThreadingHTTPServer
+    import urllib.request
+    from pmmb.perps.learning import evaluate_perp_live_signals
+    from pmmb.perps.models import PerpSignal
+
+    cfg = Config.load()
+    cfg.data.db_path = str(tmp_path / "sim.db")
+    cfg.perps.mode = "paper"
+    store = Store(cfg.data.db_path)
+    now = int(datetime.now(tz=timezone.utc).timestamp())
+    try:
+        # 1) הערכת ביניים לאות צעיר בן 25 דקות דרך perp_intel
+        sig = PerpSignal(
+            symbol="SOL", exchange="okx", direction="LONG", strategy="meanrev",
+            regime="RANGE", score=0.75, tier="A", price=200.0,
+            stop_price=196.0, take_profit_price=206.0, atr=2.5, recommended_leverage=15.0,
+            reason="meanrev", features={"z": -1.9},
+            ts=datetime.fromtimestamp(now - 1500, tz=timezone.utc),
+        )
+        store.record_perp_signal(sig)
+        store.upsert_perp_intel([{
+            "updated_at": now - 60, "symbol": "SOL", "exchange": "okx", "price": 204.0,
+            "regime": "RANGE", "strategy": "meanrev", "adx": 18.0, "er": 0.25, "rsi": 55.0,
+            "z_score": -0.5, "atr_pct": 1.2, "funding_1h": 0.0, "spread_bps": 2.0,
+            "imbalance": 0.1, "bid_depth_usd": 50000.0, "ask_depth_usd": 45000.0,
+            "max_leverage": 50.0, "rec_leverage": 15.0, "score": 0.75,
+            "setup_tier": "A", "status": "ENTRY", "reason": "test",
+        }])
+        n_early = evaluate_perp_live_signals(store, now_ts=now)
+        assert n_early == 1
+        stats = store.perp_signal_outcome_stats()
+        assert stats["overall"]["hit_pct"] == 100.0
+        assert stats["overall"]["mean_pct"] == 2.0
+
+        # 2) הכנסת נרות SOL לבדיקת /api/perps/simulate
+        cs = _mk_candles(160, base=200.0, mode="mr_long")
+        store.insert_perp_candles(
+            "SOL", "okx", "1h",
+            [(c.ts, c.open, c.high, c.low, c.close, c.volume) for c in cs],
+        )
+    finally:
+        store.close()
+
+    cc = build_command_center_data(cfg)
+    assert "combined" in cc
+    assert cc["combined"]["equity"] > 0
+    html = command_center_html(cc)
+    for token in ("combined-hero", "spot-overlay", "perps-thesis-box", "perps-sim-res"):
+        assert token in html
+
+    trader = _TraderManager(cfg)
+    handler = make_handler(cfg, max_age_sec=300, refresh_sec=0, token="", trader=trader)
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    port = srv.server_address[1]
+    t = threading.Thread(target=srv.serve_forever, daemon=True)
+    t.start()
+    try:
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{port}/api/perps/simulate",
+            data=json.dumps({"max_leverage": 30, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.4}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            d = json.loads(resp.read().decode())
+            assert d["ok"] is True
+            assert d["result"]["assets"] == 1
+            assert d["result"]["liquidations"] == 0
+    finally:
+        srv.shutdown()
+        srv.server_close()
+

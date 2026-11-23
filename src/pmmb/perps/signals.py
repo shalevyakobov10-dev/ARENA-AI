@@ -114,6 +114,13 @@ _CRYPTO_SYMBOL_ALIASES: dict[str, tuple[str, ...]] = {
     "AAVE": ("aave",),
     "SUI": ("sui ",),
     "ARB": ("arbitrum",),
+    "NEAR": ("near protocol", "near "),
+    "HYPE": ("hyperliquid", "hype "),
+    "WLD": ("worldcoin", "sam altman"),
+    "ENA": ("ethena", "usde"),
+    "UNI": ("uniswap",),
+    "ZEC": ("zcash",),
+    "ADA": ("cardano",),
     "TRUMP": ("trump",),
 }
 _MACRO_CRYPTO_TERMS = (
@@ -318,6 +325,20 @@ class ProMultiRegimeEngine:
                     direction = "FLAT"
                     strategy = "none"
                     reason = f"נבלם ע\"י חדשות חיוביות מתפרצות: {news_info['headline'][:45]}"
+            elif self.cfg.use_news_filter and news_info["max_impact"] >= 0.45:
+                # Confluence חיזוק ציון כשכותרות השוק תואמות את כיוון העסקה
+                if (direction == "LONG" and news_info["avg_sentiment"] >= 0.25) or (
+                    direction == "SHORT" and news_info["avg_sentiment"] <= -0.25
+                ):
+                    score += 0.03
+
+            # פער Funding בין OKX ל-Hyperliquid
+            if inst.okx_funding_1h is not None and inst.hl_funding_1h is not None:
+                f_spread = inst.okx_funding_1h - inst.hl_funding_1h
+                if direction == "LONG" and f_spread < -0.0001:
+                    score += 0.02
+                elif direction == "SHORT" and f_spread > 0.0001:
+                    score += 0.02
 
         score = max(0.0, min(1.0, round(score, 4)))
         if direction != "FLAT" and score < sc.min_score:

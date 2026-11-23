@@ -323,6 +323,46 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
   .kv-k {{ color: var(--text-3); }}
   .kv-v {{ color: var(--text); font-weight: 500; }}
 
+  /* --- Apple Unified Hero Strip, Range Sliders & Spotlight Search (⌘K) --- */
+  .hero-strip {{
+    background: linear-gradient(135deg, rgba(28,28,32,0.86) 0%, rgba(18,22,32,0.78) 100%);
+    backdrop-filter: saturate(180%) blur(28px); -webkit-backdrop-filter: saturate(180%) blur(28px);
+    border: 1px solid rgba(255,255,255,0.12);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.1), 0 12px 36px rgba(0,0,0,0.45);
+    border-radius: 22px; padding: 18px 22px; margin-bottom: 16px;
+    display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+  }}
+  .hero-alloc {{ height: 7px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; display: flex; min-width: 240px; margin-top: 8px; }}
+  .slider-row {{ display: flex; flex-direction: column; gap: 5px; }}
+  .slider-row input[type=range] {{
+    -webkit-appearance: none; appearance: none; width: 100%; height: 5px; border-radius: 99px;
+    background: rgba(255,255,255,0.14); outline: none;
+  }}
+  .slider-row input[type=range]::-webkit-slider-thumb {{
+    -webkit-appearance: none; appearance: none; width: 16px; height: 16px; border-radius: 50%;
+    background: #ffffff; box-shadow: 0 2px 8px rgba(0,0,0,0.5); cursor: pointer;
+  }}
+  .spot-overlay {{
+    position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,0.62);
+    backdrop-filter: blur(10px); display: none; align-items: flex-start; justify-content: center; padding-top: 11vh;
+  }}
+  .spot-overlay.open {{ display: flex; }}
+  .spot-box {{
+    width: min(640px, 92vw); background: rgba(28,28,30,0.92); backdrop-filter: saturate(190%) blur(32px);
+    border: 1px solid rgba(255,255,255,0.18); border-radius: 20px; overflow: hidden;
+    box-shadow: 0 28px 80px rgba(0,0,0,0.75), inset 0 1px 0 rgba(255,255,255,0.15);
+  }}
+  .spot-input {{
+    width: 100%; padding: 16px 20px; background: transparent; border: none;
+    border-bottom: 1px solid rgba(255,255,255,0.09); color: #ffffff; font-size: 15px; outline: none;
+  }}
+  .spot-list {{ max-height: 360px; overflow-y: auto; }}
+  .spot-item {{
+    padding: 11px 18px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer; transition: background 0.12s;
+  }}
+  .spot-item:hover {{ background: rgba(10,132,255,0.18); }}
+
   .toast {{
     position: fixed; bottom: 22px; left: 22px; z-index: 60;
     background: rgba(28, 28, 30, 0.88); backdrop-filter: saturate(180%) blur(24px);
@@ -370,13 +410,17 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
     <nav class="nav-tabs" aria-label="ניווט ראשי">
       <button class="nav-tab active" data-tab="overview">סקירה ומסחר</button>
-      <button class="nav-tab" data-tab="perps">⚡ חוזים (PERPS ×50)</button>
+      <button class="nav-tab" data-tab="perps">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+        חוזים (PERPS ×50)
+      </button>
       <button class="nav-tab" data-tab="markets">שווקים וגרפים</button>
       <button class="nav-tab" data-tab="intel">חדשות ולמידה</button>
       <button class="nav-tab" data-tab="system">תפעול אוטונומי</button>
     </nav>
 
     <div class="top-actions">
+      <button class="btn btn-ghost" onclick="openSpotlight()" title="חיפוש מהיר Spotlight (⌘K)">חיפוש <span class="mono" style="font-size:10px;opacity:0.7">⌘K</span></button>
       <div class="status-pill" id="live-pill">
         <span class="dot" id="live-dot"></span>
         <span id="live-label">מצב</span>
@@ -398,6 +442,7 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
 
   <!-- ========== TAB 1: סקירה ומסחר ========== -->
   <section id="tab-overview" class="tab-pane active">
+    <div id="combined-hero" class="hero-strip"></div>
     <div class="kpi-row" id="kpi-row"></div>
 
     <div class="grid-2">
@@ -780,6 +825,14 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
           </div>
         </div>
 
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">תיזת הסוחר וניתוח מיקרו-מבנה (PERPS)</span>
+            <span class="card-meta" id="perps-thesis-badge">—</span>
+          </div>
+          <div class="card-body" id="perps-thesis-box"></div>
+        </div>
+
         <div class="grid-even">
           <div class="card">
             <div class="card-head"><span class="card-title">עסקאות PERPS סגורות</span><span class="card-meta" id="perps-tr-cnt">—</span></div>
@@ -804,10 +857,45 @@ def command_center_html(initial_data: dict, *, refresh_sec: int = 15, interactiv
             </div>
           </div>
         </div>
+
+        <div class="card">
+          <div class="card-head">
+            <span class="card-title">מעבדת סימולציית מינוף וסיכון (What-If Strategy Lab)</span>
+            <button class="btn btn-primary btn-xs" onclick="runPerpsSimulation()">הרץ סימולציה על נתוני DB</button>
+          </div>
+          <div class="card-body">
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:14px">
+              <div class="slider-row">
+                <div style="display:flex;justify-content:space-between;font-size:11.5px"><span style="color:var(--text-3)">תקרת מינוף</span><strong class="num" id="sim-lev-val">50x</strong></div>
+                <input type="range" id="sim-lev" min="5" max="50" step="5" value="50" oninput="document.getElementById('sim-lev-val').textContent=this.value+'x'">
+              </div>
+              <div class="slider-row">
+                <div style="display:flex;justify-content:space-between;font-size:11.5px"><span style="color:var(--text-3)">Stop Loss (ATR)</span><strong class="num" id="sim-sl-val">1.5</strong></div>
+                <input type="range" id="sim-sl" min="1.0" max="2.5" step="0.1" value="1.5" oninput="document.getElementById('sim-sl-val').textContent=Number(this.value).toFixed(1)">
+              </div>
+              <div class="slider-row">
+                <div style="display:flex;justify-content:space-between;font-size:11.5px"><span style="color:var(--text-3)">Take Profit (ATR)</span><strong class="num" id="sim-tp-val">2.6</strong></div>
+                <input type="range" id="sim-tp" min="1.6" max="4.0" step="0.1" value="2.6" oninput="document.getElementById('sim-tp-val').textContent=Number(this.value).toFixed(1)">
+              </div>
+              <div class="slider-row">
+                <div style="display:flex;justify-content:space-between;font-size:11.5px"><span style="color:var(--text-3)">טריגר Trailing</span><strong class="num" id="sim-trl-val">1.4</strong></div>
+                <input type="range" id="sim-trl" min="0.8" max="2.2" step="0.1" value="1.4" oninput="document.getElementById('sim-trl-val').textContent=Number(this.value).toFixed(1)">
+              </div>
+            </div>
+            <div id="perps-sim-res" style="font-size:12px;color:var(--text-3)">כוון את המינוף ופרמטרי ה-ATR ולחץ "הרץ סימולציה" לבדיקה מיידית על נתוני אמת מה-DB.</div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
 </main>
+
+<div id="spot-overlay" class="spot-overlay" onclick="if(event.target===this) closeSpotlight()">
+  <div class="spot-box">
+    <input type="text" id="spot-input" class="spot-input" placeholder="חפש שוק, חוזה PERPS, כתבה או פקודת מערכת (ESC לסגירה)..." oninput="renderSpotlight()">
+    <div id="spot-list" class="spot-list"></div>
+  </div>
+</div>
 
 <div id="toast" class="toast"></div>
 
@@ -974,6 +1062,7 @@ async function loadPerpChart(sym, live = false) {{
     if (res.ok) {{
       CURRENT_PERP_CHART = await res.json();
       drawPerpPriceChart();
+      renderPerpThesis();
     }}
   }} catch (e) {{}}
 }}
@@ -1089,6 +1178,75 @@ function renderPerps() {{
     <td class="num">${{(Number(r.consistency || 0)*100).toFixed(0)}}%</td>
     <td>${{r.applied ? '<span class="badge badge-ok">קודם</span>' : '<span class="badge badge-mute">נשמר</span>'}}</td>
   </tr>`).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--text-3);padding:16px">טרם בוצע כיול OOS ל-PERPS</td></tr>';
+
+  renderPerpThesis();
+}}
+
+function renderPerpThesis() {{
+  const box = document.getElementById('perps-thesis-box');
+  const bdg = document.getElementById('perps-thesis-badge');
+  if (!box) return;
+  const ch = CURRENT_PERP_CHART || {{}};
+  const ps = STATE.perps || {{}};
+  const row = (ch.intel && ch.intel.symbol) ? ch.intel : ((ps.intel || []).find(x => x.symbol === SELECTED_PERP_SYM) || null);
+  if (!row) {{
+    box.innerHTML = '<div style="color:var(--text-3);font-size:12px">בחר חוזה מהרדאר לצפייה בניתוח המשטר, ספר הפקודות וה-Funding.</div>';
+    if (bdg) bdg.textContent = '—';
+    return;
+  }}
+  if (bdg) {{
+    const t = row.setup_tier || 'B';
+    bdg.innerHTML = `<span class="badge ${{t === 'A+' ? 'badge-ok' : (t === 'A' ? 'badge-info' : 'badge-mute')}}">Setup ${{esc(t)}} · ${{esc(row.regime || 'RANGE')}}</span>`;
+  }}
+  const fSpread = (row.okx_funding_1h !== null && row.okx_funding_1h !== undefined && row.hl_funding_1h !== null && row.hl_funding_1h !== undefined)
+    ? ((Number(row.okx_funding_1h) - Number(row.hl_funding_1h)) * 100).toFixed(4) + '%' : '—';
+  const items = [
+    ['אסטרטגיה וציון איכות', `${{row.strategy || 'meanrev'}} · Score ${{fmtNum(row.score, 2)}}`],
+    ['ADX(14) / Efficiency Ratio', `${{fmtNum(row.adx, 1)}} / ${{fmtNum(row.er, 2)}}`],
+    ['RSI(14) / Z-Score', `${{fmtNum(row.rsi, 1)}} / ${{fmtSign(row.z_score, 2)}}`],
+    ['ATR % / ספרד (bps)', `${{fmtNum(row.atr_pct, 2)}}% / ${{fmtNum(row.spread_bps, 2)}} bps`],
+    ['עומק L2 (Bid / Ask)', `$${{Math.round(row.bid_depth_usd || 0).toLocaleString()}} / $${{Math.round(row.ask_depth_usd || 0).toLocaleString()}} (Imb ${{fmtSign(row.imbalance, 2)}})`],
+    ['פער Funding (OKX - HL)', fSpread],
+    ['מינוף מומלץ / סיבה', `×${{Number(row.rec_leverage || 10).toFixed(0)}} · ${{row.reason || row.status || '—'}}`],
+  ];
+  box.innerHTML = `<div class="kv-list">${{items.map(([k, v]) => `<div class="kv-item"><span class="kv-k">${{esc(k)}}</span><span class="kv-v num">${{esc(v)}}</span></div>`).join('')}}</div>`;
+}}
+
+async function runPerpsSimulation() {{
+  const outEl = document.getElementById('perps-sim-res');
+  if (!LIVE_ORIGIN) {{
+    if (outEl) outEl.innerHTML = '<span style="color:var(--amber)">הסימולציה זמינה בחיבור לשרת החי בלבד.</span>';
+    return;
+  }}
+  if (outEl) outEl.textContent = 'מריץ סימולציה על נרות השעה השמורים...';
+  const body = {{
+    max_leverage: Number(document.getElementById('sim-lev').value || 50),
+    sl_atr_mult: Number(document.getElementById('sim-sl').value || 1.5),
+    tp_atr_mult: Number(document.getElementById('sim-tp').value || 2.6),
+    trailing_trigger_atr: Number(document.getElementById('sim-trl').value || 1.4),
+  }};
+  try {{
+    const res = await fetch('/api/perps/simulate', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}}, body: JSON.stringify(body)
+    }});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'כשל בסימולציה');
+    const r = data.result;
+    if (!r) {{ outEl.textContent = data.message || 'אין נתונים'; return; }}
+    const cls = Number(r.return_pct) >= 0 ? 'pos' : 'neg';
+    outEl.innerHTML = `
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;padding:10px 14px;background:rgba(255,255,255,0.04);border-radius:12px;border:1px solid rgba(255,255,255,0.09)">
+        <span>חוזים: <strong class="num">${{r.assets}}</strong></span>
+        <span>תשואה: <strong class="num ${{cls}}">${{fmtSign(r.return_pct, 2)}}%</strong></span>
+        <span>עסקאות: <strong class="num">${{r.trades}}</strong> (WR <strong class="num">${{fmtNum(r.win_rate_pct, 1)}}%</strong>)</span>
+        <span>PF: <strong class="num">${{fmtNum(r.profit_factor, 2)}}</strong></span>
+        <span>Max DD: <strong class="num">${{fmtNum(r.max_drawdown_pct, 1)}}%</strong></span>
+        <span>מינוף ממוצע/שיא: <strong class="num">×${{fmtNum(r.avg_leverage, 1)}} / ×${{fmtNum(r.max_leverage, 0)}}</strong></span>
+        <span>ליקווידציות: <strong class="num ${{r.liquidations === 0 ? 'pos' : 'neg'}}">${{r.liquidations}}</strong></span>
+      </div>`;
+  }} catch (e) {{
+    if (outEl) outEl.innerHTML = `<span style="color:var(--red)">${{esc(e.message)}}</span>`;
+  }}
 }}
 
 function drawPerpEqChart() {{
@@ -1284,6 +1442,8 @@ function renderOverview() {{
   const today = STATE.today || {{}};
   const overall = STATE.overall || {{}};
   const soak = STATE.soak || {{days: 0, target_days: 7}};
+  const comb = STATE.combined || {{}};
+  const ps = STATE.perps || {{}};
 
   const eq = Number(bank.equity || 0);
   const cash = Number(bank.cash || 0);
@@ -1293,6 +1453,40 @@ function renderOverview() {{
   const totPnl = Number(overall.realized_pnl || 0);
   const wr = Number(overall.win_rate_pct || 0);
   const pf = overall.profit_factor ? Number(overall.profit_factor).toFixed(2) : '—';
+
+  const heroEl = document.getElementById('combined-hero');
+  if (heroEl) {{
+    const cEq = Number(comb.equity || (eq + Number(ps.equity || 0)));
+    const cPoly = Number(comb.poly_equity || eq);
+    const cPerp = Number(comb.perps_equity || ps.equity || 0);
+    const cRet = Number(comb.return_pct || 0);
+    const polyPct = cEq > 0 ? (cPoly / cEq * 100) : 50;
+    const perpPct = Math.max(0, 100 - polyPct);
+    const openAll = Number(comb.open_positions || ((bank.open_positions || 0) + (ps.positions || []).length));
+    heroEl.innerHTML = `
+      <div>
+        <div style="font-size:11.5px;color:var(--text-3);font-weight:500">שווי תיק מאוחד (Polymarket + PERPS ×50)</div>
+        <div style="display:flex;align-items:baseline;gap:12px;margin-top:4px">
+          <span class="num" style="font-size:28px;font-weight:700;letter-spacing:-0.03em;color:#fff">$${{fmtNum(cEq, 2)}}</span>
+          <span class="badge ${{cRet >= 0 ? 'badge-ok' : 'badge-err'}} num">${{fmtSign(cRet, 2)}}%</span>
+          <span style="font-size:12px;color:var(--text-2)"><strong class="num">${{openAll}}</strong> פוזיציות פעילות · סה״כ עסקאות <strong class="num">${{comb.closed_trades || 0}}</strong></span>
+        </div>
+      </div>
+      <div style="min-width:290px">
+        <div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-2);gap:14px">
+          <span>Polymarket <strong class="num" style="color:var(--accent)">$${{fmtNum(cPoly, 2)}}</strong> (${{polyPct.toFixed(0)}}%)</span>
+          <span>PERPS ×50 <strong class="num" style="color:var(--green)">$${{fmtNum(cPerp, 2)}}</strong> (${{perpPct.toFixed(0)}}%)</span>
+        </div>
+        <div class="hero-alloc">
+          <div style="width:${{polyPct.toFixed(1)}}%;background:var(--accent)"></div>
+          <div style="width:${{perpPct.toFixed(1)}}%;background:var(--green)"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-ghost btn-xs" onclick="document.querySelector('[data-tab=perps]').click()">דסק PERPS ×50</button>
+        <button class="btn btn-ghost btn-xs" onclick="document.querySelector('[data-tab=intel]').click()">חדשות ולמידה</button>
+      </div>`;
+  }}
 
   const kpis = [
     {{ label: 'הון נקי (USDC)', val: fmtNum(eq), sub: `לא ממומש: ${{fmtSign(unr)}}`, cls: '' }},
@@ -1968,6 +2162,62 @@ window.addEventListener('resize', () => {{
   if (ACTIVE_TAB === 'overview') drawEquityChart();
   if (ACTIVE_TAB === 'perps') {{ drawPerpEqChart(); drawPerpPriceChart(); }}
   if (ACTIVE_TAB === 'markets') {{ drawPriceChart(); drawRsiChart(); }}
+}});
+
+/* --- macOS Spotlight Search (⌘K / Ctrl+K) --- */
+function openSpotlight() {{
+  const ov = document.getElementById('spot-overlay');
+  const inp = document.getElementById('spot-input');
+  if (!ov || !inp) return;
+  ov.classList.add('open');
+  inp.value = '';
+  renderSpotlight();
+  setTimeout(() => inp.focus(), 30);
+}}
+function closeSpotlight() {{
+  const ov = document.getElementById('spot-overlay');
+  if (ov) ov.classList.remove('open');
+}}
+function renderSpotlight() {{
+  const list = document.getElementById('spot-list');
+  const q = (document.getElementById('spot-input')?.value || '').trim().toLowerCase();
+  if (!list) return;
+  const items = [];
+  (STATE.perps?.intel || []).forEach(p => {{
+    if (!q || p.symbol.toLowerCase().includes(q) || (p.regime || '').toLowerCase().includes(q)) {{
+      items.push({{ tag: 'PERPS', title: `${{p.symbol}} ($${{fmtNum(p.price, p.price > 100 ? 2 : 4)}})`, sub: `${{p.regime}} · ×${{Number(p.rec_leverage||10).toFixed(0)}}`, act: () => {{ closeSpotlight(); document.querySelector('[data-tab=perps]').click(); loadPerpChart(p.symbol, true); }} }});
+    }}
+  }});
+  (STATE.market_intel || []).forEach(m => {{
+    if (!q || (m.question || '').toLowerCase().includes(q) || (m.sector || '').toLowerCase().includes(q)) {{
+      items.push({{ tag: 'שוק', title: (m.question || '').slice(0, 56), sub: `${{m.sector}} · Z ${{fmtSign(m.z_score, 1)}}`, act: () => {{ closeSpotlight(); switchToMarket(m.token_id); }} }});
+    }}
+  }});
+  const cmds = [
+    {{ tag: 'פקודה', title: 'הרץ מחזור PERPS עכשיו', sub: 'סורק 16 חוזים ומבצע כניסות/יציאות', act: () => {{ closeSpotlight(); postAction('/api/perps/cycle', {{}}); }} }},
+    {{ tag: 'פקודה', title: 'רענן חדשות + למידת News Alpha', sub: 'סריקת 22+ פידים עולמיים', act: () => {{ closeSpotlight(); postAction('/api/news-refresh', {{}}); }} }},
+    {{ tag: 'פקודה', title: 'הפעל למידה עצמית (OOS Walk-Forward)', sub: 'הערכה + קידום מבוקר', act: () => {{ closeSpotlight(); postAction('/api/learn', {{apply:true}}); }} }},
+    {{ tag: 'פקודה', title: 'גיבוי DB חם ומיידי', sub: 'שמירה ל-backups/', act: () => {{ closeSpotlight(); postAction('/api/backup', {{}}); }} }},
+  ];
+  cmds.forEach(c => {{ if (!q || c.title.toLowerCase().includes(q) || c.sub.toLowerCase().includes(q)) items.push(c); }});
+  window.__SPOT_ACTS = items.slice(0, 14).map(x => x.act);
+  list.innerHTML = items.slice(0, 14).map((x, i) => `
+    <div class="spot-item" onclick="window.__SPOT_ACTS[${{i}}]()">
+      <div>
+        <div style="color:#fff;font-weight:500">${{esc(x.title)}}</div>
+        <div style="font-size:11px;color:var(--text-3)">${{esc(x.sub)}}</div>
+      </div>
+      <span class="badge badge-info">${{esc(x.tag)}}</span>
+    </div>`).join('') || '<div style="padding:18px;text-align:center;color:var(--text-3)">לא נמצאו תוצאות</div>';
+}}
+document.addEventListener('keydown', (e) => {{
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {{
+    e.preventDefault();
+    const ov = document.getElementById('spot-overlay');
+    if (ov && ov.classList.contains('open')) closeSpotlight(); else openSpotlight();
+  }} else if (e.key === 'Escape') {{
+    closeSpotlight();
+  }}
 }});
 
 renderAll();

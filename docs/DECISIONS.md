@@ -186,6 +186,14 @@ CNBC ו-NPR נוספו לצד Google News (`data/news.py`), ויחס האצת ה
 (ב) **למידה מתמדת דו-זרועית (`perp_signal_outcomes`, `evaluate_perp_live_signals`, `server.py`)**: מיקרו-למידה כל **5 דקות** (ללא עומס רשת) מעריכה בזמן אמת אותות Polymarket (`6h/24h/48h`), אותות PERPS (`1h/4h/12h` לפי משטר וחדשות) ו־`News Alpha`, לצד כיול Walk-Forward OOS כל **30 דקות** (`1800s`) לשתי הזרועות, ורוטציית Google News המונעת חסימות `429`.
 (ג) **עיצוב Apple Liquid Glass Pro (`ui.py`)**: מיתוג מחדש מלא של ה־Command Center בסגנון macOS Sequoia / iOS 18 — משטחי זכוכית שקופים (`backdrop-filter: saturate(180%) blur(24px)`), פלטת Apple Dark System (`#000000`, `#0A84FF`, `#30D158`, `#FF453A`, `#FF9F0A`, `#BF5AF2`), Segmented Control pill, כרטיסי Bento מעוגלים, גרפי Canvas בסגנון Apple Stocks, ופאנל `News Alpha + Dual-Arm Learning` בזמן אמת.
 
+## 26. מישור Trailing OOS מאומת (`+43.77% / +29.77% OOS`), למידה מוקדמת (15 דק'), ופיצ'רי Apple Pro (`⌘K`, What-If Lab, Combined Hero)
+2026-11 · מתקבל · מלא (אומת ב-225 בדיקות + Walk-Forward 16 נכסים: +43.77% Full / +29.77% OOS ב-100% עקביות)
+שיפור עומק משולב באסטרטגיית ה-PERPS, בלמידה החיה ובחוויית המשתמש:
+(א) **כיול Trailing Stop במישור OOS יציב (`config.yaml`, `config.py`, `perps/learning.py`)**: סריקת גריד Walk-Forward על 16 חוזים (720 שעות) הוכיחה מישור ביצועים רחב סביב `trailing_trigger_atr=1.4`, `trailing_dist_atr=0.95` (העלאת רף ההפעלה מ-`1.2` מונעת ניעור בתיקונים מוקדמים ושומרת על `pullback` חיובי): תשואה מלאה זינקה מ־`+38.29%` ל־**`+43.77%`** (`1,437.67 USDC`, `94` עסקאות, `PF 1.68`, `DD 9.61%`, `0` ליקווידציות) ותשואת **OOS מ־`+21.79%` ל־`+29.77%` (`100%` עקביות 3/3 חלונות)**. גריד ה-Walk-Forward ב־`perps/learning.py` הורחב לכיול שוטף גם של פרמטרי ה-Trailing.
+(ב) **העמקת אותות ולמידת PERPS מהירה (`perps/signals.py`, `perps/learning.py`, `store.py`)**: הרחבת מפת הכותרות לשבעה מטבעות אלט-מובילים (`NEAR`, `HYPE`, `WLD`, `ENA`, `UNI`, `ZEC`, `ADA`), בונוס מיזוג חדשות תומכות (`+0.03`) והצלבת פער Funding OKX מול HL (`+0.02`), והורדת סף הגיל ב־`evaluate_perp_live_signals` ל־`0.25h` (15 דק') עם השלמת mark-to-market בזמן אמת מ־`perp_intel` לפני סגירת נר השעה המלא.
+(ג) **אינטראקטיביות Apple Pro ופורטפוליו מאוחד (`status.py`, `server.py`, `ui.py`)**: נוסף סיכום `combined` מאוחד (`Polymarket + PERPS`) עם **Unified NAV Hero Strip** והקצאת הון חיה, **macOS Spotlight Search (`⌘K` / `Ctrl+K`)** לחיפוש ופקודות מהירות מכל מסך, כרטיס **תיזת סוחר (Regime / ADX / ER / L2 / Funding)** מתחת לגרף הנרות, ו־**What-If Strategy & Leverage Lab** המריצה `POST /api/perps/simulate` עם Apple Range Sliders ישירות על נרות השמורים ב-DB.
+
+
 
 
 

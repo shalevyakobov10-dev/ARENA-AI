@@ -1476,8 +1476,11 @@ class Store:
         ).fetchone()
         return float(row["close"]) if row and row["close"] is not None else None
 
-    def pending_perp_signals_for_outcome(self, min_age_hours: float = 1.0, limit: int = 500) -> list[sqlite3.Row]:
-        cutoff = int(datetime.now(tz=timezone.utc).timestamp() - min_age_hours * 3600)
+    def pending_perp_signals_for_outcome(
+        self, min_age_hours: float = 1.0, limit: int = 500, *, now_ts: int | None = None
+    ) -> list[sqlite3.Row]:
+        now = int(now_ts or datetime.now(tz=timezone.utc).timestamp())
+        cutoff = int(now - min_age_hours * 3600)
         return self._conn.execute(
             """SELECT s.* FROM perp_signals s
                LEFT JOIN perp_signal_outcomes o ON o.signal_id = s.id

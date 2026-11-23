@@ -24,12 +24,13 @@ log = logging.getLogger(__name__)
 
 
 def evaluate_perp_live_signals(store: Store, *, now_ts: int | None = None, limit: int = 400) -> int:
-    """מעריך תוצאות אותות PERPS חיים מול נרות perp_candles (1ש', 4ש', 12ש') ושומר ל-SQLite."""
+    """מעריך תוצאות אותות PERPS חיים מול נרות perp_candles (1ש', 4ש', 12ש') ומחירי intel בזמן אמת."""
     now = int(now_ts or time.time())
-    pending = store.pending_perp_signals_for_outcome(min_age_hours=1.0, limit=limit)
+    pending = store.pending_perp_signals_for_outcome(min_age_hours=0.25, limit=limit, now_ts=now)
     if not pending:
         return 0
     news_rows = [dict(r) for r in store.recent_news(hours=24 * 10, limit=250)]
+    live_intel = {str(r.get("symbol") or ""): r for r in store.recent_perp_intel(limit=40)}
     updated = 0
     for row in pending:
         sym = str(row["symbol"] or "")
@@ -40,6 +41,12 @@ def evaluate_perp_live_signals(store: Store, *, now_ts: int | None = None, limit
             continue
         entry_px = float(entry_px)
         p1 = store.nearest_perp_candle_price(sym, ts + 3600, window_sec=3600) if now >= ts + 3600 else None
+        if p1 is None and now >= ts + 900:
+            # השלמת mark-to-market חיה לאותות בני 15-59 דק' מתוך perp_intel כדי להזין למידה מוקדמת
+            intel_row = live_intel.get(sym)
+            intel_ts = int(intel_row.get("updated_at") or intel_row.get("ts") or 0) if intel_row else 0
+            if intel_row and intel_row.get("price") and intel_ts >= ts + 600:
+                p1 = float(intel_row["price"])
         p4 = store.nearest_perp_candle_price(sym, ts + 4 * 3600, window_sec=5400) if now >= ts + 4 * 3600 else None
         p12 = store.nearest_perp_candle_price(sym, ts + 12 * 3600, window_sec=5400) if now >= ts + 12 * 3600 else None
         if p1 is None and p4 is None and p12 is None:
@@ -69,8 +76,8 @@ def evaluate_perp_live_signals(store: Store, *, now_ts: int | None = None, limit
             "regime": str(row["regime"] or ""),
             "strategy": str(row["strategy"] or ""),
             "z_score": feats.get("z"),
-                "score": float(row["score"] or 0.0),
-                "leverage": float(row["leverage"] or 1.0),
+            "score": float(row["score"] or 0.0),
+            "leverage": float(row["leverage"] or 1.0),
             "news_impact": ni,
             "price_1h": p1, "price_4h": p4, "price_12h": p12,
             "realized_1h_pct": r1, "realized_4h_pct": r4, "realized_12h_pct": r12,
@@ -105,7 +112,7 @@ def _save_perp_yaml(path: Path, cand: dict[str, Any]) -> None:
     for k in ("z_entry", "adx_trend_threshold"):
         if k in cand:
             sig[k] = float(cand[k])
-    for k in ("sl_atr_mult", "tp_atr_mult"):
+    for k in ("sl_atr_mult", "tp_atr_mult", "trailing_trigger_atr", "trailing_dist_atr"):
         if k in cand:
             rk[k] = float(cand[k])
     with open(path, "w", encoding="utf-8") as fh:
@@ -116,7 +123,7 @@ def _apply_perp_cand(cfg: Config, cand: dict[str, Any]) -> None:
     for k in ("z_entry", "adx_trend_threshold"):
         if k in cand:
             setattr(cfg.perps.signal, k, float(cand[k]))
-    for k in ("sl_atr_mult", "tp_atr_mult"):
+    for k in ("sl_atr_mult", "tp_atr_mult", "trailing_trigger_atr", "trailing_dist_atr"):
         if k in cand:
             setattr(cfg.perps.risk, k, float(cand[k]))
 
@@ -161,13 +168,16 @@ def run_perp_self_learning_cycle(
         "adx_trend_threshold": cfg.perps.signal.adx_trend_threshold,
         "sl_atr_mult": cfg.perps.risk.sl_atr_mult,
         "tp_atr_mult": cfg.perps.risk.tp_atr_mult,
+        "trailing_trigger_atr": cfg.perps.risk.trailing_trigger_atr,
+        "trailing_dist_atr": cfg.perps.risk.trailing_dist_atr,
     }
 
     grid = [
-        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.7, "tp_atr_mult": 3.0},
-        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6},
-        {"z_entry": 1.9, "adx_trend_threshold": 24.0, "sl_atr_mult": 1.7, "tp_atr_mult": 3.0},
-        {"z_entry": 1.7, "adx_trend_threshold": 26.0, "sl_atr_mult": 1.8, "tp_atr_mult": 3.2},
+        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
+        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 1.0},
+        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.2, "trailing_dist_atr": 1.0},
+        {"z_entry": 1.8, "adx_trend_threshold": 25.0, "sl_atr_mult": 1.7, "tp_atr_mult": 3.0, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
+        {"z_entry": 1.9, "adx_trend_threshold": 24.0, "sl_atr_mult": 1.5, "tp_atr_mult": 2.6, "trailing_trigger_atr": 1.4, "trailing_dist_atr": 0.95},
     ]
 
     best_wf = base_wf
@@ -178,6 +188,8 @@ def run_perp_self_learning_cycle(
         pc_test.signal.adx_trend_threshold = cand["adx_trend_threshold"]
         pc_test.risk.sl_atr_mult = cand["sl_atr_mult"]
         pc_test.risk.tp_atr_mult = cand["tp_atr_mult"]
+        pc_test.risk.trailing_trigger_atr = cand["trailing_trigger_atr"]
+        pc_test.risk.trailing_dist_atr = cand["trailing_dist_atr"]
         wf = run_perp_walkforward(pc_test, datasets, funding_map=funding_map, folds=3)
         if (
             wf.total_liqs == 0

@@ -249,8 +249,8 @@ class PerpsRiskConfig:
     sl_atr_mult: float = 1.5
     tp_atr_mult: float = 2.6
     trailing_enabled: bool = True
-    trailing_trigger_atr: float = 1.2
-    trailing_dist_atr: float = 1.0
+    trailing_trigger_atr: float = 1.4
+    trailing_dist_atr: float = 0.95
     time_stop_hours: float = 36.0
     cooldown_bars: int = 6
     max_daily_loss_pct: float = 0.05

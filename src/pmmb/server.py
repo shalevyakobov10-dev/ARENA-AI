@@ -642,6 +642,58 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                     res = {"ok": True, **trader.run_perps_cycle()}
                 elif path == "/api/perps/learn":
                     res = {"ok": True, **trader.run_perps_learning_now(apply_changes=bool(body.get("apply", True)))}
+                elif path == "/api/perps/simulate":
+                    from .perps.backtest import run_perp_portfolio_backtest
+                    from .perps.models import PerpCandle, PerpInstrument
+
+                    sim_cfg = copy.deepcopy(cfg.perps)
+                    if "max_leverage" in body:
+                        sim_cfg.risk.max_leverage = max(2.0, min(50.0, float(body["max_leverage"])))
+                    if "sl_atr_mult" in body:
+                        sim_cfg.risk.sl_atr_mult = max(0.8, min(4.0, float(body["sl_atr_mult"])))
+                    if "tp_atr_mult" in body:
+                        sim_cfg.risk.tp_atr_mult = max(1.2, min(6.0, float(body["tp_atr_mult"])))
+                    if "trailing_trigger_atr" in body:
+                        sim_cfg.risk.trailing_trigger_atr = max(0.6, min(3.0, float(body["trailing_trigger_atr"])))
+                    if "trailing_dist_atr" in body:
+                        sim_cfg.risk.trailing_dist_atr = max(0.4, min(2.0, float(body["trailing_dist_atr"])))
+
+                    st = Store(cfg.data.db_path)
+                    try:
+                        intel = {r["symbol"]: r for r in st.recent_perp_intel(limit=24)}
+                        ds = {}
+                        for sym in list(intel.keys())[:16]:
+                            crows = st.get_perp_candles(sym, cfg.perps.signal.timeframe, limit=300)
+                            if len(crows) >= 120:
+                                r = intel[sym]
+                                inst = PerpInstrument(
+                                    symbol=sym, exchange=str(r.get("exchange") or "okx"),
+                                    exchange_symbol=f"{sym}-USDT-SWAP",
+                                    max_leverage=float(r.get("max_leverage") or 50.0),
+                                    mark_price=float(r.get("price") or crows[-1]["close"]),
+                                    funding_1h=float(r.get("funding_1h") or 0.0),
+                                )
+                                cs = [PerpCandle(ts=int(c["ts"]), open=float(c["open"]), high=float(c["high"]),
+                                                 low=float(c["low"]), close=float(c["close"]), volume=float(c["volume"]))
+                                      for c in crows]
+                                ds[sym] = (inst, cs)
+                    finally:
+                        st.close()
+                    if not ds:
+                        res = {"ok": True, "message": "נדרשים נרות PERPS שמורים בסימולטור — הרץ מחזור PERPS קודם"}
+                    else:
+                        bt = run_perp_portfolio_backtest(sim_cfg, ds)
+                        res = {
+                            "ok": True,
+                            "message": f"סימולציית What-If ({len(ds)} חוזים): תשואה {bt.return_pct:+.2f}% | PF {bt.profit_factor:.2f} | WR {bt.win_rate_pct:.0f}% | ליקווידציות {bt.liquidations}",
+                            "result": {
+                                "assets": len(ds), "return_pct": bt.return_pct, "final_equity": bt.ending_equity,
+                                "trades": bt.trades, "win_rate_pct": bt.win_rate_pct,
+                                "profit_factor": bt.profit_factor, "max_drawdown_pct": bt.max_drawdown_pct,
+                                "liquidations": bt.liquidations, "avg_leverage": bt.avg_leverage,
+                                "max_leverage": bt.max_leverage_used,
+                            },
+                        }
                 elif path == "/api/perps/toggle":
                     cfg.perps.enabled = bool(body.get("enabled", not cfg.perps.enabled))
                     res = {"ok": True, "enabled": cfg.perps.enabled,

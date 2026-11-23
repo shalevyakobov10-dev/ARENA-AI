@@ -365,6 +365,24 @@ def build_command_center_data(
             out["market_intel"] = store.recent_market_intel(limit=60)
             out["autopilot"] = store.recent_autopilot_runs(limit=25)
             out["perps"] = build_perps_status(cfg, store, reports_dir=reports_dir)
+
+            # סיכום תיק מאוחד משתי הזרועות (Polymarket + PERPS ×50)
+            poly_eq = float((out.get("bankroll") or {}).get("equity") or cfg.execution.starting_cash)
+            perp_eq = float((out["perps"] or {}).get("equity") or cfg.perps.risk.starting_cash) if cfg.perps.enabled else 0.0
+            start_comb = float(cfg.execution.starting_cash) + (float(cfg.perps.risk.starting_cash) if cfg.perps.enabled else 0.0)
+            comb_eq = round(poly_eq + perp_eq, 2)
+            comb_pnl = round(comb_eq - start_comb, 2)
+            out["combined"] = {
+                "equity": comb_eq,
+                "starting_cash": round(start_comb, 2),
+                "pnl": comb_pnl,
+                "return_pct": round(comb_pnl / start_comb * 100.0, 2) if start_comb > 0 else 0.0,
+                "poly_equity": round(poly_eq, 2),
+                "perps_equity": round(perp_eq, 2),
+                "open_positions": int((out.get("bankroll") or {}).get("open_positions") or 0) + len((out["perps"] or {}).get("positions") or []),
+                "closed_trades": int((out.get("overall") or {}).get("exits") or 0) + int((out["perps"] or {}).get("closed_trades") or 0),
+                "fees_paid": round(float((out.get("overall") or {}).get("fees") or 0.0) + float((out["perps"] or {}).get("fees_paid") or 0.0), 2),
+            }
         finally:
             store.close()
 
