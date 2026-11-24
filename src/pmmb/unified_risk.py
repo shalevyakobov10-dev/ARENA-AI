@@ -71,10 +71,21 @@ class UnifiedPortfolioSnapshot:
             or self.day_start_baseline_unrealized_pnl is None
         ):
             return None
-        return (
-            self.realized_today - self.day_start_baseline_realized_pnl
-            + self.unrealized_pnl - self.day_start_baseline_unrealized_pnl
-        )
+        try:
+            values = (
+                self.realized_today,
+                self.day_start_baseline_realized_pnl,
+                self.unrealized_pnl,
+                self.day_start_baseline_unrealized_pnl,
+            )
+            if not all(math.isfinite(float(value)) for value in values):
+                return None
+            return (
+                float(self.realized_today) - float(self.day_start_baseline_realized_pnl)
+                + float(self.unrealized_pnl) - float(self.day_start_baseline_unrealized_pnl)
+            )
+        except (TypeError, ValueError, OverflowError):
+            return None
 
     def as_dict(self) -> dict:
         return {
@@ -174,56 +185,74 @@ def _global_halt_reason() -> str | None:
 
 
 def _prior_day_entry_fees_realized_today(store: Store, mode: str, day_start: int, now_ts: int) -> float:
-    """Return prior-UTC-day opening fees allocated into today's PERPS close PnL.
+    """Undo only prior-day entry-fee allocations included in today's PERPS closes.
 
-    PERPS lifetime realized PnL allocates original entry fees to each partial
-    close. Those fees were paid on the opening date, so adding them back here
-    prevents a close today from counting yesterday's fee a second time as
-    today's loss.
+    Query today's close events, then reconstruct only the position cycle that
+    was open at midnight for each affected symbol. This avoids scanning the
+    complete fills history on every bot cycle.
     """
-    rows = store._conn.execute(
-        """SELECT ts, symbol, action, size, fee
+    today_events = store._conn.execute(
+        """SELECT id, ts, symbol, action, size
            FROM perp_fills
-           WHERE mode=? AND ts<=? AND action IN ('OPEN','CLOSE','LIQUIDATION')
+           WHERE mode=? AND ts>=? AND ts<=?
+             AND action IN ('OPEN','CLOSE','LIQUIDATION')
            ORDER BY ts, id""",
-        (mode, int(now_ts)),
+        (mode, int(day_start), int(now_ts)),
     ).fetchall()
-    active: dict[str, dict[str, float | int]] = {}
+
+    by_symbol: dict[str, list] = {}
+    for row in today_events:
+        by_symbol.setdefault(str(row["symbol"]), []).append(row)
+
     adjustment = 0.0
-    for row in rows:
-        symbol = str(row["symbol"])
-        ts = int(row["ts"])
-        action = str(row["action"]).upper()
-        size = max(0.0, float(row["size"] or 0.0))
-        fee = max(0.0, float(row["fee"] or 0.0))
-        if action == "OPEN":
-            if size > 0:
-                # One active position per symbol is enforced by the engine.
-                active[symbol] = {
-                    "opened_at": ts,
-                    "original_size": size,
-                    "remaining_size": size,
-                    "entry_fee": fee,
-                }
+    for symbol, events in by_symbol.items():
+        if not any(str(row["action"]).upper() in {"CLOSE", "LIQUIDATION"} for row in events):
             continue
 
-        position = active.get(symbol)
-        if position is None or size <= 0:
+        opening = store._conn.execute(
+            """SELECT id, ts, size, fee
+               FROM perp_fills
+               WHERE mode=? AND symbol=? AND action='OPEN' AND ts<?
+               ORDER BY ts DESC, id DESC LIMIT 1""",
+            (mode, symbol, int(day_start)),
+        ).fetchone()
+        if opening is None:
+            # Imported legacy positions may not have a corresponding OPEN fill.
+            # Keep their close PnL conservative rather than guessing a fee basis.
             continue
-        remaining = max(0.0, float(position["remaining_size"]))
-        original = max(0.0, float(position["original_size"]))
-        closed = min(size, remaining)
-        if (
-            ts >= day_start
-            and int(position["opened_at"]) < day_start
-            and original > 0
-        ):
-            adjustment += float(position["entry_fee"]) * (closed / original)
-        remaining -= closed
-        if remaining <= max(1e-9, original * 1e-6):
-            active.pop(symbol, None)
-        else:
-            position["remaining_size"] = remaining
+
+        original_size = max(0.0, float(opening["size"] or 0.0))
+        entry_fee = max(0.0, float(opening["fee"] or 0.0))
+        opening_ts = int(opening["ts"])
+        opening_id = int(opening["id"])
+        if original_size <= 0 or entry_fee <= 0:
+            continue
+
+        closed_before_midnight = store._conn.execute(
+            """SELECT COALESCE(SUM(size),0) AS closed
+               FROM perp_fills
+               WHERE mode=? AND symbol=? AND id>? AND ts<?
+                 AND action IN ('CLOSE','LIQUIDATION')""",
+            (mode, symbol, opening_id, int(day_start)),
+        ).fetchone()
+        remaining = max(0.0, original_size - float(closed_before_midnight["closed"] or 0.0))
+        if remaining <= max(1e-9, original_size * 1e-6):
+            continue
+
+        for event in events:
+            action = str(event["action"]).upper()
+            if action == "OPEN":
+                # The prior-day position has already been closed; subsequent
+                # closes belong to a new position opened during the current day.
+                break
+            if action not in {"CLOSE", "LIQUIDATION"}:
+                continue
+            closed_now = min(max(0.0, float(event["size"] or 0.0)), remaining)
+            adjustment += entry_fee * (closed_now / original_size)
+            remaining -= closed_now
+            if remaining <= max(1e-9, original_size * 1e-6):
+                break
+
     return round(adjustment, 8)
 
 
@@ -434,6 +463,21 @@ def ensure_unified_day_baseline(
 
         existing = store.get_unified_day_baseline(utc_day)
         if existing is not None:
+            if (
+                existing.get("status") == "ready"
+                and (
+                    existing.get("baseline_ts") is None
+                    or existing.get("baseline_realized_pnl") is None
+                    or existing.get("baseline_unrealized_pnl") is None
+                    or bool(existing.get("failures"))
+                )
+            ):
+                return {
+                    **existing,
+                    "status": "error",
+                    "failures": list(existing.get("failures") or [])
+                    + ["stored UTC baseline is incomplete or has invalid metadata"],
+                }
             return existing
 
         delay = now_ts - day_start
