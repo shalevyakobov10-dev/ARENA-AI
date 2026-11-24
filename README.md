@@ -188,6 +188,8 @@ z       = move / typical
 
 ## ארכיטקטורה
 
+בדיקות הביצוע המאומתות והטיפול במילויים חלקיים של PERPS מתועדים ב־[docs/PERPS_LIVE_EXECUTION_SAFETY.md](docs/PERPS_LIVE_EXECUTION_SAFETY.md).
+
 ```
 Gamma API ──► data/gamma.py (סינון יקום)
 CLOB API  ──► data/clob.py  (book / midpoint / prices-history + chunking)

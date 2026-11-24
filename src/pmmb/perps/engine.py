@@ -10,6 +10,7 @@ PerpEngine — מנוע המסחר האוטונומי לחוזים תמידיי�
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -21,8 +22,8 @@ from ..config import Config
 from ..data.news import refresh_news_to_store
 from ..data.store import Store
 from ..notify import Notifier
-from ..runtime import read_halt
-from .broker import PaperPerpBroker
+from ..runtime import read_halt, write_halt
+from .broker import PaperPerpBroker, PerpsExecutionUncertain
 from .exchange import MultiPerpExchange
 from .models import PerpBook, PerpCandle, PerpFill, PerpInstrument, PerpOrder, PerpPosition, PerpSignal, utcnow
 from .risk import PerpRiskManager, calc_liquidation_price
@@ -72,6 +73,8 @@ class PerpEngine:
         self._last_marks: dict[str, float] = {}
         self._last_day = utcnow().date()
         self._news_articles: list[dict[str, Any]] = []
+        # In-process fail-closed latch; supplements the persistent halt file if disk writes fail.
+        self._execution_uncertain = False
         self._restore_state()
 
     def _restore_state(self) -> None:
@@ -135,6 +138,10 @@ class PerpEngine:
     def monitor_open_positions(self) -> PerpCycleStats:
         """ניטור מהיר (Sub-second) רק לפוזיציות פתוחות — לעצירת SL/TP/Trailing בין מחזורים."""
         stats = PerpCycleStats()
+        halt = read_halt()
+        if self._execution_uncertain or (halt and halt.source == "execution_uncertain"):
+            stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
+            return stats
         if not self.positions:
             return stats
         self._load_news()
@@ -166,6 +173,10 @@ class PerpEngine:
 
     def run_once(self) -> PerpCycleStats:
         stats = PerpCycleStats()
+        halt = read_halt()
+        if self._execution_uncertain or (halt and halt.source == "execution_uncertain"):
+            stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
+            return stats
         self._roll_day_if_needed()
         self._load_news()
 
@@ -270,6 +281,16 @@ class PerpEngine:
                     pending_entries.append((inst, sig, book, row))
                 elif sig.direction == "FLAT":
                     stats.skip(sig.reason)
+            except PerpsExecutionUncertain as exc:
+                self._execution_uncertain = True
+                stats.errors += 1
+                log.critical(
+                    "PERPS stopped after uncertain execution for %s: %s",
+                    inst.symbol,
+                    exc,
+                    exc_info=True,
+                )
+                break
             except Exception as exc:
                 stats.errors += 1
                 log.exception("Perps שגיאה בעיבוד %s: %s", inst.symbol, exc)
@@ -286,12 +307,25 @@ class PerpEngine:
                 bk = self.exchange.get_book(inst_stub)
                 mk_px = bk.mid if bk and bk.mid else self._last_marks.get(sym, pos.entry_price)
                 self._last_marks[sym] = mk_px
-                self._process_position(pos, inst_stub, None, bk, mk_px, stats)
+                try:
+                    self._process_position(pos, inst_stub, None, bk, mk_px, stats)
+                except PerpsExecutionUncertain as exc:
+                    self._execution_uncertain = True
+                    stats.errors += 1
+                    log.critical(
+                        "PERPS stopped after uncertain orphan-position execution for %s: %s",
+                        sym,
+                        exc,
+                        exc_info=True,
+                    )
+                    break
 
         # בדיקת Kill Switch גלובלי ועצירת חירום (halt.json) לפני כניסות חדשות
         self.risk.check_global_kill(self._equity(), self.realized_pnl_today)
         halted = read_halt()
-        if halted:
+        if self._execution_uncertain or (halted and halted.source == "execution_uncertain"):
+            stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
+        elif halted:
             stats.skip(f"עצירת חירום פעילה ({halted.reason})")
         else:
             pending_entries.sort(key=lambda item: (-float(item[1].score), -float(item[0].volume_24h_usd)))
@@ -316,6 +350,88 @@ class PerpEngine:
         )
         return stats
 
+    def _apply_close_fill(
+        self,
+        pos: PerpPosition,
+        fill: PerpFill,
+        reason: str,
+        *,
+        now: datetime | None = None,
+    ) -> dict[str, Any]:
+        """Apply only confirmed close quantity; keep the residual position open on partial fills."""
+        now = now or utcnow()
+        if (
+            not math.isfinite(float(fill.size))
+            or not math.isfinite(float(fill.price))
+            or fill.size <= 0
+            or fill.price <= 0
+            or pos.size <= 0
+        ):
+            reason_text = f"Invalid confirmed close fill for {pos.exchange} {pos.symbol}"
+            write_halt(reason_text, source="execution_uncertain")
+            raise PerpsExecutionUncertain(reason_text)
+
+        tolerance = max(1e-9, abs(pos.size) * 1e-6)
+        if fill.size > pos.size + tolerance:
+            reason_text = (
+                f"Close fill exceeds local position for {pos.exchange} {pos.symbol}: "
+                f"filled={fill.size:g}, local={pos.size:g}"
+            )
+            write_halt(reason_text, source="execution_uncertain")
+            raise PerpsExecutionUncertain(reason_text)
+
+        closed_size = min(float(fill.size), float(pos.size))
+        fraction = min(1.0, closed_size / float(pos.size))
+        allocated_margin = float(pos.margin_used) * fraction
+        allocated_open_fee = float(pos.fees_paid) * fraction
+        allocated_funding = float(pos.accumulated_funding) * fraction
+
+        gross_pnl = (
+            (float(fill.price) - pos.entry_price) * closed_size
+            if pos.side == "LONG"
+            else (pos.entry_price - float(fill.price)) * closed_size
+        )
+        net_pnl = max(
+            -allocated_margin,
+            gross_pnl - float(fill.fee) - allocated_open_fee + allocated_funding,
+        )
+        margin_back = max(0.0, allocated_margin + gross_pnl)
+
+        # Persist exactly the confirmed exchange fill, not the requested close quantity.
+        fill.size = closed_size
+        fill.notional = round(float(fill.price) * closed_size, 8)
+        fill.margin_delta = round(margin_back, 8)
+        fill.realized = round(net_pnl, 8)
+        fill.funding = round(allocated_funding, 8)
+
+        self.cash += margin_back - float(fill.fee)
+        self.realized_pnl += net_pnl
+        self.realized_pnl_today += net_pnl
+        self.store.record_perp_fill(fill, self.pcfg.mode)
+
+        remaining = max(0.0, float(pos.size) - closed_size)
+        fully_closed = remaining <= tolerance
+        if fully_closed:
+            self.store.close_perp_position(pos.symbol, reason, net_pnl)
+            self.positions.pop(pos.symbol, None)
+            self.risk.start_cooldown(pos.symbol, now)
+            remaining = 0.0
+        else:
+            pos.size = remaining
+            pos.notional = round(pos.entry_price * remaining, 8)
+            pos.margin_used = max(0.0, float(pos.margin_used) - allocated_margin)
+            pos.fees_paid = max(0.0, float(pos.fees_paid) - allocated_open_fee)
+            pos.accumulated_funding = float(pos.accumulated_funding) - allocated_funding
+            self.store.upsert_perp_position(pos, self.pcfg.mode)
+
+        return {
+            "closed_size": closed_size,
+            "remaining_size": remaining,
+            "realized": net_pnl,
+            "fully_closed": fully_closed,
+            "margin_returned": margin_back,
+        }
+
     def _process_position(
         self,
         pos: PerpPosition,
@@ -325,6 +441,11 @@ class PerpEngine:
         mark: float,
         stats: PerpCycleStats,
     ) -> None:
+        halted = read_halt()
+        if halted and halted.source == "execution_uncertain":
+            # The last live order outcome is unresolved. Do not issue another close/order
+            # until an operator reconciles the exchange account and clears the halt.
+            return
         now = utcnow()
         now_ts = int(now.timestamp())
         elapsed_h = max(0.0, (now_ts - pos.last_funding_ts) / 3600.0)
@@ -393,29 +514,27 @@ class PerpEngine:
         if fill is None:
             return
 
-        gross_pnl = ((fill.price - pos.entry_price) * pos.size) if pos.side == "LONG" else ((pos.entry_price - fill.price) * pos.size)
-        net_pnl = max(-pos.margin_used, gross_pnl - fill.fee - pos.fees_paid + pos.accumulated_funding)
-        margin_back = max(0.0, pos.margin_used + gross_pnl)
-        fill.margin_delta = round(margin_back, 4)
-        fill.realized = round(net_pnl, 4)
-        fill.funding = round(pos.accumulated_funding, 4)
-
-        self.cash += margin_back - fill.fee
-        self.realized_pnl += net_pnl
-        self.realized_pnl_today += net_pnl
-        self.store.record_perp_fill(fill, self.pcfg.mode)
-        self.store.close_perp_position(pos.symbol, exit_reason, net_pnl)
-        del self.positions[pos.symbol]
-        self.risk.start_cooldown(pos.symbol, now)
+        applied = self._apply_close_fill(pos, fill, exit_reason, now=now)
         stats.exits += 1
 
+        if applied["fully_closed"]:
+            exit_label = "יציאה"
+        else:
+            exit_label = f"יציאה חלקית {applied['closed_size']:.6g}/{applied['closed_size'] + applied['remaining_size']:.6g} · נותרו {applied['remaining_size']:.6g}"
         msg = (
-            f"⚡ יציאה PERPS {pos.symbol} {pos.side} ×{pos.leverage:.0f} ({pos.exchange.upper()}) | "
-            f"{exit_reason} | נטו {net_pnl:+.2f} USDC"
+            f"⚡ {exit_label} PERPS {pos.symbol} {pos.side} ×{pos.leverage:.0f} ({pos.exchange.upper()}) | "
+            f"{exit_reason} | נטו {applied['realized']:+.2f} USDC"
         )
         log.info(msg)
         self._notify(msg)
-        self.store.event("perp_exit", msg, data={"symbol": pos.symbol, "realized": net_pnl, "leverage": pos.leverage})
+        self.store.event("perp_exit", msg, data={
+            "symbol": pos.symbol,
+            "realized": applied["realized"],
+            "leverage": pos.leverage,
+            "closed_size": applied["closed_size"],
+            "remaining_size": applied["remaining_size"],
+            "partial": not applied["fully_closed"],
+        })
 
     def _handle_entry(
         self,
@@ -446,15 +565,16 @@ class PerpEngine:
             stats.skip("מילוי Perps נכשל")
             return
 
-        margin_used = round(fill.notional / dec.leverage, 4)
+        actual_leverage = float(fill.leverage or dec.leverage)
+        margin_used = round(fill.notional / actual_leverage, 4)
         fill.margin_delta = -margin_used
         self.cash -= margin_used + fill.fee
 
-        liq_px = calc_liquidation_price(sig.direction, fill.price, dec.leverage, inst.mmr or self.pcfg.risk.default_mmr)
+        liq_px = calc_liquidation_price(sig.direction, fill.price, actual_leverage, inst.mmr or self.pcfg.risk.default_mmr)
         pos = PerpPosition(
             symbol=inst.symbol, exchange=inst.exchange, side=sig.direction,  # type: ignore[arg-type]
             size=fill.size, entry_price=fill.price, notional=fill.notional,
-            leverage=dec.leverage, margin_used=margin_used, liquidation_price=round(liq_px, 6),
+            leverage=actual_leverage, margin_used=margin_used, liquidation_price=round(liq_px, 6),
             stop_price=dec.stop_price, target_price=dec.target_price,
             highest_price=fill.price, lowest_price=fill.price, atr=sig.atr,
             strategy=sig.strategy, regime=sig.regime, entry_score=sig.score,
@@ -464,17 +584,17 @@ class PerpEngine:
         self.store.record_perp_fill(fill, self.pcfg.mode)
         self.store.upsert_perp_position(pos, self.pcfg.mode)
         row["status"] = "OPEN"
-        row["reason"] = f"כניסה {sig.direction} ×{dec.leverage:.0f} ({sig.tier}) @ {fill.price:.4f}"
+        row["reason"] = f"כניסה {sig.direction} ×{actual_leverage:.0f} ({sig.tier}) @ {fill.price:.4f}"
         stats.entries += 1
 
         msg = (
-            f"🚀 כניסה PERPS {inst.symbol} {sig.direction} ×{dec.leverage:.0f} [{sig.tier}] "
+            f"🚀 כניסה PERPS {inst.symbol} {sig.direction} ×{actual_leverage:.0f} [{sig.tier}] "
             f"@ {fill.price:.4f} | מרג'ין {margin_used:.2f}$ | נומינלי {fill.notional:.0f}$ | "
             f"SL={dec.stop_price:.4f} TP={dec.target_price:.4f} LIQ={pos.liquidation_price:.4f}"
         )
         log.info(msg)
         self._notify(msg)
-        self.store.event("perp_entry", msg, data={"symbol": inst.symbol, "leverage": dec.leverage, "margin": margin_used})
+        self.store.event("perp_entry", msg, data={"symbol": inst.symbol, "leverage": actual_leverage, "margin": margin_used})
 
     def close_position_by_symbol(self, symbol: str, reason: str = "סגירה ידנית מהטרמינל") -> dict[str, Any]:
         """סוגר פוזיציית PERPS פתוחה לפי סמל נכס במחיר שוק חי (reduce_only=True)."""
@@ -520,42 +640,11 @@ class PerpEngine:
             tick_size=inst.tick_size,
         )
         if fill is None:
-            fill = PerpFill(
-                symbol=pos.symbol,
-                exchange=pos.exchange,
-                side=pos.side,
-                action="CLOSE",
-                price=float(mark),
-                size=pos.size,
-                notional=round(pos.size * float(mark), 4),
-                leverage=pos.leverage,
-                margin_delta=0.0,
-                fee=round(pos.size * float(mark) * inst.taker_fee_bps / 10_000.0, 4),
-                funding=pos.accumulated_funding,
-                realized=0.0,
-                reason=reason,
-                order_id=f"manual-{int(now.timestamp())}",
-                ts=now,
+            raise RuntimeError(
+                f"סגירת {sym} לא מולאה בבורסה; הפוזיציה נשארה פתוחה ולא נרשם מילוי מדומה"
             )
 
-        gross_pnl = (
-            ((fill.price - pos.entry_price) * pos.size)
-            if pos.side == "LONG"
-            else ((pos.entry_price - fill.price) * pos.size)
-        )
-        net_pnl = max(-pos.margin_used, gross_pnl - fill.fee - pos.fees_paid + pos.accumulated_funding)
-        margin_back = max(0.0, pos.margin_used + gross_pnl)
-        fill.margin_delta = round(margin_back, 4)
-        fill.realized = round(net_pnl, 4)
-        fill.funding = round(pos.accumulated_funding, 4)
-
-        self.cash += margin_back - fill.fee
-        self.realized_pnl += net_pnl
-        self.realized_pnl_today += net_pnl
-        self.store.record_perp_fill(fill, self.pcfg.mode)
-        self.store.close_perp_position(pos.symbol, reason, net_pnl)
-        del self.positions[pos.symbol]
-        self.risk.start_cooldown(pos.symbol, now)
+        applied = self._apply_close_fill(pos, fill, reason, now=now)
 
         snap_eq = self._equity()
         used_margin = sum(p.margin_used for p in self.positions.values())
@@ -574,18 +663,28 @@ class PerpEngine:
 
         msg = (
             f"⚡ סגירה ידנית PERPS {pos.symbol} {pos.side} ×{pos.leverage:.0f} | "
-            f"{reason} | נטו {net_pnl:+.2f} USDC"
+            f"{reason} | כמות {applied['closed_size']:.6g} | "
+            f"נותרה {applied['remaining_size']:.6g} | נטו {applied['realized']:+.2f} USDC"
         )
         log.info(msg)
         self._notify(msg)
-        self.store.event("perp_exit", msg, data={"symbol": pos.symbol, "realized": net_pnl, "manual": True})
+        self.store.event("perp_exit", msg, data={
+            "symbol": pos.symbol,
+            "realized": applied["realized"],
+            "manual": True,
+            "closed_size": applied["closed_size"],
+            "remaining_size": applied["remaining_size"],
+            "partial": not applied["fully_closed"],
+        })
         return {
             "arm": "perps",
             "key": sym,
             "label": f"{pos.symbol} {pos.side} ×{pos.leverage:.0f}",
             "price": round(fill.price, 6),
-            "size": round(fill.size, 4),
-            "realized": round(net_pnl, 2),
+            "size": round(applied["closed_size"], 6),
+            "remaining_size": round(applied["remaining_size"], 6),
+            "partial": not applied["fully_closed"],
+            "realized": round(applied["realized"], 2),
         }
 
     def open_manual_order(
