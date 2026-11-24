@@ -215,6 +215,12 @@ def build_unified_portfolio_snapshot(
     perps_positions = list(perps_state["positions"])
     perps_margin = sum(max(0.0, float(p.margin_used)) for p in perps_positions)
     perps_realized_today = float(perps_state["realized_pnl_today"] or 0.0)
+    # Entry fees for positions opened today have not reached realized PnL yet.
+    perps_realized_today -= sum(
+        max(0.0, float(p.fees_paid or 0.0))
+        for p in perps_positions
+        if int(p.opened_at.timestamp()) >= day_start
+    )
     perps_max_age = max(180, int(float(cfg.perps.interval_sec) * 4))
 
     for position in perps_positions:
