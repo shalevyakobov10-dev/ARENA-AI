@@ -2270,18 +2270,21 @@ def build_risk_desk_metrics(data: dict) -> dict:
 
     poly_equity = _risk_number(bankroll.get("equity"))
     perps_enabled = bool(perps.get("enabled", True))
-    perps_equity = _risk_number(perps.get("equity")) if perps_enabled else 0.0
     total_equity = _risk_number(combined.get("equity"))
     poly_exposure = _risk_number(bankroll.get("exposure"))
-    perps_notional = _risk_number(perps.get("notional")) if perps_enabled else 0.0
-    perps_margin = _risk_number(perps.get("margin_used")) if perps_enabled else 0.0
+    # A paused arm may still hold open positions. Never hide residual exposure.
+    perps_notional = _risk_number(perps.get("notional"))
+    perps_margin = _risk_number(perps.get("margin_used"))
+    perps_positions = perps.get("positions") or []
+    perps_has_risk = bool(perps_positions) or (perps_notional is not None and perps_notional > 0) or (perps_margin is not None and perps_margin > 0)
+    perps_equity = _risk_number(perps.get("equity")) if (perps_enabled or perps_has_risk) else 0.0
 
     poly_cap_pct = _risk_number(risk_cfg.get("max_total_exposure_pct"))
     poly_limit = poly_equity * poly_cap_pct if poly_equity is not None and poly_cap_pct is not None and poly_cap_pct > 0 else None
     perps_cap_pct = _risk_number(perps_guards.get("max_margin_pct"))
     perps_margin_limit = perps_equity * perps_cap_pct / 100.0 if perps_equity is not None and perps_cap_pct is not None and perps_cap_pct > 0 else None
     poly_util, poly_status = _risk_utilization(poly_exposure, poly_limit)
-    if not perps_enabled:
+    if not perps_enabled and not perps_has_risk:
         perps_util, perps_status = None, "disabled"
     else:
         perps_util, perps_status = _risk_utilization(perps_margin, perps_margin_limit)
@@ -2314,7 +2317,7 @@ def build_risk_desk_metrics(data: dict) -> dict:
         "perps_margin": round(perps_margin, 2) if perps_margin is not None else None,
         "perps_margin_limit": round(perps_margin_limit, 2) if perps_margin_limit is not None else None,
         "perps_margin_utilization_pct": perps_util, "perps_status": perps_status,
-        "perps_avg_leverage": _risk_number(perps.get("avg_leverage")) if perps_enabled else None,
+        "perps_avg_leverage": _risk_number(perps.get("avg_leverage")) if (perps_enabled or perps_has_risk) else None,
         "open_positions": int(open_positions), "shared_limit_configured": shared_limit_configured,
         "overall_status": overall_status,
         "notice": ("זוהי שכבת תצוגה בלבד: כרגע התקרות נאכפות ברמת כל זרוע בנפרד. "
