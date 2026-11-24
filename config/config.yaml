@@ -171,3 +171,9 @@ autopilot:
   backup_interval_sec: 14400
   backup_keep: 14
   reports_interval_sec: 1800
+portfolio_risk:
+  enabled: true
+  paper_only: true
+  max_capital_utilization_pct: 0.50
+  max_open_positions: 8
+  max_daily_loss_pct: 0.05

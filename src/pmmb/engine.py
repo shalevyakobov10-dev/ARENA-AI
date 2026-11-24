@@ -27,6 +27,7 @@ from .risk.sizing import stop_and_target
 from .notify import Notifier, fmt_entry, fmt_exit, fmt_halt
 from .runtime import Heartbeat, read_halt, write_heartbeat
 from .signals import build_signal_engine
+from .unified_risk import evaluate_unified_entry, unified_entry_lock
 
 log = logging.getLogger(__name__)
 
@@ -491,6 +492,11 @@ class Engine:
 
     # ------------------------------------------------------------------
     def _handle_entry(self, mk: Market, signal: Signal, yes_book: Book, stats: CycleStats) -> tuple[str, str]:
+        # Keep the shared admission check locked through broker execution and DB persistence.
+        with unified_entry_lock(self.cfg):
+            return self._handle_entry_locked(mk, signal, yes_book, stats)
+
+    def _handle_entry_locked(self, mk: Market, signal: Signal, yes_book: Book, stats: CycleStats) -> tuple[str, str]:
         if any(p.condition_id == mk.condition_id for p in self.portfolio.positions.values()):
             stats.skip("כבר בפוזיציה")
             return ("OPEN", "פוזיציה פתוחה במעקב")
@@ -562,6 +568,14 @@ class Engine:
             stats.skip(f"סיכון: {decision.reason}")
             log.debug("⛔ %s | %s", mk.question[:60], decision.reason)
             return ("CANDIDATE", f"נדחה בסיכון: {decision.reason}")
+
+        shared = evaluate_unified_entry(
+            self.store, self.cfg, arm="polymarket", proposed_capital=decision.notional
+        )
+        if not shared.approved:
+            stats.skip(f"סיכון תיק מאוחד: {shared.reason}")
+            log.info("⛔ Shared portfolio guard blocked %s: %s", mk.slug, shared.reason)
+            return ("CANDIDATE", f"נדחה בשער תיק מאוחד: {shared.reason}")
 
         # בדיקת עומק ספר הפקודות לפני שליחת הוראה: מוודאים שהליכת הספר לא בולעת את ה-edge
         est_fn = getattr(self.clob, "estimate_fill", None)

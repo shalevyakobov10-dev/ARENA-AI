@@ -22,6 +22,7 @@ from ..data.news import refresh_news_to_store
 from ..data.store import Store
 from ..notify import Notifier
 from ..runtime import read_halt
+from ..unified_risk import evaluate_unified_entry, unified_entry_lock
 from .broker import PaperPerpBroker
 from .exchange import MultiPerpExchange
 from .models import PerpBook, PerpCandle, PerpFill, PerpInstrument, PerpOrder, PerpPosition, PerpSignal, utcnow
@@ -425,12 +426,33 @@ class PerpEngine:
         row: dict[str, Any],
         stats: PerpCycleStats,
     ) -> None:
+        # Keep the shared admission check locked through broker execution and DB persistence.
+        with unified_entry_lock(self.cfg):
+            return self._handle_entry_locked(inst, sig, book, row, stats)
+
+    def _handle_entry_locked(
+        self,
+        inst: PerpInstrument,
+        sig: PerpSignal,
+        book: PerpBook | None,
+        row: dict[str, Any],
+        stats: PerpCycleStats,
+    ) -> None:
         dec = self.risk.evaluate_entry(
             sig, inst, equity=self._equity(), free_cash=self.cash, open_positions=list(self.positions.values())
         )
         if not dec.approved:
             stats.skip(dec.reason)
             row["reason"] = f"נדחה בסיכון: {dec.reason}"
+            return
+
+        shared = evaluate_unified_entry(
+            self.store, self.cfg, arm="perps", proposed_capital=dec.margin
+        )
+        if not shared.approved:
+            stats.skip(f"סיכון תיק מאוחד: {shared.reason}")
+            row["reason"] = f"נדחה בשער תיק מאוחד: {shared.reason}"
+            log.info("⛔ Shared portfolio guard blocked PERPS %s: %s", inst.symbol, shared.reason)
             return
 
         order = PerpOrder(
@@ -599,6 +621,22 @@ class PerpEngine:
         target_price: float | None = None,
     ) -> dict[str, Any]:
         """פתיחת עסקת PERPS ידנית (במצב paper בלבד) עם שמירת הגנת ניזול ו-SL/TP אוטומטיים."""
+        with unified_entry_lock(self.cfg):
+            return self._open_manual_order_locked(
+                symbol, side, margin_usd, leverage,
+                stop_price=stop_price, target_price=target_price,
+            )
+
+    def _open_manual_order_locked(
+        self,
+        symbol: str,
+        side: str,
+        margin_usd: float,
+        leverage: float,
+        *,
+        stop_price: float | None = None,
+        target_price: float | None = None,
+    ) -> dict[str, Any]:
         if self.pcfg.mode != "paper":
             raise PermissionError("פקודה ידנית מהממשק מותרת במצב paper בלבד")
         sym = symbol.strip().upper()
@@ -659,6 +697,12 @@ class PerpEngine:
         lev = round(min(req_lev, inst.max_leverage, safe_lev_cap), 1)
         notional = round(margin * lev, 2)
         size = round(notional / px, 6)
+
+        shared = evaluate_unified_entry(
+            self.store, self.cfg, arm="perps", proposed_capital=margin
+        )
+        if not shared.approved:
+            raise PermissionError(f"שער תיק מאוחד חסם פקודה ידנית: {shared.reason}")
 
         order = PerpOrder(
             symbol=sym, exchange=inst.exchange, side=dir_u,  # type: ignore[arg-type]

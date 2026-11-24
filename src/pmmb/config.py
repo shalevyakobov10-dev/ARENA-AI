@@ -291,6 +291,25 @@ class PerpsConfig:
 
 
 @dataclass
+class PortfolioRiskConfig:
+    """מגבלת הקצאת הון ומספר פוזיציות משותפת לשתי זרועות המסחר."""
+
+    enabled: bool = True
+    paper_only: bool = True
+    max_capital_utilization_pct: float = 0.50
+    max_open_positions: int = 8
+    max_daily_loss_pct: float = 0.05
+
+    def validate(self) -> None:
+        if not 0.05 <= self.max_capital_utilization_pct <= 0.95:
+            raise ConfigError("portfolio_risk.max_capital_utilization_pct חייב להיות בין 0.05 ל-0.95")
+        if not 1 <= self.max_open_positions <= 32:
+            raise ConfigError("portfolio_risk.max_open_positions חייב להיות בין 1 ל-32")
+        if not 0.005 <= self.max_daily_loss_pct <= 0.25:
+            raise ConfigError("portfolio_risk.max_daily_loss_pct חייב להיות בין 0.005 ל-0.25")
+
+
+@dataclass
 class Config:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     universe: UniverseConfig = field(default_factory=UniverseConfig)
@@ -302,6 +321,7 @@ class Config:
     learning: LearningConfig = field(default_factory=LearningConfig)
     autopilot: AutopilotConfig = field(default_factory=AutopilotConfig)
     perps: PerpsConfig = field(default_factory=PerpsConfig)
+    portfolio_risk: PortfolioRiskConfig = field(default_factory=PortfolioRiskConfig)
 
     # ---- טעינה ----
     @classmethod
@@ -341,6 +361,7 @@ class Config:
         self.signal.validate()
         self.risk.validate()
         self.perps.validate()
+        self.portfolio_risk.validate()
 
 
 # --------------------------------------------------------------------------
