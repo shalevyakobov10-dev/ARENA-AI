@@ -618,13 +618,34 @@ def build_unified_risk_status(
             "failures": [f"baseline read failed: {type(exc).__name__}"],
         }
     if baseline is None:
-        baseline = {
-            "status": "unavailable",
-            "baseline_ts": None,
-            "baseline_realized_pnl": None,
-            "baseline_unrealized_pnl": None,
-            "failures": ["no UTC day-start baseline has been captured"],
-        }
+        try:
+            latest = store.latest_unified_day_baseline()
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Could not inspect the latest UTC baseline date")
+            latest = None
+            baseline = {
+                "status": "error",
+                "baseline_ts": None,
+                "baseline_realized_pnl": None,
+                "baseline_unrealized_pnl": None,
+                "failures": [f"latest baseline read failed: {type(exc).__name__}"],
+            }
+        if baseline is None and latest and str(latest.get("utc_day") or "") > current.date().isoformat():
+            baseline = {
+                "status": "clock_skew",
+                "baseline_ts": None,
+                "baseline_realized_pnl": None,
+                "baseline_unrealized_pnl": None,
+                "failures": ["system UTC clock moved behind a previously stored day baseline"],
+            }
+        if baseline is None:
+            baseline = {
+                "status": "unavailable",
+                "baseline_ts": None,
+                "baseline_realized_pnl": None,
+                "baseline_unrealized_pnl": None,
+                "failures": ["no UTC day-start baseline has been captured"],
+            }
     else:
         validation_errors = _saved_baseline_validation_errors(baseline)
         if validation_errors:
