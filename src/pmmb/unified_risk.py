@@ -15,7 +15,7 @@ import logging
 import math
 import os
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Iterator
 
@@ -24,6 +24,13 @@ from .data.store import Store
 from .runtime import default_state_dir, halt_path, write_halt
 
 log = logging.getLogger(__name__)
+
+# The first engine cycle after 00:00 UTC must record the shared floating-PnL
+# anchor. If it is missed, or marks are not synchronized, entries stay blocked
+# for the rest of that UTC day rather than silently resetting the loss budget.
+UNIFIED_BASELINE_CAPTURE_WINDOW_SEC = 300
+UNIFIED_BASELINE_MAX_MARK_SKEW_SEC = 120
+UNIFIED_BASELINE_MARK_LOOKBACK_SEC = 120
 
 
 @dataclass(frozen=True)
@@ -38,6 +45,14 @@ class UnifiedPortfolioSnapshot:
     unrealized_pnl: float
     marks_fresh: bool
     mark_failures: tuple[str, ...] = ()
+    mark_ts_min: int | None = None
+    mark_ts_max: int | None = None
+    mark_skew_sec: float = 0.0
+    baseline_status: str = "unavailable"
+    day_start_baseline_ts: int | None = None
+    day_start_baseline_realized_pnl: float | None = None
+    day_start_baseline_unrealized_pnl: float | None = None
+    baseline_failures: tuple[str, ...] = ()
 
     @property
     def realized_today(self) -> float:
@@ -47,6 +62,19 @@ class UnifiedPortfolioSnapshot:
     def combined_risk_pnl(self) -> float:
         """Realized PnL plus the current floating PnL of all open positions."""
         return self.realized_today + self.unrealized_pnl
+
+    @property
+    def daily_risk_pnl(self) -> float | None:
+        if (
+            self.baseline_status != "ready"
+            or self.day_start_baseline_realized_pnl is None
+            or self.day_start_baseline_unrealized_pnl is None
+        ):
+            return None
+        return (
+            self.realized_today - self.day_start_baseline_realized_pnl
+            + self.unrealized_pnl - self.day_start_baseline_unrealized_pnl
+        )
 
     def as_dict(self) -> dict:
         return {
@@ -62,6 +90,21 @@ class UnifiedPortfolioSnapshot:
             "combined_risk_pnl": round(self.combined_risk_pnl, 2),
             "marks_fresh": self.marks_fresh,
             "mark_failures": list(self.mark_failures),
+            "mark_ts_min": self.mark_ts_min,
+            "mark_ts_max": self.mark_ts_max,
+            "mark_skew_sec": round(self.mark_skew_sec, 2),
+            "baseline_status": self.baseline_status,
+            "baseline_ts": self.day_start_baseline_ts,
+            "baseline_realized_today": (
+                round(self.day_start_baseline_realized_pnl, 2)
+                if self.day_start_baseline_realized_pnl is not None else None
+            ),
+            "baseline_unrealized_pnl": (
+                round(self.day_start_baseline_unrealized_pnl, 2)
+                if self.day_start_baseline_unrealized_pnl is not None else None
+            ),
+            "daily_risk_pnl": round(self.daily_risk_pnl, 2) if self.daily_risk_pnl is not None else None,
+            "baseline_failures": list(self.baseline_failures),
         }
 
 
@@ -165,6 +208,7 @@ def build_unified_portfolio_snapshot(
 
     unrealized_pnl = 0.0
     mark_failures: list[str] = []
+    mark_timestamps: list[int] = []
     poly_max_age = max(180, int(float(cfg.autopilot.stream_interval_sec) * 4))
     for position in poly_positions:
         token = str(position["token_id"])
@@ -188,13 +232,14 @@ def build_unified_portfolio_snapshot(
             mark_failures.append(f"polymarket:{token[:12]}:missing")
             continue
         mark_ts, mark = max(candidates, key=lambda item: item[0])
-        age = max(0, now_ts - mark_ts)
+        age = now_ts - mark_ts
         size = float(position["size"] or 0.0)
         avg = float(position["avg_price"] or 0.0)
-        if age > poly_max_age or not math.isfinite(mark) or not 0.0 < mark < 1.0 or size <= 0 or avg <= 0:
+        if age < -5 or age > poly_max_age or not math.isfinite(mark) or not 0.0 < mark < 1.0 or size <= 0 or avg <= 0:
             mark_failures.append(f"polymarket:{token[:12]}:stale-or-invalid")
             continue
 
+        mark_timestamps.append(mark_ts)
         unrealized_pnl += (mark - avg) * size
         # Fees from today's entries into an open token are not realized until
         # exit, so include them exactly once in the floating component.
@@ -237,11 +282,13 @@ def build_unified_portfolio_snapshot(
             mark_failures.append(f"perps:{position.symbol}:missing")
             continue
         mark = float(mark_raw)
-        age = max(0, now_ts - int(row["updated_at"] or 0))
-        if age > perps_max_age or not math.isfinite(mark) or mark <= 0:
+        mark_ts = int(row["updated_at"] or 0)
+        age = now_ts - mark_ts
+        if age < -5 or age > perps_max_age or not math.isfinite(mark) or mark <= 0:
             mark_failures.append(f"perps:{position.symbol}:stale-or-invalid")
             continue
 
+        mark_timestamps.append(mark_ts)
         entry_fee_today = store._conn.execute(
             """SELECT COALESCE(SUM(fee),0) AS fees FROM perp_fills
                WHERE mode=? AND symbol=? AND action='OPEN' AND ts>=?""",
@@ -276,7 +323,135 @@ def build_unified_portfolio_snapshot(
         unrealized_pnl=round(unrealized_pnl, 6),
         marks_fresh=not mark_failures,
         mark_failures=tuple(mark_failures),
+        mark_ts_min=min(mark_timestamps) if mark_timestamps else None,
+        mark_ts_max=max(mark_timestamps) if mark_timestamps else None,
+        mark_skew_sec=(max(mark_timestamps) - min(mark_timestamps)) if mark_timestamps else 0.0,
     )
+
+def ensure_unified_day_baseline(
+    store: Store,
+    cfg: Config,
+    *,
+    now: datetime | None = None,
+) -> dict:
+    """Capture one immutable synchronized floating-PnL baseline per UTC date.
+
+    Both engines call this at cycle start while holding unified_entry_lock,
+    before any automated exits or entries. SQLite INSERT OR IGNORE makes the
+    winning capture idempotent across separate processes and restarts.
+    """
+    current = now or datetime.now(tz=timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
+    now_ts = int(current.timestamp())
+    day_start = int(current.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    utc_day = current.date().isoformat()
+
+    try:
+        latest = store.latest_unified_day_baseline()
+        if latest and str(latest["utc_day"]) > utc_day:
+            return {
+                "utc_day": utc_day, "status": "clock_skew", "baseline_ts": None,
+                "failures": ["system UTC clock moved behind a previously stored day baseline"],
+            }
+
+        existing = store.get_unified_day_baseline(utc_day)
+        if existing is not None:
+            return existing
+
+        delay = now_ts - day_start
+        if delay < 0:
+            return {
+                "utc_day": utc_day, "status": "clock_skew", "baseline_ts": None,
+                "failures": ["system UTC clock is before the requested UTC day"],
+            }
+
+        if delay > UNIFIED_BASELINE_CAPTURE_WINDOW_SEC:
+            return store.save_unified_day_baseline(
+                utc_day=utc_day, status="expired", recorded_at=now_ts,
+                baseline_ts=None, baseline_realized_pnl=None, baseline_unrealized_pnl=None,
+                open_positions=0, mark_ts_min=None, mark_ts_max=None, mark_skew_sec=None,
+                failures=[f"no synchronized baseline captured within {UNIFIED_BASELINE_CAPTURE_WINDOW_SEC}s of UTC midnight"],
+            )
+
+        snapshot = build_unified_portfolio_snapshot(store, cfg, now=current)
+        failures = list(snapshot.mark_failures)
+        if snapshot.open_positions and not snapshot.marks_fresh:
+            failures.append("one or more open-position marks are missing, stale, or invalid")
+        if snapshot.mark_skew_sec > UNIFIED_BASELINE_MAX_MARK_SKEW_SEC:
+            failures.append(
+                f"cross-venue mark timestamp skew {snapshot.mark_skew_sec:.1f}s exceeds "
+                f"{UNIFIED_BASELINE_MAX_MARK_SKEW_SEC}s"
+            )
+        if (
+            snapshot.mark_ts_min is not None
+            and snapshot.mark_ts_min < day_start - UNIFIED_BASELINE_MARK_LOOKBACK_SEC
+        ):
+            failures.append(
+                f"oldest position mark predates UTC midnight by more than "
+                f"{UNIFIED_BASELINE_MARK_LOOKBACK_SEC}s"
+            )
+
+        # A non-zero realized figure means something closed before the first
+        # cycle could capture the day-start anchor. Do not reset its daily loss.
+        if abs(snapshot.realized_today) > 1e-8:
+            failures.append("realized activity occurred before the first UTC baseline capture")
+
+        if failures:
+            if delay >= UNIFIED_BASELINE_CAPTURE_WINDOW_SEC:
+                return store.save_unified_day_baseline(
+                    utc_day=utc_day, status="expired", recorded_at=now_ts,
+                    baseline_ts=None, baseline_realized_pnl=None, baseline_unrealized_pnl=None,
+                    open_positions=snapshot.open_positions,
+                    mark_ts_min=snapshot.mark_ts_min, mark_ts_max=snapshot.mark_ts_max,
+                    mark_skew_sec=snapshot.mark_skew_sec, failures=failures,
+                )
+            return {
+                "utc_day": utc_day, "status": "pending", "baseline_ts": None,
+                "baseline_realized_pnl": None, "baseline_unrealized_pnl": None,
+                "open_positions": snapshot.open_positions,
+                "mark_ts_min": snapshot.mark_ts_min, "mark_ts_max": snapshot.mark_ts_max,
+                "mark_skew_sec": snapshot.mark_skew_sec, "failures": failures,
+            }
+
+        return store.save_unified_day_baseline(
+            utc_day=utc_day, status="ready", recorded_at=now_ts,
+            baseline_ts=now_ts, baseline_realized_pnl=snapshot.realized_today,
+            baseline_unrealized_pnl=snapshot.unrealized_pnl,
+            open_positions=snapshot.open_positions,
+            mark_ts_min=snapshot.mark_ts_min, mark_ts_max=snapshot.mark_ts_max,
+            mark_skew_sec=snapshot.mark_skew_sec, failures=(),
+        )
+    except Exception as exc:  # noqa: BLE001 — a missing baseline must never allow entry.
+        log.exception("Could not create/read the unified UTC day-start baseline")
+        return {
+            "utc_day": utc_day, "status": "error", "baseline_ts": None,
+            "failures": [f"baseline persistence/read failed: {type(exc).__name__}"],
+        }
+
+
+def build_unified_risk_status(
+    store: Store,
+    cfg: Config,
+    *,
+    now: datetime | None = None,
+) -> UnifiedPortfolioSnapshot:
+    """Return the same ledger, mark, and baseline snapshot used by admission."""
+    current = now or datetime.now(tz=timezone.utc)
+    snapshot = build_unified_portfolio_snapshot(store, cfg, now=current)
+    baseline = ensure_unified_day_baseline(store, cfg, now=current)
+    return replace(
+        snapshot,
+        baseline_status=str(baseline.get("status") or "error"),
+        day_start_baseline_ts=baseline.get("baseline_ts"),
+        day_start_baseline_realized_pnl=baseline.get("baseline_realized_pnl"),
+        day_start_baseline_unrealized_pnl=baseline.get("baseline_unrealized_pnl"),
+        baseline_failures=tuple(baseline.get("failures") or ()),
+    )
+
+
 
 def evaluate_unified_entry(
     store: Store,
