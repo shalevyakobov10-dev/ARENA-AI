@@ -420,3 +420,227 @@ def test_disabled_nonpaper_perps_arm_does_not_block_polymarket_paper(shared_stor
     )
 
     assert decision.approved
+
+
+def _clear_utc_day_baseline(store: Store, now: datetime) -> int:
+    day_start = int(now.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    with store.tx() as conn:
+        conn.execute("DELETE FROM unified_day_baselines WHERE utc_day=?", (now.astimezone(timezone.utc).date().isoformat(),))
+    return day_start
+
+
+def _seed_poly_position_at(
+    store: Store, token: str, *, ts: int, size: float = 100.0,
+    avg_price: float = 0.5, mark: float = 0.5,
+) -> None:
+    with store.tx() as conn:
+        conn.execute(
+            """INSERT INTO positions
+               (token_id, condition_id, mode, direction, size, avg_price, opened_at)
+               VALUES (?, ?, 'paper', 'LONG', ?, ?, ?)""",
+            (token, f"condition-{token}", size, avg_price, ts - 3600),
+        )
+        conn.execute(
+            "INSERT INTO books(token_id, ts, mid, best_bid) VALUES (?, ?, ?, ?)",
+            (token, ts, mark, mark),
+        )
+
+
+def test_utc_day_baseline_is_immutable_and_idempotent_across_store_reopen(shared_store, cfg):
+    now = datetime(2026, 3, 5, 0, 0, 20, tzinfo=timezone.utc)
+    _clear_utc_day_baseline(shared_store, now)
+
+    first = ensure_unified_day_baseline(shared_store, cfg, now=now)
+    assert first["status"] == "ready"
+    assert first["baseline_ts"] == int(now.timestamp())
+
+    reopened = Store(cfg.data.db_path)
+    try:
+        second = ensure_unified_day_baseline(
+            reopened, cfg, now=now.replace(second=55)
+        )
+        assert second["status"] == "ready"
+        assert second["baseline_ts"] == first["baseline_ts"]
+        assert second["recorded_at"] == first["recorded_at"]
+        rows = reopened._conn.execute(
+            "SELECT COUNT(*) AS n FROM unified_day_baselines WHERE utc_day=?",
+            (now.date().isoformat(),),
+        ).fetchone()
+        assert int(rows["n"]) == 1
+    finally:
+        reopened.close()
+
+
+def test_utc_day_baseline_expires_and_cannot_be_backfilled_late(shared_store, cfg):
+    now = datetime(2026, 3, 6, 0, 0, 0, tzinfo=timezone.utc)
+    day_start = _clear_utc_day_baseline(shared_store, now)
+    late = datetime.fromtimestamp(
+        day_start + UNIFIED_BASELINE_CAPTURE_WINDOW_SEC + 1,
+        tz=timezone.utc,
+    )
+
+    first = ensure_unified_day_baseline(shared_store, cfg, now=late)
+    assert first["status"] == "expired"
+    assert first["baseline_ts"] is None
+
+    retry = ensure_unified_day_baseline(
+        shared_store, cfg, now=late.replace(minute=2)
+    )
+    assert retry["status"] == "expired"
+    assert retry["recorded_at"] == first["recorded_at"]
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0, now=late
+    )
+    assert not decision.approved
+    assert "baseline" in decision.reason.lower()
+
+
+def test_utc_day_baseline_retries_a_stale_midnight_mark_within_capture_window(shared_store, cfg):
+    now = datetime(2026, 3, 7, 0, 0, 20, tzinfo=timezone.utc)
+    day_start = _clear_utc_day_baseline(shared_store, now)
+    _seed_poly_position_at(
+        shared_store, "retry-mark", ts=day_start - 130, size=100.0,
+        avg_price=0.5, mark=0.5,
+    )
+
+    pending = ensure_unified_day_baseline(shared_store, cfg, now=now)
+    assert pending["status"] == "pending"
+    assert pending["baseline_ts"] is None
+    assert pending["failures"]
+
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE books SET ts=? WHERE token_id='retry-mark'",
+            (day_start + 26,),
+        )
+    ready = ensure_unified_day_baseline(
+        shared_store, cfg, now=datetime.fromtimestamp(day_start + 35, tz=timezone.utc)
+    )
+    assert ready["status"] == "ready"
+    assert ready["mark_ts_min"] == day_start + 26
+
+
+def test_utc_day_baseline_rejects_excess_cross_venue_mark_skew(shared_store, cfg):
+    now = datetime(2026, 3, 8, 0, 3, 20, tzinfo=timezone.utc)
+    day_start = _clear_utc_day_baseline(shared_store, now)
+    _seed_poly_position_at(
+        shared_store, "skew-mark", ts=day_start + 10, size=100.0,
+        avg_price=0.5, mark=0.5,
+    )
+    _seed_perp_position(shared_store, "BTC", margin=100.0)
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE perp_positions SET opened_at=? WHERE symbol='BTC'",
+            (day_start - 3600,),
+        )
+        conn.execute(
+            "UPDATE perp_intel SET updated_at=? WHERE symbol='BTC'",
+            (day_start + 200,),
+        )
+
+    pending = ensure_unified_day_baseline(shared_store, cfg, now=now)
+    assert pending["status"] == "pending"
+    assert pending["mark_skew_sec"] == pytest.approx(190.0)
+    assert any("skew" in item for item in pending["failures"])
+
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE books SET ts=? WHERE token_id='skew-mark'",
+            (day_start + 215,),
+        )
+        conn.execute(
+            "UPDATE perp_intel SET updated_at=? WHERE symbol='BTC'",
+            (day_start + 230,),
+        )
+    ready = ensure_unified_day_baseline(
+        shared_store, cfg,
+        now=datetime.fromtimestamp(day_start + 235, tz=timezone.utc),
+    )
+    assert ready["status"] == "ready"
+    assert ready["mark_skew_sec"] == pytest.approx(15.0)
+
+
+def test_daily_risk_pnl_measures_change_since_utc_baseline(shared_store, cfg):
+    now = datetime(2026, 3, 9, 0, 0, 30, tzinfo=timezone.utc)
+    day_start = _clear_utc_day_baseline(shared_store, now)
+    _seed_poly_position_at(
+        shared_store, "daily-delta", ts=day_start + 10, size=100.0,
+        avg_price=0.4, mark=0.5,
+    )
+
+    baseline = ensure_unified_day_baseline(shared_store, cfg, now=now)
+    assert baseline["status"] == "ready"
+    assert baseline["baseline_unrealized_pnl"] == pytest.approx(10.0)
+
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE books SET ts=?, mid=0.45, best_bid=0.45 WHERE token_id='daily-delta'",
+            (day_start + 40,),
+        )
+        conn.execute(
+            """INSERT INTO fills
+               (ts, mode, token_id, condition_id, side, price, size, fee, realized)
+               VALUES (?, 'paper', 'closed-earlier', 'closed-earlier', 'SELL', 0.3, 1, 0, -20)""",
+            (day_start + 42,),
+        )
+    risk_status = build_unified_risk_status(
+        shared_store, cfg,
+        now=datetime.fromtimestamp(day_start + 50, tz=timezone.utc),
+    )
+    assert risk_status.daily_risk_pnl == pytest.approx(-25.0)
+    assert risk_status.baseline_status == "ready"
+
+    cfg.portfolio_risk.max_daily_loss_pct = 0.01
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0,
+        now=datetime.fromtimestamp(day_start + 50, tz=timezone.utc),
+    )
+    assert not decision.approved
+    assert "הפסד יומי משולב" in decision.reason
+    flag = read_halt()
+    assert flag is not None and flag.source == "unified-risk"
+
+
+def test_prior_day_perps_entry_fee_is_not_counted_again_on_today_partial_close(shared_store, cfg):
+    now = datetime(2026, 3, 10, 0, 0, 30, tzinfo=timezone.utc)
+    day_start = _clear_utc_day_baseline(shared_store, now)
+    _seed_perp_position(shared_store, "BTC", margin=100.0)
+    with shared_store.tx() as conn:
+        conn.execute(
+            """UPDATE perp_positions
+               SET size=0.01, notional=1.0, entry_price=100.0, margin_used=100.0,
+                   fees_paid=5.0, opened_at=?
+               WHERE symbol='BTC'""",
+            (day_start - 86400,),
+        )
+        conn.execute(
+            """INSERT INTO perp_fills
+               (ts, mode, symbol, exchange, side, action, price, size, notional,
+                leverage, margin_delta, fee, funding, realized)
+               VALUES (?, 'paper', 'BTC', 'okx', 'LONG', 'OPEN', 100, 0.01, 1,
+                       10, -100, 5, 0, 0)""",
+            (day_start - 86400,),
+        )
+        conn.execute(
+            """INSERT INTO perp_fills
+               (ts, mode, symbol, exchange, side, action, price, size, notional,
+                leverage, margin_delta, fee, funding, realized)
+               VALUES (?, 'paper', 'BTC', 'okx', 'LONG', 'CLOSE', 100, 0.004, 0.4,
+                       10, 40, 0, 0, -2)""",
+            (day_start + 20,),
+        )
+        conn.execute(
+            """UPDATE perp_positions
+               SET size=0.006, notional=0.6, margin_used=60.0, fees_paid=3.0
+               WHERE symbol='BTC'"""
+        )
+
+    snapshot = build_unified_portfolio_snapshot(
+        shared_store, cfg,
+        now=datetime.fromtimestamp(day_start + 25, tz=timezone.utc),
+    )
+    assert snapshot.perps_realized_today == pytest.approx(0.0)
+    assert snapshot.unrealized_pnl == pytest.approx(0.0)
+    assert snapshot.daily_risk_pnl == pytest.approx(0.0)
+
+
