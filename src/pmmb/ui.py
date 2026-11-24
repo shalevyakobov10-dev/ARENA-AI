@@ -10,6 +10,7 @@ PMMB Command Center — ממשק דור חדש אינטראקטיבי (Obsidian 
 from __future__ import annotations
 
 import json
+import math
 
 _UI_CSS = r"""
 :root {
@@ -441,6 +442,24 @@ table.clean-tbl tbody tr.clickable { cursor: pointer; }
 .cfg-field { background: rgba(15, 23, 42, 0.65); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
 .cfg-field label { font-size: 12px; color: var(--muted); font-weight: 600; }
 
+/* Unified Portfolio Risk Desk */
+.risk-desk { margin: 0 0 18px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 18px; background: linear-gradient(145deg, rgba(14, 22, 37, 0.94), rgba(7, 11, 20, 0.90)); }
+.risk-desk-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+.risk-desk-title { font-size:15px; font-weight:750; }
+.risk-desk-caption { color:var(--muted); font-size:12px; margin-top:3px; }
+.risk-desk-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.risk-tile { min-width:0; padding:12px 13px; border-radius:13px; background:rgba(15,23,42,.68); border:1px solid rgba(148,163,184,.12); }
+.risk-tile-k { color:var(--muted); font-size:11.5px; font-weight:600; }
+.risk-tile-v { margin-top:4px; font-size:20px; line-height:1.25; font-weight:800; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.risk-tile-sub { margin-top:4px; color:var(--muted); font-size:11.5px; }
+.risk-track { height:6px; border-radius:999px; margin-top:10px; background:rgba(148,163,184,.14); overflow:hidden; }
+.risk-fill { height:100%; border-radius:999px; background:var(--green); }
+.risk-fill.warning { background:var(--amber); }
+.risk-fill.over { background:var(--red); }
+.risk-fill.disabled { background:var(--dim); }
+.risk-desk-note { margin-top:12px; padding:10px 12px; border-radius:11px; background:var(--amber-soft); border:1px solid rgba(245,158,11,.24); color:#fcd34d; font-size:12px; }
+.risk-desk-note strong { color:#fde68a; }
+
 /* Quick Trade Segmented Side */
 .side-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
@@ -787,6 +806,43 @@ function renderHero() {
         <button class="btn sm" onclick="switchTab('settings')">הגדרות ו־Live</button>
       </div>
     </div>
+  `;
+}
+
+function riskStatusLabel(status) {
+  return ({ healthy: "בתוך התקרה", warning: "מתקרב לתקרה", over: "חריגה מהתקרה", disabled: "זרוע מושבתת", unknown: "נתון לא זמין" })[status] || "לא ידוע";
+}
+function riskStatusClass(status) {
+  return status === "over" ? "over" : (status === "warning" ? "warning" : (status === "disabled" ? "disabled" : ""));
+}
+function riskUtilTile(title, used, cap, pct, status) {
+  const available = used !== null && used !== undefined && cap !== null && cap !== undefined && pct !== null && pct !== undefined;
+  const value = available ? `${fmt(used)} / ${fmt(cap)}` : (status === "disabled" ? "לא פעיל" : "—");
+  const detail = available ? `${fmt(pct, 1)}% מהתקרה · ${riskStatusLabel(status)}` : riskStatusLabel(status);
+  const width = available ? Math.max(0, Math.min(100, Number(pct))) : 0;
+  const cls = riskStatusClass(status);
+  return `<div class="risk-tile"><div class="risk-tile-k">${title}</div><div class="risk-tile-v">${value}</div><div class="risk-tile-sub">${detail}</div><div class="risk-track"><div class="risk-fill ${cls}" style="width:${width}%"></div></div></div>`;
+}
+function renderRiskDesk() {
+  const root = $("risk-desk");
+  if (!root) return;
+  const m = DATA.risk_desk || {};
+  const total = m.gross_notional == null ? "—" : "$" + fmt(m.gross_notional);
+  const ratio = m.gross_exposure_pct == null ? "—" : fmt(m.gross_exposure_pct, 1) + "%";
+  const globalClass = m.overall_status === "breach" ? "red" : (m.overall_status === "healthy" ? "green" : "amber");
+  const globalLabel = m.overall_status === "breach" ? "חריגה מזוהה" : (m.overall_status === "healthy" ? "ללא חריגות בתקרות הזרועות" : "נדרשת תשומת לב");
+  root.innerHTML = `
+    <div class="risk-desk-head">
+      <div><div class="risk-desk-title">שולחן סיכון — תיק מאוחד</div><div class="risk-desk-caption">ניטור החשיפה והמרג׳ין בשתי הזרועות על בסיס נתוני החשבון האחרונים</div></div>
+      <span class="badge ${globalClass}">${globalLabel}</span>
+    </div>
+    <div class="risk-desk-grid">
+      <div class="risk-tile"><div class="risk-tile-k">חשיפה נומינלית ברוטו</div><div class="risk-tile-v">${total}</div><div class="risk-tile-sub">${ratio} מההון המאוחד · ${Number(m.open_positions || 0)} פוזיציות פתוחות</div><div class="risk-track"><div class="risk-fill" style="width:${m.gross_exposure_pct == null ? 0 : Math.max(0,Math.min(100,Number(m.gross_exposure_pct)))}%"></div></div></div>
+      ${riskUtilTile("Polymarket · חשיפה / תקרה", m.poly_exposure, m.poly_limit, m.poly_utilization_pct, m.poly_status)}
+      ${riskUtilTile("PERPS · מרג׳ין / תקרה", m.perps_margin, m.perps_margin_limit, m.perps_margin_utilization_pct, m.perps_status)}
+      <div class="risk-tile"><div class="risk-tile-k">PERPS · נומינלי ומינוף</div><div class="risk-tile-v">${m.perps_notional == null ? "—" : "$" + fmt(m.perps_notional)}</div><div class="risk-tile-sub">מינוף ממוצע פתוח: ${m.perps_avg_leverage == null ? "—" : "×" + fmt(m.perps_avg_leverage, 1)}</div><div class="risk-track"><div class="risk-fill" style="width:${m.perps_notional_pct == null ? 0 : Math.max(0,Math.min(100,Number(m.perps_notional_pct)))}%"></div></div></div>
+    </div>
+    <div class="risk-desk-note"><strong>חשוב:</strong> ${esc(m.notice || "הנתונים הם לניטור בלבד ואינם תחליף למנגנון אכיפת סיכון.")}</div>
   `;
 }
 
@@ -1752,6 +1808,7 @@ function renderAll() {
   syncSelectors();
   renderHeader();
   renderHero();
+  renderRiskDesk();
   renderPositionsPanel();
   renderHomeBottomTables();
   renderMarketsTab();
@@ -1847,6 +1904,7 @@ _HTML_TEMPLATE = """<!doctype html>
   <!-- TAB 1: Home / Essential Portfolio -->
   <section id="tab-home" class="tab-pane active">
     <div id="combined-hero" class="hero-grid"></div>
+    <section id="risk-desk" class="risk-desk" aria-label="שולחן סיכון מאוחד"></section>
 
     <div class="main-split">
       <div class="card">
@@ -2173,9 +2231,98 @@ initApp(__PMMB_REFRESH__);
 </html>"""
 
 
+
+def _risk_number(value: object) -> float | None:
+    """המרה בטוחה למספר סופי; ערכים חסרים/לא מספריים אינם מוצגים כאפס."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _risk_utilization(used: float | None, limit: float | None) -> tuple[float | None, str]:
+    if used is None or limit is None or limit <= 0:
+        return None, "unknown"
+    pct = used / limit * 100.0
+    if pct >= 100.0:
+        state = "over"
+    elif pct >= 80.0:
+        state = "warning"
+    else:
+        state = "healthy"
+    return round(pct, 1), state
+
+
+def build_risk_desk_metrics(data: dict) -> dict:
+    """מחשב מדדי תצוגה לשולחן הסיכון; אינו מאשר או חוסם פקודות מסחר."""
+    bankroll = data.get("bankroll") or {}
+    perps = data.get("perps") or {}
+    combined = data.get("combined") or {}
+    config = data.get("config") or {}
+    risk_cfg = config.get("risk") or {}
+    perps_guards = perps.get("guards") or {}
+
+    poly_equity = _risk_number(bankroll.get("equity"))
+    perps_enabled = bool(perps.get("enabled", True))
+    perps_equity = _risk_number(perps.get("equity")) if perps_enabled else 0.0
+    total_equity = _risk_number(combined.get("equity"))
+    poly_exposure = _risk_number(bankroll.get("exposure"))
+    perps_notional = _risk_number(perps.get("notional")) if perps_enabled else 0.0
+    perps_margin = _risk_number(perps.get("margin_used")) if perps_enabled else 0.0
+
+    poly_cap_pct = _risk_number(risk_cfg.get("max_total_exposure_pct"))
+    poly_limit = poly_equity * poly_cap_pct if poly_equity is not None and poly_cap_pct is not None and poly_cap_pct > 0 else None
+    perps_cap_pct = _risk_number(perps_guards.get("max_margin_pct"))
+    perps_margin_limit = perps_equity * perps_cap_pct / 100.0 if perps_equity is not None and perps_cap_pct is not None and perps_cap_pct > 0 else None
+    poly_util, poly_status = _risk_utilization(poly_exposure, poly_limit)
+    if not perps_enabled:
+        perps_util, perps_status = None, "disabled"
+    else:
+        perps_util, perps_status = _risk_utilization(perps_margin, perps_margin_limit)
+
+    gross_known = poly_exposure is not None and perps_notional is not None
+    gross_notional = poly_exposure + perps_notional if gross_known else None
+    gross_pct = round(gross_notional / total_equity * 100.0, 1) if gross_notional is not None and total_equity is not None and total_equity > 0 else None
+    perps_notional_pct = round(perps_notional / total_equity * 100.0, 1) if perps_notional is not None and total_equity is not None and total_equity > 0 else None
+    open_positions = _risk_number(combined.get("open_positions"))
+    if open_positions is None:
+        open_positions = len(data.get("positions") or []) + len(perps.get("positions") or [])
+
+    if poly_status == "over" or perps_status == "over":
+        overall_status = "breach"
+    elif poly_status == "unknown" or (perps_enabled and perps_status == "unknown") or poly_status == "warning" or perps_status == "warning":
+        overall_status = "warning"
+    else:
+        overall_status = "healthy"
+
+    return {
+        "gross_notional": round(gross_notional, 2) if gross_notional is not None else None,
+        "gross_exposure_pct": gross_pct,
+        "poly_exposure": round(poly_exposure, 2) if poly_exposure is not None else None,
+        "poly_limit": round(poly_limit, 2) if poly_limit is not None else None,
+        "poly_utilization_pct": poly_util, "poly_status": poly_status,
+        "perps_notional": round(perps_notional, 2) if perps_notional is not None else None,
+        "perps_notional_pct": perps_notional_pct,
+        "perps_margin": round(perps_margin, 2) if perps_margin is not None else None,
+        "perps_margin_limit": round(perps_margin_limit, 2) if perps_margin_limit is not None else None,
+        "perps_margin_utilization_pct": perps_util, "perps_status": perps_status,
+        "perps_avg_leverage": _risk_number(perps.get("avg_leverage")) if perps_enabled else None,
+        "open_positions": int(open_positions), "shared_limit_configured": False,
+        "overall_status": overall_status,
+        "notice": ("זוהי שכבת תצוגה בלבד: כרגע התקרות נאכפות ברמת כל זרוע בנפרד. "
+                   "אין עדיין תקציב חשיפה גלובלי אחד שמונע משתי הזרועות לחרוג יחד. "
+                   "חשיפה נומינלית ברוטו אינה הפסד מקסימלי ואינה מדד לסיכון חיסול."),
+    }
+
+
 def command_center_html(data: dict, *, refresh_sec: int = 30, interactive: bool = True) -> str:
     """מייצר ממשק אינטראקטיבי עצמאי, הייטקי ופשוט של PMMB Command Center."""
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    payload_data = dict(data)
+    payload_data["risk_desk"] = build_risk_desk_metrics(payload_data)
+    payload = json.dumps(payload_data, ensure_ascii=False).replace("</", "<\\/")
     refresh_val = int(refresh_sec) if (interactive and refresh_sec > 0) else 0
     return (
         _HTML_TEMPLATE
