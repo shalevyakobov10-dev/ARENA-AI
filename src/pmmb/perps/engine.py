@@ -13,6 +13,8 @@ import logging
 import math
 import os
 import time
+import threading
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -31,6 +33,21 @@ from ..unified_risk import evaluate_unified_entry, unified_entry_lock
 from .signals import ProMultiRegimeEngine, assess_perps_news
 
 log = logging.getLogger(__name__)
+
+
+# The service creates a fresh PerpEngine per cycle. Keep the uncertain-execution
+# latch per ledger for the lifetime of this process, even if halt-file persistence fails.
+_EXECUTION_UNCERTAIN_LOCK = threading.RLock()
+_EXECUTION_UNCERTAIN_DATABASES: set[str] = set()
+
+
+def _execution_latch_key(db_path: str | Path) -> str:
+    return str(Path(db_path).expanduser().resolve())
+
+
+def _execution_latched(db_key: str) -> bool:
+    with _EXECUTION_UNCERTAIN_LOCK:
+        return db_key in _EXECUTION_UNCERTAIN_DATABASES
 
 
 @dataclass
@@ -66,6 +83,7 @@ class PerpEngine:
         self.risk = PerpRiskManager(self.pcfg)
         self.broker = broker or PaperPerpBroker(self.pcfg)
         self.notifier = notifier
+        self._execution_latch_key = _execution_latch_key(cfg.data.db_path)
 
         self.cash: float = self.pcfg.risk.starting_cash
         self.realized_pnl: float = 0.0
@@ -74,9 +92,48 @@ class PerpEngine:
         self._last_marks: dict[str, float] = {}
         self._last_day = utcnow().date()
         self._news_articles: list[dict[str, Any]] = []
-        # In-process fail-closed latch; supplements the persistent halt file if disk writes fail.
-        self._execution_uncertain = False
+        # Shared by every PerpEngine instance that uses this ledger in this process.
+        self._execution_uncertain = _execution_latched(self._execution_latch_key)
+        existing_halt = read_halt()
+        if existing_halt and existing_halt.source == "execution_uncertain":
+            with _EXECUTION_UNCERTAIN_LOCK:
+                _EXECUTION_UNCERTAIN_DATABASES.add(self._execution_latch_key)
+            self._execution_uncertain = True
         self._restore_state()
+
+    def _mark_execution_uncertain(self, reason: str) -> None:
+        """Latch this ledger for all engine instances in the process, then persist if possible."""
+        self._execution_uncertain = True
+        with _EXECUTION_UNCERTAIN_LOCK:
+            _EXECUTION_UNCERTAIN_DATABASES.add(self._execution_latch_key)
+        try:
+            write_halt(reason, source="execution_uncertain")
+        except Exception as exc:  # noqa: BLE001 — memory latch is the last-resort in-process stop.
+            log.critical("Could not persist PERPS execution-uncertain halt: %s", exc)
+        try:
+            self.store.event("perp_execution_uncertain", reason, data={"ledger": self._execution_latch_key})
+        except Exception as exc:  # noqa: BLE001
+            log.critical("Could not persist PERPS uncertainty event: %s", exc)
+
+    def _execution_blocked(self) -> bool:
+        if self._execution_uncertain or _execution_latched(self._execution_latch_key):
+            return True
+        halt = read_halt()
+        if halt and halt.source == "execution_uncertain":
+            self._mark_execution_uncertain(halt.reason)
+            return True
+        return False
+
+    def _execute_broker_order(self, order: PerpOrder, **kwargs):
+        if self._execution_blocked():
+            raise PerpsExecutionUncertain(
+                "PERPS execution is latched as uncertain; reconcile the venue before any new order"
+            )
+        try:
+            return self.broker.execute(order, **kwargs)
+        except PerpsExecutionUncertain as exc:
+            self._mark_execution_uncertain(str(exc))
+            raise
 
     def _restore_state(self) -> None:
         st = self.store.load_perp_portfolio_state(self.pcfg.mode, self.pcfg.risk.starting_cash)
@@ -139,8 +196,7 @@ class PerpEngine:
     def monitor_open_positions(self) -> PerpCycleStats:
         """ניטור מהיר (Sub-second) רק לפוזיציות פתוחות — לעצירת SL/TP/Trailing בין מחזורים."""
         stats = PerpCycleStats()
-        halt = read_halt()
-        if self._execution_uncertain or (halt and halt.source == "execution_uncertain"):
+        if self._execution_blocked():
             stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
             return stats
         if not self.positions:
@@ -165,7 +221,7 @@ class PerpEngine:
             try:
                 self._process_position(pos, inst, None, bk, mark, stats)
             except PerpsExecutionUncertain as exc:
-                self._execution_uncertain = True
+                self._mark_execution_uncertain(str(exc))
                 stats.errors += 1
                 log.critical(
                     "PERPS monitor stopped after uncertain execution for %s: %s",
@@ -183,8 +239,7 @@ class PerpEngine:
 
     def run_once(self) -> PerpCycleStats:
         stats = PerpCycleStats()
-        halt = read_halt()
-        if self._execution_uncertain or (halt and halt.source == "execution_uncertain"):
+        if self._execution_blocked():
             stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
             return stats
         self._roll_day_if_needed()
@@ -292,7 +347,7 @@ class PerpEngine:
                 elif sig.direction == "FLAT":
                     stats.skip(sig.reason)
             except PerpsExecutionUncertain as exc:
-                self._execution_uncertain = True
+                self._mark_execution_uncertain(str(exc))
                 stats.errors += 1
                 log.critical(
                     "PERPS stopped after uncertain execution for %s: %s",
@@ -320,7 +375,7 @@ class PerpEngine:
                 try:
                     self._process_position(pos, inst_stub, None, bk, mk_px, stats)
                 except PerpsExecutionUncertain as exc:
-                    self._execution_uncertain = True
+                    self._mark_execution_uncertain(str(exc))
                     stats.errors += 1
                     log.critical(
                         "PERPS stopped after uncertain orphan-position execution for %s: %s",
@@ -332,15 +387,23 @@ class PerpEngine:
 
         # בדיקת Kill Switch גלובלי ועצירת חירום (halt.json) לפני כניסות חדשות
         self.risk.check_global_kill(self._equity(), self.realized_pnl_today)
-        halted = read_halt()
-        if self._execution_uncertain or (halted and halted.source == "execution_uncertain"):
+        if self._execution_blocked():
             stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
         elif halted:
             stats.skip(f"עצירת חירום פעילה ({halted.reason})")
         else:
             pending_entries.sort(key=lambda item: (-float(item[1].score), -float(item[0].volume_24h_usd)))
             for inst, sig, book, row in pending_entries:
-                self._handle_entry(inst, sig, book, row, stats)
+                if self._execution_blocked():
+                    stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
+                    break
+                try:
+                    self._handle_entry(inst, sig, book, row, stats)
+                except PerpsExecutionUncertain as exc:
+                    self._mark_execution_uncertain(str(exc))
+                    stats.errors += 1
+                    stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
+                    break
 
         if intel_rows:
             self.store.upsert_perp_intel(intel_rows)
@@ -378,7 +441,7 @@ class PerpEngine:
             or pos.size <= 0
         ):
             reason_text = f"Invalid confirmed close fill for {pos.exchange} {pos.symbol}"
-            write_halt(reason_text, source="execution_uncertain")
+            self._mark_execution_uncertain(reason_text)
             raise PerpsExecutionUncertain(reason_text)
 
         tolerance = max(1e-9, abs(pos.size) * 1e-6)
@@ -387,7 +450,7 @@ class PerpEngine:
                 f"Close fill exceeds local position for {pos.exchange} {pos.symbol}: "
                 f"filled={fill.size:g}, local={pos.size:g}"
             )
-            write_halt(reason_text, source="execution_uncertain")
+            self._mark_execution_uncertain(reason_text)
             raise PerpsExecutionUncertain(reason_text)
 
         closed_size = min(float(fill.size), float(pos.size))
@@ -451,8 +514,7 @@ class PerpEngine:
         mark: float,
         stats: PerpCycleStats,
     ) -> None:
-        halted = read_halt()
-        if halted and halted.source == "execution_uncertain":
+        if self._execution_blocked():
             # The last live order outcome is unresolved. Do not issue another close/order
             # until an operator reconciles the exchange account and clears the halt.
             return
@@ -517,7 +579,7 @@ class PerpEngine:
             symbol=pos.symbol, exchange=pos.exchange, side=pos.side, action="CLOSE",
             price=mark, size=pos.size, leverage=pos.leverage, reduce_only=True, reason=exit_reason,
         )
-        fill = self.broker.execute(
+        fill = self._execute_broker_order(
             order, book=book, taker_fee_bps=inst.taker_fee_bps,
             ct_val=inst.contract_val, lot_size=inst.lot_size, tick_size=inst.tick_size,
         )
@@ -591,7 +653,7 @@ class PerpEngine:
             action="OPEN", price=sig.price, size=dec.size, leverage=dec.leverage,
             reduce_only=False, reason=f"{sig.tier} {sig.strategy} | {sig.reason}",
         )
-        fill = self.broker.execute(
+        fill = self._execute_broker_order(
             order, book=book, taker_fee_bps=inst.taker_fee_bps,
             ct_val=inst.contract_val, lot_size=inst.lot_size, tick_size=inst.tick_size,
         )
@@ -632,6 +694,8 @@ class PerpEngine:
 
     def close_position_by_symbol(self, symbol: str, reason: str = "סגירה ידנית מהטרמינל") -> dict[str, Any]:
         """סוגר פוזיציית PERPS פתוחה לפי סמל נכס במחיר שוק חי (reduce_only=True)."""
+        if self._execution_blocked():
+            raise PerpsExecutionUncertain("PERPS execution is latched as uncertain; reconcile before manual close")
         sym = symbol.strip().upper()
         pos = self.positions.get(sym)
         if pos is None:
@@ -665,7 +729,7 @@ class PerpEngine:
             reduce_only=True,
             reason=reason,
         )
-        fill = self.broker.execute(
+        fill = self._execute_broker_order(
             order,
             book=book,
             taker_fee_bps=inst.taker_fee_bps,
@@ -822,7 +886,7 @@ class PerpEngine:
             action="OPEN", price=float(px), size=size, leverage=lev,
             reduce_only=False, reason=f"פקודה ידנית ({dir_u} ×{lev:.1f})",
         )
-        fill = self.broker.execute(
+        fill = self._execute_broker_order(
             order, book=book, taker_fee_bps=inst.taker_fee_bps,
             ct_val=inst.contract_val, lot_size=inst.lot_size, tick_size=inst.tick_size,
         )
