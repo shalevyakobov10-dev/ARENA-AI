@@ -1,0 +1,52 @@
+name: Security branch checks
+
+on:
+  push:
+    branches:
+      - "agent/chatgpt/secure-status-server-auth"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install project and test dependencies
+        run: python -m pip install -e ".[dev]"
+      - name: Compile Python sources
+        run: python -m compileall -q src tests
+      - name: Check supervisor shell syntax
+        run: bash -n scripts/run_autonomous.sh
+      - name: Check embedded dashboard JavaScript syntax
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+
+          source = pathlib.Path("src/pmmb/ui.py").read_text(encoding="utf-8")
+          match = re.search(r'^_UI_JS = r"""(.*?)^"""', source, flags=re.MULTILINE | re.DOTALL)
+          if not match:
+              raise SystemExit("Could not extract _UI_JS from src/pmmb/ui.py")
+          target = pathlib.Path(os.environ["RUNNER_TEMP"]) / "pmmb-ui.js"
+          target.write_text(match.group(1), encoding="utf-8")
+          print(f"Extracted {len(match.group(1))} characters to {target}")
+          PY
+          node --check "$RUNNER_TEMP/pmmb-ui.js"
+      - name: Run tests
+        run: python -m pytest -q

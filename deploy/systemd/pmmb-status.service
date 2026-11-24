@@ -1,6 +1,6 @@
-# שרת המצב — לראות מהטלפון. קריאה בלבד, אין נתיב שמבצע פקודות.
+# שרת דשבורד ו-API מאומתים; PMMB_STATUS_TOKEN מוגדר ב-.env.
 [Unit]
-Description=PMMB — שרת מצב (קריאה בלבד)
+Description=PMMB — שרת דשבורד ו-API מאומתים
 After=network-online.target
 
 [Service]

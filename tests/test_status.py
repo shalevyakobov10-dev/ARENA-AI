@@ -70,8 +70,8 @@ def test_health_reflects_stale_heartbeat(tmp_path, cfg, monkeypatch):
 def test_token_check():
     from pmmb.server import token_ok
 
-    assert token_ok("", "") is True          # אין הגנה
-    assert token_ok("abc", "") is True
+    assert token_ok("", "") is False         # טוקן ריק לעולם לא מאשר
+    assert token_ok("abc", "") is False
     assert token_ok("abc", "abc") is True
     assert token_ok("", "abc") is False
     assert token_ok("abd", "abc") is False

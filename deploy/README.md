@@ -63,12 +63,15 @@ docker compose -f deploy/docker/docker-compose.yml logs -f bot
 | שיטה | איך | מתאים ל |
 |---|---|---|
 | **Telegram** | `PMMB_TELEGRAM_TOKEN` + `PMMB_TELEGRAM_CHAT_ID` ב-`.env`, ואז `pmmb notify-test` | כל מקום, גם בלי IP ציבורי. **מומלץ** |
-| **Tailscale** | להתקין על המחשב ועל הטלפון, ואז `http://<machine>:8787` מהרשת הפרטית | דשבורד מלא, בלי לפתוח פורט לאינטרנט |
-| **פורט ציבורי** | `pmmb serve --port 8787 --token <סוד>` + פתיחת פורט/Cloudflare Tunnel | רק עם טוקן. הדשבורד קריאה בלבד |
+| **Tailscale** | להתקין על המחשב ועל הטלפון; להגדיר `PMMB_STATUS_TOKEN` ב־`.env` ולהריץ עם `--host 0.0.0.0` | דשבורד מלא ברשת פרטית ומוצפנת |
+| **פורט ציבורי** | `PMMB_STATUS_TOKEN` ב־`.env` + `pmmb serve --host 0.0.0.0` מאחורי HTTPS Tunnel / reverse proxy | טוקן חובה ו־TLS; אין לחשוף את 8787 ישירות באינטרנט |
 
 ```bash
-pmmb serve --host 0.0.0.0 --port 8787 --token "$(openssl rand -hex 16)"
-# מהטלפון: http://<ip>:8787/?token=<הטוקן>
+# הוסף ל-.env (הקובץ אינו נכנס ל-Git): PMMB_STATUS_TOKEN=<סוד אקראי חזק>
+pmmb serve --host 0.0.0.0 --port 8787
+# Tailscale: http://<machine>:8787/#token=<הסוד מ-.env>
+# ציבורי: https://<domain>/#token=<הסוד מ-.env> דרך HTTPS Tunnel בלבד.
+# ה-fragment אינו נשלח לשרת; לאחר טעינה הוא נמחק מההיסטוריה.
 ```
 
 ### מה רואים בדשבורד

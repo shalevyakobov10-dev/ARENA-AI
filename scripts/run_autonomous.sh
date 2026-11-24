@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.." || exit 1
 
 mkdir -p logs state backups reports
 LOG="logs/autonomous.log"
+HOST="${PMMB_HOST:-127.0.0.1}"
 PORT="${PMMB_PORT:-8787}"
 INTERVAL="${PMMB_INTERVAL:-120}"
 REFRESH="${PMMB_REFRESH:-30}"
@@ -22,8 +23,8 @@ log_msg "מאתחל בדיקת שלמות וסנכרון DB לפני הרצה...
 "$BIN" backup >>"$LOG" 2>&1 || true
 
 while true; do
-  log_msg "מפעיל את PMMB Command Center + Autopilot (port=$PORT, interval=${INTERVAL}s)..."
-  "$BIN" serve --host 0.0.0.0 --port "$PORT" --autostart --interval "$INTERVAL" --refresh "$REFRESH" >>"$LOG" 2>&1
+  log_msg "מפעיל את PMMB Command Center + Autopilot (host=$HOST, port=$PORT, interval=${INTERVAL}s)..."
+  "$BIN" serve --host "$HOST" --port "$PORT" --autostart --interval "$INTERVAL" --refresh "$REFRESH" >>"$LOG" 2>&1
   rc=$?
   log_msg "השרת נעצר (exit=$rc) — מריץ בדיקת סנכרון ומאתחל מחדש בעוד 5 שניות..."
   "$BIN" reconcile >>"$LOG" 2>&1 || true
