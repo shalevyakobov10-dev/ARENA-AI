@@ -35,10 +35,18 @@ class UnifiedPortfolioSnapshot:
     open_positions: int
     polymarket_realized_today: float
     perps_realized_today: float
+    unrealized_pnl: float
+    marks_fresh: bool
+    mark_failures: tuple[str, ...] = ()
 
     @property
     def realized_today(self) -> float:
         return self.polymarket_realized_today + self.perps_realized_today
+
+    @property
+    def combined_risk_pnl(self) -> float:
+        """Realized PnL plus the current floating PnL of all open positions."""
+        return self.realized_today + self.unrealized_pnl
 
     def as_dict(self) -> dict:
         return {
@@ -50,6 +58,10 @@ class UnifiedPortfolioSnapshot:
             "polymarket_realized_today": round(self.polymarket_realized_today, 2),
             "perps_realized_today": round(self.perps_realized_today, 2),
             "realized_today": round(self.realized_today, 2),
+            "unrealized_pnl": round(self.unrealized_pnl, 2),
+            "combined_risk_pnl": round(self.combined_risk_pnl, 2),
+            "marks_fresh": self.marks_fresh,
+            "mark_failures": list(self.mark_failures),
         }
 
 
@@ -124,12 +136,13 @@ def build_unified_portfolio_snapshot(
     *,
     now: datetime | None = None,
 ) -> UnifiedPortfolioSnapshot:
-    """Build a ledger-backed snapshot. No exchange/network requests are made."""
+    """Build a ledger + fresh-mark snapshot. Never performs network requests."""
     now = now or datetime.now(tz=timezone.utc)
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
     else:
         now = now.astimezone(timezone.utc)
+    now_ts = int(now.timestamp())
     day_start = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
 
     poly_positions = store.open_positions(cfg.execution.mode)
@@ -137,19 +150,63 @@ def build_unified_portfolio_snapshot(
         max(0.0, float(row["size"] or 0.0)) * max(0.0, float(row["avg_price"] or 0.0))
         for row in poly_positions
     )
+    active_poly_tokens = {str(row["token_id"]) for row in poly_positions}
     poly_fills_today = store.fills_since(day_start, cfg.execution.mode)
-    # SELL realized already includes the exit fee in Portfolio.apply_fill.
-    # BUY fees are cash costs but are not booked into realized_pnl until exit.
+    # SELL realized includes its exit fee. BUY fees for still-open tokens are
+    # applied to their floating PnL below; BUY fees for tokens closed today
+    # are deducted here.
     poly_realized_today = sum(float(row["realized"] or 0.0) for row in poly_fills_today)
     poly_realized_today -= sum(
         max(0.0, float(row["fee"] or 0.0))
         for row in poly_fills_today
         if str(row["side"]).upper() == "BUY"
+        and str(row["token_id"]) not in active_poly_tokens
     )
 
-    # A disabled engine can still have open ledger positions. Disabling new
-    # entries must never make those existing positions disappear from the
-    # cross-arm budget or position count.
+    unrealized_pnl = 0.0
+    mark_failures: list[str] = []
+    poly_max_age = max(180, int(float(cfg.autopilot.stream_interval_sec) * 4))
+    for position in poly_positions:
+        token = str(position["token_id"])
+        candidates: list[tuple[int, float]] = []
+        book = store._conn.execute(
+            "SELECT ts, best_bid, mid FROM books WHERE token_id=? ORDER BY ts DESC LIMIT 1",
+            (token,),
+        ).fetchone()
+        if book is not None:
+            book_price = book["best_bid"] if book["best_bid"] is not None and float(book["best_bid"]) > 0 else book["mid"]
+            if book_price is not None:
+                candidates.append((int(book["ts"]), float(book_price)))
+        tick = store._conn.execute(
+            "SELECT ts, price FROM ticks WHERE token_id=? ORDER BY ts DESC LIMIT 1",
+            (token,),
+        ).fetchone()
+        if tick is not None:
+            candidates.append((int(tick["ts"]), float(tick["price"])))
+
+        if not candidates:
+            mark_failures.append(f"polymarket:{token[:12]}:missing")
+            continue
+        mark_ts, mark = max(candidates, key=lambda item: item[0])
+        age = max(0, now_ts - mark_ts)
+        size = float(position["size"] or 0.0)
+        avg = float(position["avg_price"] or 0.0)
+        if age > poly_max_age or not math.isfinite(mark) or not 0.0 < mark < 1.0 or size <= 0 or avg <= 0:
+            mark_failures.append(f"polymarket:{token[:12]}:stale-or-invalid")
+            continue
+
+        unrealized_pnl += (mark - avg) * size
+        # Fees from today's entries into an open token are not realized until
+        # exit, so include them exactly once in the floating component.
+        open_entry_fees = store._conn.execute(
+            """SELECT COALESCE(SUM(fee),0) AS fees FROM fills
+               WHERE mode=? AND token_id=? AND side='BUY' AND ts>=?""",
+            (cfg.execution.mode, token, day_start),
+        ).fetchone()
+        unrealized_pnl -= max(0.0, float(open_entry_fees["fees"] or 0.0))
+
+    # A disabled engine can still have open PERPS positions. Keep them in the
+    # budget and in the mark-to-market loss calculation.
     perps_state = store.load_perp_portfolio_state(
         cfg.perps.mode,
         cfg.perps.risk.starting_cash,
@@ -158,21 +215,56 @@ def build_unified_portfolio_snapshot(
     perps_positions = list(perps_state["positions"])
     perps_margin = sum(max(0.0, float(p.margin_used)) for p in perps_positions)
     perps_realized_today = float(perps_state["realized_pnl_today"] or 0.0)
-    # For PERPS, closed-trade realized PnL already includes the lifecycle
-    # fees. Entry fees for positions still open are not realized yet, so book
-    # today's entry costs once (and only while that position remains open).
+    # Entry fees for positions opened today have not reached realized PnL yet.
     perps_realized_today -= sum(
         max(0.0, float(p.fees_paid or 0.0))
         for p in perps_positions
         if int(p.opened_at.timestamp()) >= day_start
     )
+    perps_max_age = max(180, int(float(cfg.perps.interval_sec) * 4))
+
+    for position in perps_positions:
+        row = store._conn.execute(
+            """SELECT price, mark_price, updated_at FROM perp_intel
+               WHERE symbol=? LIMIT 1""",
+            (position.symbol,),
+        ).fetchone()
+        if row is None:
+            mark_failures.append(f"perps:{position.symbol}:missing")
+            continue
+        mark_raw = row["mark_price"] if row["mark_price"] is not None and float(row["mark_price"]) > 0 else row["price"]
+        if mark_raw is None:
+            mark_failures.append(f"perps:{position.symbol}:missing")
+            continue
+        mark = float(mark_raw)
+        age = max(0, now_ts - int(row["updated_at"] or 0))
+        if age > perps_max_age or not math.isfinite(mark) or mark <= 0:
+            mark_failures.append(f"perps:{position.symbol}:stale-or-invalid")
+            continue
+
+        entry_fee_today = store._conn.execute(
+            """SELECT COALESCE(SUM(fee),0) AS fees FROM perp_fills
+               WHERE mode=? AND symbol=? AND action='OPEN' AND ts>=?""",
+            (cfg.perps.mode, position.symbol, day_start),
+        ).fetchone()
+        # If the position predates today, today's added entry fees belong in
+        # its floating component. For positions opened today they were already
+        # included in perps_realized_today above.
+        fee_to_charge = (
+            0.0 if int(position.opened_at.timestamp()) >= day_start
+            else max(0.0, float(entry_fee_today["fees"] or 0.0))
+        )
+        unrealized_pnl += (
+            position.unrealized_pnl(mark)
+            + float(position.accumulated_funding or 0.0)
+            - fee_to_charge
+        )
 
     # Both configured balances belong to the combined account even while
-    # one engine is paused; its existing capital is not removed by disabling it.
+    # one engine is paused; disabling it does not remove its existing capital.
     starting_capital = (
         float(cfg.execution.starting_cash) + float(cfg.perps.risk.starting_cash)
     )
-
     return UnifiedPortfolioSnapshot(
         starting_capital=starting_capital,
         polymarket_committed=poly_committed,
@@ -181,8 +273,10 @@ def build_unified_portfolio_snapshot(
         open_positions=len(poly_positions) + len(perps_positions),
         polymarket_realized_today=poly_realized_today,
         perps_realized_today=perps_realized_today,
+        unrealized_pnl=round(unrealized_pnl, 6),
+        marks_fresh=not mark_failures,
+        mark_failures=tuple(mark_failures),
     )
-
 
 def evaluate_unified_entry(
     store: Store,
@@ -251,6 +345,28 @@ def evaluate_unified_entry(
     capital_limit = snapshot.starting_capital * float(limits.max_capital_utilization_pct)
     projected = snapshot.committed_capital + amount
     utilization = projected / snapshot.starting_capital * 100.0
+
+    if snapshot.open_positions and not snapshot.marks_fresh:
+        failures = ", ".join(snapshot.mark_failures[:3])
+        return UnifiedRiskDecision(
+            False,
+            f"לא ניתן לאמת Mark-to-Market של כל הפוזיציות ({failures}) — נחסמה כניסה",
+            snapshot,
+            amount,
+            utilization,
+        )
+
+    if snapshot.combined_risk_pnl <= -daily_limit:
+        reason = (
+            f"הפסד מסומן משולב {snapshot.combined_risk_pnl:.2f} עבר את תקרת ההפסד "
+            f"({-daily_limit:.2f}); עצירת חירום הופעלה"
+        )
+        try:
+            write_halt(reason, source="unified-risk")
+        except Exception:  # noqa: BLE001
+            log.exception("Could not persist unified mark-to-market halt")
+        return UnifiedRiskDecision(False, reason, snapshot, amount, utilization)
+
     if projected > capital_limit + 1e-8:
         return UnifiedRiskDecision(
             False,
