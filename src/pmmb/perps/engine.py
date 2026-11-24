@@ -73,6 +73,8 @@ class PerpEngine:
         self._last_marks: dict[str, float] = {}
         self._last_day = utcnow().date()
         self._news_articles: list[dict[str, Any]] = []
+        # In-process fail-closed latch; supplements the persistent halt file if disk writes fail.
+        self._execution_uncertain = False
         self._restore_state()
 
     def _restore_state(self) -> None:
@@ -136,6 +138,10 @@ class PerpEngine:
     def monitor_open_positions(self) -> PerpCycleStats:
         """ניטור מהיר (Sub-second) רק לפוזיציות פתוחות — לעצירת SL/TP/Trailing בין מחזורים."""
         stats = PerpCycleStats()
+        halt = read_halt()
+        if self._execution_uncertain or (halt and halt.source == "execution_uncertain"):
+            stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
+            return stats
         if not self.positions:
             return stats
         self._load_news()
@@ -167,6 +173,10 @@ class PerpEngine:
 
     def run_once(self) -> PerpCycleStats:
         stats = PerpCycleStats()
+        halt = read_halt()
+        if self._execution_uncertain or (halt and halt.source == "execution_uncertain"):
+            stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
+            return stats
         self._roll_day_if_needed()
         self._load_news()
 
@@ -271,6 +281,16 @@ class PerpEngine:
                     pending_entries.append((inst, sig, book, row))
                 elif sig.direction == "FLAT":
                     stats.skip(sig.reason)
+            except PerpsExecutionUncertain as exc:
+                self._execution_uncertain = True
+                stats.errors += 1
+                log.critical(
+                    "PERPS stopped after uncertain execution for %s: %s",
+                    inst.symbol,
+                    exc,
+                    exc_info=True,
+                )
+                break
             except Exception as exc:
                 stats.errors += 1
                 log.exception("Perps שגיאה בעיבוד %s: %s", inst.symbol, exc)
@@ -287,12 +307,25 @@ class PerpEngine:
                 bk = self.exchange.get_book(inst_stub)
                 mk_px = bk.mid if bk and bk.mid else self._last_marks.get(sym, pos.entry_price)
                 self._last_marks[sym] = mk_px
-                self._process_position(pos, inst_stub, None, bk, mk_px, stats)
+                try:
+                    self._process_position(pos, inst_stub, None, bk, mk_px, stats)
+                except PerpsExecutionUncertain as exc:
+                    self._execution_uncertain = True
+                    stats.errors += 1
+                    log.critical(
+                        "PERPS stopped after uncertain orphan-position execution for %s: %s",
+                        sym,
+                        exc,
+                        exc_info=True,
+                    )
+                    break
 
         # בדיקת Kill Switch גלובלי ועצירת חירום (halt.json) לפני כניסות חדשות
         self.risk.check_global_kill(self._equity(), self.realized_pnl_today)
         halted = read_halt()
-        if halted:
+        if self._execution_uncertain or (halted and halted.source == "execution_uncertain"):
+            stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
+        elif halted:
             stats.skip(f"עצירת חירום פעילה ({halted.reason})")
         else:
             pending_entries.sort(key=lambda item: (-float(item[1].score), -float(item[0].volume_24h_usd)))

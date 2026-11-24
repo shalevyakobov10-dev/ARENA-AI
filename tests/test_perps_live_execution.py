@@ -293,6 +293,9 @@ class _StubExchange:
     def get_book(self, instrument, levels=8):
         return None
 
+    def get_candles(self, instrument, interval="1h", lookback=160):
+        return []
+
     def close(self):
         pass
 
@@ -442,6 +445,33 @@ def test_uncertain_execution_halt_blocks_automatic_close_attempt(tmp_path, monke
         write_halt("unresolved live order", source="execution_uncertain")
         stats = PerpCycleStats()
         eng._process_position(position, eng.exchange.instrument, None, None, 110.0, stats)
+        assert eng.broker.calls == 0
+        assert eng.positions["BTC"] is position
+    finally:
+        eng.close()
+
+
+
+def test_engine_latches_uncertain_execution_when_halt_file_cannot_be_read_or_written(tmp_path, monkeypatch):
+    from pmmb.perps.engine import PerpCycleStats
+    from pmmb.runtime import read_halt
+
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "missing-state"))
+    eng, position = _engine(tmp_path, _FixedBroker(None))
+    try:
+        def uncertain(*_args, **_kwargs):
+            raise PerpsExecutionUncertain("mock ambiguous exchange acknowledgement")
+
+        monkeypatch.setattr(eng, "_process_position", uncertain)
+        first = eng.run_once()
+        assert eng._execution_uncertain is True
+        assert first.errors == 1
+
+        # Even if no persistent halt file could be written, later cycles stay blocked
+        # in this process and do not attempt to submit another close/open order.
+        monkeypatch.setattr(eng.exchange, "scan", lambda: pytest.fail("must not scan after uncertain execution"))
+        second = eng.run_once()
+        assert second.errors == 0
         assert eng.broker.calls == 0
         assert eng.positions["BTC"] is position
     finally:
