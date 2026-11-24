@@ -285,6 +285,9 @@ def test_perps_server_api_endpoints(tmp_path):
             ch = json.loads(resp.read().decode())
             assert ch["symbol"] == "BTC"
 
+        # The endpoint toggle above intentionally disabled PERPS. Re-enable
+        # the arm before directly starting an engine to create a Paper position.
+        cfg.perps.enabled = True
         # בדיקת סגירה ידנית של פוזיציות PERPS ו-Polymarket דרך /api/positions/close
         cs_close = _mk_candles(140, base=100.0, mode="mr_long")
         eng_c = PerpEngine(cfg, exchange=_FakePerpExchange(cs_close))
