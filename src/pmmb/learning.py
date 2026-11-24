@@ -181,10 +181,22 @@ def _eval_fixed_oos(
 
 
 def _majority_params(folds) -> dict:
-    """בוחר את צירוף הפרמטרים המוביל של החלון האחרון (מעודכן ביותר לשוק הנוכחי)."""
+    """Returns the latest fold's parameters; promotion separately requires fold stability."""
     if not folds:
         return {}
     return dict(folds[-1].best_params)
+
+
+def _parameters_stable_across_folds(folds, candidate: dict[str, Any]) -> bool:
+    """A single live config is promotable only if every OOS fold tested that same config.
+
+    Walk-forward aggregate PnL is produced by each fold's own best parameters. If
+    those parameter sets differ, that aggregate does not validate the one config
+    that would be written to the paper configuration.
+    """
+    if not folds or not candidate:
+        return False
+    return all(dict(getattr(fold, "best_params", {}) or {}) == candidate for fold in folds)
 
 
 @dataclass
@@ -204,6 +216,7 @@ class LearningReport:
     summary: str
     live_stats: dict[str, Any] = field(default_factory=dict)
     insights: list[str] = field(default_factory=list)
+    parameters_stable: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -222,6 +235,7 @@ class LearningReport:
             "summary": self.summary,
             "live_stats": self.live_stats,
             "insights": self.insights,
+            "parameters_stable": self.parameters_stable,
         }
 
 
@@ -351,14 +365,18 @@ def run_self_learning_cycle(
     base_oos, base_trades = _eval_fixed_oos(cfg, datasets, folds=3, spread=0.01)
     wf = run_walkforward(cfg, datasets, folds=3, spread=0.01)
     cand = _majority_params(wf.folds)
+    parameters_stable = _parameters_stable_across_folds(wf.folds, cand)
     cand_oos = round(wf.oos_pnl, 2)
     cand_ex_top = round(wf.oos_pnl_ex_top, 2)
 
-    # בדיקת 4 שערי הקידום
+    # The aggregate walk-forward result validates one promoted config only
+    # when every fold independently selected that exact same parameter set.
+    # בדיקת 4 שערי הקידום + יציבות הפרמטרים בין החלונות
     lr = cfg.learning
     min_req = base_oos * (1.0 + lr.min_improvement_pct) if base_oos > 0 else max(5.0, abs(base_oos) * 0.25)
     passed_gates = (
-        wf.oos_trades >= lr.min_oos_trades
+        parameters_stable
+        and wf.oos_trades >= lr.min_oos_trades
         and wf.consistency >= lr.min_consistency
         and cand_ex_top > 0
         and cand_oos > min_req
@@ -387,9 +405,10 @@ def run_self_learning_cycle(
             f"נמצא שיפור מאומת ({base_oos:+.2f} → {cand_oos:+.2f}) — ממתין לאישור במצב {cfg.execution.mode}"
         )
     else:
+        stability_note = "" if parameters_stable else " | פרמטרי המועמד אינם יציבים בין חלונות OOS — קידום נחסם"
         summary = (
             f"הקונפיגורציה הנוכחית נשמרה ({base_oos:+.2f} OOS מול מועמד {cand_oos:+.2f}, "
-            f"עקביות {wf.consistency*100:.0f}%, {wf.oos_trades} עסקאות)"
+            f"עקביות {wf.consistency*100:.0f}%, {wf.oos_trades} עסקאות{stability_note})"
         )
 
     rep = LearningReport(
@@ -399,6 +418,7 @@ def run_self_learning_cycle(
         candidate_trades=wf.oos_trades, consistency=wf.consistency,
         baseline_cfg=baseline_snap, candidate_cfg=cand,
         applied=applied, summary=summary, live_stats=live_stats, insights=insights,
+        parameters_stable=parameters_stable,
     )
     store.record_learning_run(
         mode=cfg.execution.mode,
@@ -429,6 +449,7 @@ def _write_learning_reports(rep: LearningReport, reports_dir: str | Path) -> Non
         f"- **אותות חיים שהוערכו הפעם:** {rep.signals_evaluated}",
         f"- **Baseline OOS:** {rep.baseline_oos:+.2f} USDC ({rep.baseline_trades} עסקאות)",
         f"- **מועמד OOS:** {rep.candidate_oos:+.2f} USDC ({rep.candidate_trades} עסקאות · עקביות {rep.consistency*100:.0f}% · ללא מוביל {rep.candidate_oos_ex_top:+.2f})",
+        f"- **יציבות פרמטרים בין חלונות:** {'כן' if rep.parameters_stable else 'לא — קידום חסום'}",
         f"- **יושם לקונפיג:** {'כן ✅' if rep.applied else 'לא (נשמרה הגנה)'}",
     ]
     if rep.insights:
