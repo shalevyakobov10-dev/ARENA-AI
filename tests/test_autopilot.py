@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from pmmb.autopilot import (
     monitor_open_positions_news,
@@ -174,3 +175,60 @@ def test_server_autopilot_maintain_endpoint(tmp_path, cfg, monkeypatch):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_auto_reconcile_does_not_report_clean_when_perps_has_unfixed_discrepancy(tmp_path, cfg, monkeypatch):
+    import pmmb.autopilot as autopilot
+
+    cfg.execution.mode = "paper"
+    cfg.perps.enabled = True
+    cfg.perps.mode = "paper"
+    cfg.autopilot.auto_fix_paper = False
+    store = Store(tmp_path / "perps-unfixed.db")
+    clean_spot = SimpleNamespace(clean=True, discrepancies=[], fixes_applied=0)
+    dirty_perps = SimpleNamespace(
+        clean=False, discrepancies=[SimpleNamespace(kind="perp_ledger_mismatch")],
+        fixes_applied=0,
+    )
+    monkeypatch.setattr(autopilot, "reconcile_paper", lambda *a, **k: clean_spot)
+    monkeypatch.setattr(autopilot, "reconcile_perps", lambda *a, **k: dirty_perps)
+
+    result = autopilot.run_auto_reconcile(cfg, store)
+    store.close()
+
+    assert result["ok"] is False
+    assert result["fixed"] is False
+    assert "1 פערים" in result["summary"]
+
+
+def test_auto_reconcile_verifies_perps_after_attempted_auto_fix(tmp_path, cfg, monkeypatch):
+    import pmmb.autopilot as autopilot
+
+    cfg.execution.mode = "paper"
+    cfg.perps.enabled = True
+    cfg.perps.mode = "paper"
+    cfg.autopilot.auto_fix_paper = True
+    store = Store(tmp_path / "perps-fix.db")
+    clean_spot = SimpleNamespace(clean=True, discrepancies=[], fixes_applied=0)
+    unresolved = SimpleNamespace(
+        clean=False, discrepancies=[SimpleNamespace(kind="perp_ledger_mismatch")],
+        fixes_applied=0,
+    )
+    attempted_fix = SimpleNamespace(
+        clean=False, discrepancies=[SimpleNamespace(kind="perp_ledger_mismatch")],
+        fixes_applied=1,
+    )
+    calls = []
+    responses = [unresolved, attempted_fix, unresolved]
+    def fake_perps(*args, **kwargs):
+        calls.append(kwargs["fix"])
+        return responses[len(calls) - 1]
+    monkeypatch.setattr(autopilot, "reconcile_paper", lambda *a, **k: clean_spot)
+    monkeypatch.setattr(autopilot, "reconcile_perps", fake_perps)
+
+    result = autopilot.run_auto_reconcile(cfg, store)
+    store.close()
+
+    assert calls == [False, True, False]
+    assert result["ok"] is False
+    assert result["fixed"] is True
