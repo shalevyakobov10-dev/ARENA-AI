@@ -18,8 +18,12 @@ from pmmb.unified_risk import (
 
 
 @pytest.fixture
-def shared_store(tmp_path, cfg):
+def shared_store(tmp_path, cfg, monkeypatch):
     cfg.data.db_path = str(tmp_path / "shared-risk.db")
+    # Each test gets an isolated runtime state directory so a deliberate
+    # daily-loss halt cannot leak into unrelated engine tests.
+    state_dir = tmp_path / "runtime-state"
+    monkeypatch.setenv("PMMB_STATE_DIR", str(state_dir))
     store = Store(cfg.data.db_path)
     yield store
     store.close()
