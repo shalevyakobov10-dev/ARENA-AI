@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import pytest
 from datetime import datetime, timedelta, timezone
 
 from pmmb.config import Config, PerpsConfig
@@ -280,10 +281,15 @@ def test_perps_server_api_endpoints(tmp_path):
             d = json.loads(resp.read().decode())
             assert d["ok"] is True
             assert d["enabled"] is False
+        # Re-enable for the synthetic entry used to seed a position for the close-route test.
+        cfg.perps.enabled = True
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/perps/chart?symbol=BTC", timeout=5) as resp:
             ch = json.loads(resp.read().decode())
             assert ch["symbol"] == "BTC"
 
+        # The endpoint toggle above intentionally disabled PERPS. Re-enable
+        # the arm before directly starting an engine to create a Paper position.
+        cfg.perps.enabled = True
         # בדיקת סגירה ידנית של פוזיציות PERPS ו-Polymarket דרך /api/positions/close
         cs_close = _mk_candles(140, base=100.0, mode="mr_long")
         eng_c = PerpEngine(cfg, exchange=_FakePerpExchange(cs_close))
@@ -740,3 +746,31 @@ def test_autonomous_housekeeping_and_evolve(tmp_path, monkeypatch):
 
 
 
+
+def test_perps_engine_denies_automatic_and_manual_entries_when_shared_gate_rejects(
+    monkeypatch, cfg, tmp_path
+):
+    from types import SimpleNamespace
+
+    cfg.data.db_path = str(tmp_path / "perps-shared-guard.db")
+    cfg.perps.mode = "paper"
+    calls = []
+
+    def _deny(_store, _cfg, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(approved=False, reason="blocked by test shared budget")
+
+    monkeypatch.setattr("pmmb.perps.engine.evaluate_unified_entry", _deny)
+    ex = _FakePerpExchange(_mk_candles(140, base=100.0, mode="mr_long"))
+    eng = PerpEngine(cfg, exchange=ex)
+    try:
+        stats = eng.run_once()
+        assert stats.entries == 0
+        assert "BTC" not in eng.positions
+        assert calls and calls[0]["arm"] == "perps"
+
+        with pytest.raises(PermissionError, match="שער תיק מאוחד"):
+            eng.open_manual_order("BTC", "LONG", 20.0, 5.0)
+        assert len(calls) >= 2
+    finally:
+        eng.close()
