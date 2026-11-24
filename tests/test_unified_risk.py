@@ -270,7 +270,7 @@ def test_shared_entry_lock_serializes_separate_processes(cfg, tmp_path, monkeypa
 
     state_dir = tmp_path / "state-process"
     monkeypatch.setenv("PMMB_STATE_DIR", str(state_dir))
-    ctx = multiprocessing.get_context("fork")
+    ctx = multiprocessing.get_context("spawn")
     child_entered = ctx.Event()
     release_child = ctx.Event()
 
