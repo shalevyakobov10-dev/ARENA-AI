@@ -29,7 +29,7 @@ from .broker import PaperPerpBroker, PerpsExecutionUncertain
 from .exchange import MultiPerpExchange
 from .models import PerpBook, PerpCandle, PerpFill, PerpInstrument, PerpOrder, PerpPosition, PerpSignal, utcnow
 from .risk import PerpRiskManager, calc_liquidation_price
-from ..unified_risk import evaluate_unified_entry, unified_entry_lock
+from ..unified_risk import ensure_unified_day_baseline, evaluate_unified_entry, unified_entry_lock
 from .signals import ProMultiRegimeEngine, assess_perps_news
 
 log = logging.getLogger(__name__)
@@ -243,6 +243,9 @@ class PerpEngine:
             stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
             return stats
         self._roll_day_if_needed()
+        # Capture the UTC-day anchor before any PERPS position can be closed.
+        with unified_entry_lock(self.cfg):
+            ensure_unified_day_baseline(self.store, self.cfg)
         self._load_news()
 
         try:
@@ -291,9 +294,10 @@ class PerpEngine:
                 self._last_marks[inst.symbol] = mark
 
                 if inst.symbol in self.positions:
-                    self._process_position(
-                        self.positions[inst.symbol], inst, candles[-1] if candles else None, book, mark, stats
-                    )
+                    with unified_entry_lock(self.cfg):
+                        self._process_position(
+                            self.positions[inst.symbol], inst, candles[-1] if candles else None, book, mark, stats
+                        )
 
                 sig = self.signals.evaluate(
                     inst, candles, book=book, btc_candles=btc_candles, news_articles=self._news_articles
@@ -373,7 +377,8 @@ class PerpEngine:
                 mk_px = bk.mid if bk and bk.mid else self._last_marks.get(sym, pos.entry_price)
                 self._last_marks[sym] = mk_px
                 try:
-                    self._process_position(pos, inst_stub, None, bk, mk_px, stats)
+                    with unified_entry_lock(self.cfg):
+                        self._process_position(pos, inst_stub, None, bk, mk_px, stats)
                 except PerpsExecutionUncertain as exc:
                     self._mark_execution_uncertain(str(exc))
                     stats.errors += 1
@@ -694,7 +699,13 @@ class PerpEngine:
         self.store.event("perp_entry", msg, data={"symbol": inst.symbol, "leverage": actual_leverage, "margin": margin_used})
 
     def close_position_by_symbol(self, symbol: str, reason: str = "סגירה ידנית מהטרמינל") -> dict[str, Any]:
-        """סוגר פוזיציית PERPS פתוחה לפי סמל נכס במחיר שוק חי (reduce_only=True)."""
+        """סוגר פוזיציית PERPS תחת הנעילה המאוחדת."""
+        with unified_entry_lock(self.cfg):
+            ensure_unified_day_baseline(self.store, self.cfg)
+            return self._close_position_by_symbol_locked(symbol, reason)
+
+    def _close_position_by_symbol_locked(self, symbol: str, reason: str) -> dict[str, Any]:
+        """סגירת PERPS ידנית; caller מחזיק unified_entry_lock."""
         if self._execution_blocked():
             raise PerpsExecutionUncertain("PERPS execution is latched as uncertain; reconcile before manual close")
         sym = symbol.strip().upper()
