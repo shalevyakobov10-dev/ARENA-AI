@@ -49,6 +49,30 @@ def test_risk_desk_does_not_turn_missing_exposure_into_zero():
     assert metrics["overall_status"] == "warning"
 
 
+
+def test_disabled_perps_arm_still_reports_existing_positions_and_margin():
+    metrics = build_risk_desk_metrics({
+        "combined": {"equity": 2000.0, "open_positions": 1},
+        "bankroll": {"equity": 1000.0, "exposure": 100.0},
+        "perps": {
+            "enabled": False,
+            "equity": 1000.0,
+            "notional": 800.0,
+            "margin_used": 160.0,
+            "avg_leverage": 5.0,
+            "positions": [{"symbol": "BTC"}],
+            "guards": {"max_margin_pct": 50.0},
+        },
+        "config": {"risk": {"max_total_exposure_pct": 0.4}},
+    })
+
+    assert metrics["gross_notional"] == 900.0
+    assert metrics["perps_margin"] == 160.0
+    assert metrics["perps_margin_limit"] == 500.0
+    assert metrics["perps_status"] == "healthy"
+    assert metrics["perps_avg_leverage"] == 5.0
+
+
 def test_risk_desk_flags_exposure_or_margin_above_arm_limit():
     metrics = build_risk_desk_metrics({
         "combined": {"equity": 1000.0, "open_positions": 2},
