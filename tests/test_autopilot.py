@@ -219,11 +219,10 @@ def test_auto_reconcile_verifies_perps_after_attempted_auto_fix(tmp_path, cfg, m
         fixes_applied=1,
     )
     calls = []
+    responses = [unresolved, attempted_fix, unresolved]
     def fake_perps(*args, **kwargs):
         calls.append(kwargs["fix"])
-        return {False: [unresolved, unresolved], True: [attempted_fix]}[kwargs["fix"]].pop(0) if False else (
-            unresolved if len(calls) == 1 else attempted_fix if len(calls) == 2 else unresolved
-        )
+        return responses[len(calls) - 1]
     monkeypatch.setattr(autopilot, "reconcile_paper", lambda *a, **k: clean_spot)
     monkeypatch.setattr(autopilot, "reconcile_perps", fake_perps)
 
