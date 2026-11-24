@@ -859,9 +859,9 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
             if not token:
                 # No configured secret is acceptable only for loopback clients.
                 return _is_loopback_address(self.client_address[0])
-            given = (query.get("token", [""])[0]
-                     or self.headers.get("X-Token", "")
-                     or self.headers.get("Authorization", "").removeprefix("Bearer "))
+            given = (self.headers.get("X-Token", "")
+                     or self.headers.get("Authorization", "").removeprefix("Bearer ")
+                     or query.get("token", [""])[0])
             return token_ok(given, token)
 
         def _send(self, code: int, body: bytes, ctype: str, *, head_only: bool = False,

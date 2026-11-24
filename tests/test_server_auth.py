@@ -80,3 +80,23 @@ def test_access_token_is_redacted_from_http_logs():
     redacted = _redact_token_from_log(log_line)
     assert "do-not-log-this" not in redacted
     assert "token=[REDACTED]" in redacted
+
+
+def test_auth_header_takes_precedence_over_route_token_query(cfg):
+    handler_type = make_handler(
+        cfg, max_age_sec=60, refresh_sec=30, token="dashboard-secret", trader=object()
+    )
+    handler = object.__new__(handler_type)
+    handler.client_address = ("203.0.113.10", 12345)
+
+    # /api/chart uses ?token= for a market token ID. The auth header must win.
+    handler.headers = {"X-Token": "dashboard-secret"}
+    assert handler._authorized({"token": ["polymarket-market-token-id"]})
+
+    # A bad explicit header must not be rescued by a token-looking query value.
+    handler.headers = {"X-Token": "wrong"}
+    assert not handler._authorized({"token": ["dashboard-secret"]})
+
+    # The query token remains available for the initial browser navigation.
+    handler.headers = {}
+    assert handler._authorized({"token": ["dashboard-secret"]})
