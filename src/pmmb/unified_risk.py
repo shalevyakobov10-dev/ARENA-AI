@@ -432,6 +432,43 @@ def _has_utc_day_trade_activity(store: Store, cfg: Config, day_start: int, now_t
     return bool(int(poly["n"] or 0) or int(perps["n"] or 0))
 
 
+def _saved_baseline_validation_errors(row: dict) -> list[str]:
+    errors: list[str] = []
+    if row.get("status") != "ready":
+        errors.append("baseline status is not ready")
+        return errors
+    try:
+        baseline_ts = int(row.get("baseline_ts"))
+        if baseline_ts <= 0:
+            errors.append("baseline timestamp is invalid")
+    except (TypeError, ValueError, OverflowError):
+        errors.append("baseline timestamp is missing or invalid")
+    for field in ("baseline_realized_pnl", "baseline_unrealized_pnl"):
+        try:
+            if not math.isfinite(float(row.get(field))):
+                errors.append(f"{field} is missing or non-finite")
+        except (TypeError, ValueError, OverflowError):
+            errors.append(f"{field} is missing or invalid")
+    try:
+        positions = int(row.get("open_positions") or 0)
+    except (TypeError, ValueError, OverflowError):
+        positions = -1
+        errors.append("baseline open-position count is invalid")
+    if positions < 0:
+        errors.append("baseline open-position count is negative")
+    if positions > 0:
+        for field in ("mark_ts_min", "mark_ts_max", "mark_skew_sec"):
+            try:
+                value = float(row.get(field))
+                if not math.isfinite(value):
+                    raise ValueError("non-finite")
+            except (TypeError, ValueError, OverflowError):
+                errors.append(f"{field} is missing or invalid for an open-position baseline")
+    if row.get("failures"):
+        errors.extend(str(item) for item in row.get("failures") or [])
+    return errors
+
+
 def ensure_unified_day_baseline(
     store: Store,
     cfg: Config,
@@ -463,20 +500,12 @@ def ensure_unified_day_baseline(
 
         existing = store.get_unified_day_baseline(utc_day)
         if existing is not None:
-            if (
-                existing.get("status") == "ready"
-                and (
-                    existing.get("baseline_ts") is None
-                    or existing.get("baseline_realized_pnl") is None
-                    or existing.get("baseline_unrealized_pnl") is None
-                    or bool(existing.get("failures"))
-                )
-            ):
+            validation_errors = _saved_baseline_validation_errors(existing)
+            if validation_errors:
                 return {
                     **existing,
                     "status": "error",
-                    "failures": list(existing.get("failures") or [])
-                    + ["stored UTC baseline is incomplete or has invalid metadata"],
+                    "failures": validation_errors,
                 }
             return existing
 
@@ -577,7 +606,17 @@ def build_unified_risk_status(
     else:
         current = current.astimezone(timezone.utc)
     snapshot = build_unified_portfolio_snapshot(store, cfg, now=current)
-    baseline = store.get_unified_day_baseline(current.date().isoformat())
+    try:
+        baseline = store.get_unified_day_baseline(current.date().isoformat())
+    except Exception as exc:  # noqa: BLE001 — status should report unknown, not invent zero.
+        log.exception("Could not read synchronized UTC day baseline")
+        baseline = {
+            "status": "error",
+            "baseline_ts": None,
+            "baseline_realized_pnl": None,
+            "baseline_unrealized_pnl": None,
+            "failures": [f"baseline read failed: {type(exc).__name__}"],
+        }
     if baseline is None:
         baseline = {
             "status": "unavailable",
@@ -586,6 +625,10 @@ def build_unified_risk_status(
             "baseline_unrealized_pnl": None,
             "failures": ["no UTC day-start baseline has been captured"],
         }
+    else:
+        validation_errors = _saved_baseline_validation_errors(baseline)
+        if validation_errors:
+            baseline = {**baseline, "status": "error", "failures": validation_errors}
     return replace(
         snapshot,
         baseline_status=str(baseline.get("status") or "error"),
