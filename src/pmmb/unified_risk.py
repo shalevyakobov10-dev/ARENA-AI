@@ -95,10 +95,6 @@ def unified_entry_lock(cfg: Config) -> Iterator[None]:
                 lock_file.seek(0)
                 msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
         try:
-            lock_file.seek(0)
-            lock_file.truncate()
-            lock_file.write(str(os.getpid()))
-            lock_file.flush()
             yield
         finally:
             unlock()
