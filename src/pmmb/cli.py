@@ -593,26 +593,55 @@ def cmd_status(args, cfg: Config) -> int:
 
 
 def cmd_portfolio_risk(args, cfg: Config) -> int:
-    """מצב סיכון מאוחד — הקצאת הון, PnL יומי, טריות סימונים ו-baseline."""
+    """Read-only status of the shared portfolio admission gates."""
     import json
+    import math
 
     from .data.store import Store
     from .unified_risk import _global_halt_reason, build_unified_risk_status
 
-    store = Store(cfg.data.db_path)
+    store = None
     try:
+        store = Store(cfg.data.db_path)
         snapshot = build_unified_risk_status(store, cfg)
+        halt_reason = _global_halt_reason()
+    except Exception as exc:  # noqa: BLE001 — diagnostic must fail closed, not crash open
+        report = {
+            "shared_gate_clear": False,
+            "blockers": [f"unable to verify shared risk ledger: {type(exc).__name__}"],
+        }
+        if args.json:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        else:
+            print("🔴 שער הסיכון המשותף אינו מאומת")
+            print(f"  • {report['blockers'][0]}")
+        return 3
     finally:
-        store.close()
+        if store is not None:
+            store.close()
 
     capital_limit = snapshot.starting_capital * cfg.portfolio_risk.max_capital_utilization_pct
     daily_loss_limit = snapshot.starting_capital * cfg.portfolio_risk.max_daily_loss_pct
+    daily_pnl = snapshot.daily_risk_pnl
+    numeric_values = (
+        snapshot.starting_capital,
+        snapshot.committed_capital,
+        snapshot.polymarket_committed,
+        snapshot.perps_margin_used,
+        capital_limit,
+        daily_loss_limit,
+    )
+    numeric_valid = all(math.isfinite(float(value)) for value in numeric_values)
+    if daily_pnl is not None:
+        numeric_valid = numeric_valid and math.isfinite(float(daily_pnl))
+
     utilization_pct = (
         snapshot.committed_capital / capital_limit * 100.0
-        if capital_limit > 0 else None
+        if numeric_valid and capital_limit > 0 else None
     )
-    halt_reason = _global_halt_reason()
     blockers: list[str] = []
+    if not numeric_valid or snapshot.starting_capital <= 0 or capital_limit <= 0:
+        blockers.append("shared risk snapshot contains invalid capital values")
     if cfg.execution.mode != "paper":
         blockers.append("Polymarket execution is not Paper")
     if cfg.perps.enabled and cfg.perps.mode != "paper":
@@ -621,43 +650,44 @@ def cmd_portfolio_risk(args, cfg: Config) -> int:
         blockers.append(halt_reason)
     if snapshot.baseline_status != "ready":
         blockers.append(f"UTC day-start baseline is {snapshot.baseline_status}")
-    if not snapshot.marks_fresh:
+    if snapshot.open_positions > 0 and not snapshot.marks_fresh:
         blockers.append("one or more open-position marks are missing, stale, or invalid")
-    daily_pnl = snapshot.daily_risk_pnl
-    if daily_pnl is None:
+    if daily_pnl is None or not math.isfinite(float(daily_pnl)):
         blockers.append("verified daily mark-to-market PnL is unavailable")
     elif daily_pnl <= -daily_loss_limit:
         blockers.append("combined daily loss limit has been reached")
-    if snapshot.committed_capital > capital_limit + 1e-9:
-        blockers.append("combined committed capital exceeds its limit")
+    if numeric_valid and snapshot.committed_capital >= capital_limit - 1e-9:
+        blockers.append("no shared capital headroom remains")
     if snapshot.open_positions >= cfg.portfolio_risk.max_open_positions:
         blockers.append("combined open-position limit has been reached")
 
     report = {
-        "entry_ready": not blockers,
+        "shared_gate_clear": not blockers,
+        "scope": "shared portfolio admission gates only; not per-market signal approval",
         "mode": cfg.execution.mode,
         "perps_mode": cfg.perps.mode,
         "snapshot": snapshot.as_dict(),
         "limits": {
-            "capital_limit": round(capital_limit, 2),
+            "capital_limit": round(capital_limit, 2) if math.isfinite(capital_limit) else None,
             "max_capital_utilization_pct": cfg.portfolio_risk.max_capital_utilization_pct,
-            "daily_loss_limit": round(daily_loss_limit, 2),
+            "daily_loss_limit": round(daily_loss_limit, 2) if math.isfinite(daily_loss_limit) else None,
             "max_daily_loss_pct": cfg.portfolio_risk.max_daily_loss_pct,
             "max_open_positions": cfg.portfolio_risk.max_open_positions,
         },
         "capital_utilization_pct": round(utilization_pct, 2) if utilization_pct is not None else None,
         "daily_loss_remaining": (
             round(max(0.0, daily_loss_limit + daily_pnl), 2)
-            if daily_pnl is not None else None
+            if daily_pnl is not None and math.isfinite(float(daily_pnl)) and math.isfinite(daily_loss_limit)
+            else None
         ),
         "halt_reason": halt_reason,
         "blockers": blockers,
     }
 
     if args.json:
-        print(json.dumps(report, ensure_ascii=False, indent=2))
+        print(json.dumps(report, ensure_ascii=False, indent=2, allow_nan=False))
     else:
-        state = "🟢 מוכן לכניסה" if report["entry_ready"] else "🔴 כניסות חסומות / לא מאומתות"
+        state = "🟢 שער הסיכון המשותף פתוח" if report["shared_gate_clear"] else "🔴 שער הסיכון המשותף חסום / לא מאומת"
         print(f"\n{state}")
         print(f"מצב: Polymarket={cfg.execution.mode} · PERPS={cfg.perps.mode} · PERPS enabled={cfg.perps.enabled}")
         print(
@@ -668,7 +698,8 @@ def cmd_portfolio_risk(args, cfg: Config) -> int:
         print(
             f"PnL סיכון יומי: {daily_pnl:+.2f} / -{daily_loss_limit:.2f} · "
             f"יתרת הפסד: {report['daily_loss_remaining']:.2f}"
-            if daily_pnl is not None else "PnL סיכון יומי: לא מאומת"
+            if daily_pnl is not None and math.isfinite(float(daily_pnl))
+            else "PnL סיכון יומי: לא מאומת"
         )
         print(
             f"פוזיציות: {snapshot.open_positions} / "
@@ -676,9 +707,11 @@ def cmd_portfolio_risk(args, cfg: Config) -> int:
             f"סימונים טריים: {'כן' if snapshot.marks_fresh else 'לא'} · "
             f"UTC baseline: {snapshot.baseline_status}"
         )
+        print("הערה: שער משותף תקין אינו מבטיח שקיים סיגנל מאושר בשוק מסוים.")
         for reason in blockers:
             print(f"  • {reason}")
-    return 0 if report["entry_ready"] else 3
+    return 0 if report["shared_gate_clear"] else 3
+
 
 
 def cmd_serve(args, cfg: Config) -> int:

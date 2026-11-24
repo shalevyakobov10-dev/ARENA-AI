@@ -56,7 +56,7 @@ def test_portfolio_risk_cli_reports_ready_snapshot(monkeypatch, cfg, capsys):
     report = json.loads(capsys.readouterr().out)
 
     assert code == 0
-    assert report["entry_ready"] is True
+    assert report["shared_gate_clear"] is True
     assert report["capital_utilization_pct"] == 40.0
     assert report["daily_loss_remaining"] == 75.0
     assert report["blockers"] == []
@@ -121,3 +121,58 @@ def test_portfolio_risk_cli_blocks_daily_loss_limit(monkeypatch, cfg, capsys):
 
     assert code == 3
     assert any("daily loss" in item for item in report["blockers"])
+
+
+def test_portfolio_risk_cli_fails_closed_when_store_cannot_be_opened(monkeypatch, cfg, capsys):
+    import pmmb.data.store
+
+    def _broken_store(_path):
+        raise OSError("database unavailable")
+
+    monkeypatch.setattr(pmmb.data.store, "Store", _broken_store)
+    code = cmd_portfolio_risk(SimpleNamespace(json=True), cfg)
+    report = json.loads(capsys.readouterr().out)
+
+    assert code == 3
+    assert report["shared_gate_clear"] is False
+    assert "unable to verify" in report["blockers"][0]
+
+
+def test_portfolio_risk_cli_blocks_when_allocation_headroom_is_exhausted(monkeypatch, cfg, capsys):
+    import pmmb.data.store
+    import pmmb.unified_risk
+
+    monkeypatch.setattr(pmmb.data.store, "Store", _FakeStore)
+    monkeypatch.setattr(
+        pmmb.unified_risk, "build_unified_risk_status",
+        lambda *_a, **_k: _snapshot(committed_capital=1000.0),
+    )
+    monkeypatch.setattr(pmmb.unified_risk, "_global_halt_reason", lambda: None)
+    cfg.execution.mode = "paper"
+    cfg.perps.enabled = True
+    cfg.perps.mode = "paper"
+
+    code = cmd_portfolio_risk(SimpleNamespace(json=True), cfg)
+    report = json.loads(capsys.readouterr().out)
+
+    assert code == 3
+    assert report["shared_gate_clear"] is False
+    assert any("headroom" in item for item in report["blockers"])
+
+
+def test_portfolio_risk_cli_does_not_claim_strategy_approval(monkeypatch, cfg, capsys):
+    import pmmb.data.store
+    import pmmb.unified_risk
+
+    monkeypatch.setattr(pmmb.data.store, "Store", _FakeStore)
+    monkeypatch.setattr(pmmb.unified_risk, "build_unified_risk_status", lambda *_a, **_k: _snapshot())
+    monkeypatch.setattr(pmmb.unified_risk, "_global_halt_reason", lambda: None)
+    cfg.execution.mode = "paper"
+    cfg.perps.enabled = True
+    cfg.perps.mode = "paper"
+
+    code = cmd_portfolio_risk(SimpleNamespace(json=True), cfg)
+    report = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert "not per-market signal approval" in report["scope"]
