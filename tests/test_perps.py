@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import math
+import pytest
 from datetime import datetime, timedelta, timezone
 
 from pmmb.config import Config, PerpsConfig
