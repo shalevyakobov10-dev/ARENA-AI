@@ -82,7 +82,7 @@ def test_portfolio_risk_cli_fails_closed_on_stale_marks(monkeypatch, cfg, capsys
     report = json.loads(capsys.readouterr().out)
 
     assert code == 3
-    assert report["entry_ready"] is False
+    assert report["shared_gate_clear"] is False
     assert any("marks" in item for item in report["blockers"])
 
 
