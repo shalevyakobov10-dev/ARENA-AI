@@ -385,8 +385,11 @@ class PerpEngine:
                     )
                     break
 
-        # בדיקת Kill Switch גלובלי ועצירת חירום (halt.json) לפני כניסות חדשות
+        # בדיקת Kill Switch גלובלי ועצירת חירום (halt.json) לפני כניסות חדשות.
+        # Re-read after check_global_kill because it can persist a new halt in
+        # this cycle; the value is then used to block all pending entries.
         self.risk.check_global_kill(self._equity(), self.realized_pnl_today)
+        halted = read_halt()
         if self._execution_blocked():
             stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
         elif halted:
