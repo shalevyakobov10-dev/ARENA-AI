@@ -511,11 +511,14 @@ table.clean-tbl tbody tr.clickable { cursor: pointer; }
 
 @media (max-width: 1060px) {
   .hero-grid, .main-split, .grid-2, .rule-grid, .cfg-grid { grid-template-columns: 1fr; }
+  .risk-desk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
   .header-inner { padding: 10px 14px; }
   .container { padding: 14px 12px 32px; }
   .hero-value { font-size: 26px; }
+  .risk-desk-grid { grid-template-columns: 1fr; }
+  .risk-desk { padding: 13px; }
 }
 """
 
@@ -2293,7 +2296,7 @@ def build_risk_desk_metrics(data: dict) -> dict:
 
     if poly_status == "over" or perps_status == "over":
         overall_status = "breach"
-    elif poly_status == "unknown" or (perps_enabled and perps_status == "unknown") or poly_status == "warning" or perps_status == "warning":
+    elif (not False) or poly_status == "unknown" or (perps_enabled and perps_status == "unknown") or poly_status == "warning" or perps_status == "warning":
         overall_status = "warning"
     else:
         overall_status = "healthy"
