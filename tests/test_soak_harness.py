@@ -14,6 +14,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 from pmmb.data.clob import Book, Candle
 from pmmb.data.store import Store
@@ -49,10 +50,15 @@ class _SyntheticClob:
         return price, notional_usdc / price
 
 
-def _cpu_pressure(cycle: int, worker: int) -> bytes:
-    """Bounded deterministic CPU work; no network, subprocess or secret access."""
+def _cpu_pressure(stop: Event, ready: Event, cycle: int, worker: int) -> int:
+    """Run bounded CPU work concurrently with an engine cycle; no external I/O."""
     material = f"pmmb-soak:{cycle}:{worker}".encode("utf-8")
-    return hashlib.pbkdf2_hmac("sha256", material, b"pmmb-soak-harness", 1_200)
+    ready.set()
+    rounds = 0
+    while not stop.is_set():
+        hashlib.pbkdf2_hmac("sha256", material, b"pmmb-soak-harness", 2_500)
+        rounds += 1
+    return rounds
 
 
 def test_many_paper_cycles_keep_heartbeat_and_sqlite_healthy(cfg, market, tmp_path):
@@ -79,13 +85,18 @@ def test_many_paper_cycles_keep_heartbeat_and_sqlite_healthy(cfg, market, tmp_pa
     try:
         with ThreadPoolExecutor(max_workers=workers) as pool:
             for expected_cycle in range(1, cycles + 1):
+                stop_load = Event()
+                ready_events = [Event() for _ in range(workers)]
                 futures = [
-                    pool.submit(_cpu_pressure, expected_cycle, worker)
+                    pool.submit(_cpu_pressure, stop_load, ready_events[worker], expected_cycle, worker)
                     for worker in range(workers)
                 ]
-                assert all(future.result() for future in futures)
-
-                stats = engine.run_once()
+                try:
+                    assert all(event.wait(timeout=2) for event in ready_events)
+                    stats = engine.run_once()
+                finally:
+                    stop_load.set()
+                assert all(future.result(timeout=5) > 0 for future in futures)
                 assert stats.errors == 0
 
                 heartbeat = read_heartbeat(state_dir)
