@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from pmmb.config import Config
 from pmmb.data.store import Store
 from pmmb.runtime import clear_halt, read_halt
 from pmmb.unified_risk import (
@@ -282,3 +283,26 @@ def test_shared_entry_lock_serializes_separate_processes(cfg, tmp_path, monkeypa
     release_child.set()
     child.join(timeout=2.0)
     assert child.exitcode == 0
+
+
+def test_disabled_perps_arm_cannot_open_new_positions(shared_store, cfg):
+    cfg.perps.enabled = False
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="perps", proposed_capital=10.0
+    )
+
+    assert not decision.approved
+    assert "PERPS מושבתת" in decision.reason
+
+
+def test_missing_global_halt_file_does_not_block(shared_store, cfg, tmp_path, monkeypatch):
+    state_dir = tmp_path / "state-no-halt"
+    state_dir.mkdir()
+    monkeypatch.setenv("PMMB_STATE_DIR", str(state_dir))
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0
+    )
+
+    assert decision.approved
