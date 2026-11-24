@@ -434,8 +434,9 @@ def _has_utc_day_trade_activity(store: Store, cfg: Config, day_start: int, now_t
 
 def _saved_baseline_validation_errors(row: dict) -> list[str]:
     errors: list[str] = []
+    # pending / expired / clock-skew are deliberate fail-closed states, not
+    # corrupt "ready" rows. Preserve their exact reason for operator status.
     if row.get("status") != "ready":
-        errors.append("baseline status is not ready")
         return errors
     try:
         baseline_ts = int(row.get("baseline_ts"))
