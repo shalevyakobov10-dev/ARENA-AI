@@ -17,7 +17,7 @@ from typing import Iterator
 
 from .config import Config
 from .data.store import Store
-from .runtime import default_state_dir, read_halt, write_halt
+from .runtime import default_state_dir, halt_path, read_halt, write_halt
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +82,20 @@ def unified_entry_lock(cfg: Config) -> Iterator[None]:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
 
+def _global_halt_reason() -> str | None:
+    """Treat a present but unreadable/corrupt halt flag as a hard stop."""
+    path = halt_path()
+    try:
+        flag = read_halt()
+        if flag is not None:
+            return f"עצירת חירום פעילה: {flag.reason}"
+        if path.exists():
+            return "קובץ עצירת החירום קיים אך אינו קריא או תקין — נחסמה כניסה"
+    except OSError as exc:
+        return f"לא ניתן לאמת את קובץ עצירת החירום ({type(exc).__name__})"
+    return None
+
+
 def build_unified_portfolio_snapshot(
     store: Store,
     cfg: Config,
@@ -102,24 +116,40 @@ def build_unified_portfolio_snapshot(
         for row in poly_positions
     )
     poly_fills_today = store.fills_since(day_start, cfg.execution.mode)
+    # SELL realized already includes the exit fee in Portfolio.apply_fill.
+    # BUY fees are cash costs but are not booked into realized_pnl until exit.
     poly_realized_today = sum(float(row["realized"] or 0.0) for row in poly_fills_today)
+    poly_realized_today -= sum(
+        max(0.0, float(row["fee"] or 0.0))
+        for row in poly_fills_today
+        if str(row["side"]).upper() == "BUY"
+    )
 
-    perps_positions = []
-    perps_margin = 0.0
-    perps_realized_today = 0.0
-    if cfg.perps.enabled:
-        perps_state = store.load_perp_portfolio_state(
-            cfg.perps.mode,
-            cfg.perps.risk.starting_cash,
-            now=now,
-        )
-        perps_positions = list(perps_state["positions"])
-        perps_margin = sum(max(0.0, float(p.margin_used)) for p in perps_positions)
-        perps_realized_today = float(perps_state["realized_pnl_today"] or 0.0)
+    # A disabled engine can still have open ledger positions. Disabling new
+    # entries must never make those existing positions disappear from the
+    # cross-arm budget or position count.
+    perps_state = store.load_perp_portfolio_state(
+        cfg.perps.mode,
+        cfg.perps.risk.starting_cash,
+        now=now,
+    )
+    perps_positions = list(perps_state["positions"])
+    perps_margin = sum(max(0.0, float(p.margin_used)) for p in perps_positions)
+    perps_realized_today = float(perps_state["realized_pnl_today"] or 0.0)
+    # For PERPS, closed-trade realized PnL already includes the lifecycle
+    # fees. Entry fees for positions still open are not realized yet, so book
+    # today's entry costs once (and only while that position remains open).
+    perps_realized_today -= sum(
+        max(0.0, float(p.fees_paid or 0.0))
+        for p in perps_positions
+        if int(p.opened_at.timestamp()) >= day_start
+    )
 
-    starting_capital = float(cfg.execution.starting_cash)
-    if cfg.perps.enabled:
-        starting_capital += float(cfg.perps.risk.starting_cash)
+    # Both configured balances belong to the combined account even while
+    # one engine is paused; its existing capital is not removed by disabling it.
+    starting_capital = (
+        float(cfg.execution.starting_cash) + float(cfg.perps.risk.starting_cash)
+    )
 
     return UnifiedPortfolioSnapshot(
         starting_capital=starting_capital,
@@ -147,7 +177,10 @@ def evaluate_unified_entry(
     if normalized_arm not in {"polymarket", "perps"}:
         return UnifiedRiskDecision(False, "זרוע מסחר לא מוכרת — נחסמה כניסה")
 
-    amount = float(proposed_capital)
+    try:
+        amount = float(proposed_capital)
+    except (TypeError, ValueError, OverflowError):
+        return UnifiedRiskDecision(False, "סכום הקצאת הון לא תקין — נחסמה כניסה")
     if not math.isfinite(amount) or amount <= 0:
         return UnifiedRiskDecision(False, "סכום הקצאת הון לא תקין — נחסמה כניסה")
 
