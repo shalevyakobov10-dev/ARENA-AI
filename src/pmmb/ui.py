@@ -947,10 +947,14 @@ function renderRiskDesk() {
   const markedPnl = m.combined_risk_pnl == null ? "—" : (m.combined_risk_pnl >= 0 ? "+" : "") + "$" + fmt(m.combined_risk_pnl);
   const marksBadge = m.marks_fresh === true ? "מחירים טריים" : (m.marks_fresh === false ? "מחיר חסר / מיושן" : "טריות לא נמסרה");
   const marksTone = m.marks_fresh === true ? "green" : (m.marks_fresh === false ? "red" : "amber");
+  const paperGateBadge = m.shared_paper_only === true
+    ? '<span class="badge blue">Paper-only · כניסות Live חסומות</span>'
+    : '<span class="badge amber">אימות Paper-only לא זמין</span>';
   const sharedTile = m.shared_snapshot_available
     ? `<div class="risk-tile">
         <div class="risk-tile-k">שער סיכון משותף · ${esc(m.shared_mode || "—")}</div>
-        <div class="risk-tile-v">${esc(sharedBudget)}</div>
+        <div class="risk-tile-sub">${paperGateBadge}</div>
+        <div class="risk-tile-v">${esc(sharedBudget)}</div>`;
         <div class="risk-tile-sub">${m.shared_utilization_pct == null ? "ניצולת —" : esc(fmt(m.shared_utilization_pct, 1) + "% ניצולת")} · ${m.shared_open_positions == null ? "—" : fmt(m.shared_open_positions, 0)} / ${m.shared_max_positions == null ? "—" : fmt(m.shared_max_positions, 0)} פוזיציות</div>
         <div class="risk-tile-sub"><span class="badge ${marksTone}">${marksBadge}</span> · PnL מסומן: <b>${esc(markedPnl)}</b> / הפסד יומי מרבי: ${m.daily_loss_limit == null ? "—" : "$" + fmt(m.daily_loss_limit)}</div>
         ${m.halted ? '<div class="risk-tile-sub neg">' + esc(m.halt_reason || "עצירת חירום פעילה") + '</div>' : ""}
