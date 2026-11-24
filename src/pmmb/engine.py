@@ -248,9 +248,7 @@ class Engine:
         for mk in markets:
             try:
                 pre_bk, pre_cs = prefetched.get(mk.condition_id, (None, None))
-                # Serialize exits against the shared baseline capture and the other venue's exits.
-                with unified_entry_lock(self.cfg):
-                    prep = self._prepare_market(mk, stats, prefetched_book=pre_bk, prefetched_candles=pre_cs)
+                prep = self._prepare_market(mk, stats, prefetched_book=pre_bk, prefetched_candles=pre_cs)
                 if prep is not None:
                     pending_entries.append(prep)
             except Exception as exc:  # לא מפילים את כל המחזור בגלל שוק אחד
@@ -419,7 +417,8 @@ class Engine:
         self.store.record_signal(signal)
 
         # ---------- יציאות קודם ----------
-        self._handle_exit(mk, signal, yes_book, stats)
+        with unified_entry_lock(self.cfg):
+            self._handle_exit(mk, signal, yes_book, stats)
 
         # ---------- הכנת רשומת מודיעין (תעודכן אם תבוצע כניסה בשלב 2) ----------
         entry_outcome = ("WATCH", signal.reason)
