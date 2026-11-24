@@ -1063,6 +1063,15 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
                 return self._send(200 if health.healthy else 503, body,
                                   "application/json; charset=utf-8", head_only=head_only)
 
+            if path in ("/", "/index.html") and not self._authorized(query):
+                # Deliver only an empty app shell; all account state and APIs remain protected.
+                html = command_center_html(
+                    {}, refresh_sec=min(max(refresh_sec, 0), 15) if refresh_sec else 0
+                )
+                return self._send(
+                    200, html.encode(), "text/html; charset=utf-8", head_only=head_only
+                )
+
             if not self._authorized(query):
                 return self._send(401, b'{"error":"unauthorized"}',
                                   "application/json; charset=utf-8", head_only=head_only)

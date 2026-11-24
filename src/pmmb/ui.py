@@ -546,14 +546,21 @@ function toast(msg, isErr = false) {
   window.__toastTimer = setTimeout(() => { el.className = "toast"; }, 4200);
 }
 
-const STATUS_TOKEN = new URLSearchParams(window.location.search).get("token") || "";
+const tokenFromHash = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("token");
+const tokenFromQuery = new URLSearchParams(window.location.search).get("token"); // legacy links
+const STATUS_TOKEN = tokenFromHash || tokenFromQuery || "";
 if (STATUS_TOKEN && window.history && typeof window.history.replaceState === "function") {
   const safeQuery = new URLSearchParams(window.location.search);
   safeQuery.delete("token");
-  const suffix = safeQuery.toString();
+  const safeHash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  safeHash.delete("token");
+  const querySuffix = safeQuery.toString();
+  const hashSuffix = safeHash.toString();
   window.history.replaceState(
     null, "",
-    window.location.pathname + (suffix ? "?" + suffix : "") + window.location.hash
+    window.location.pathname +
+      (querySuffix ? "?" + querySuffix : "") +
+      (hashSuffix ? "#" + hashSuffix : "")
   );
 }
 async function apiGet(url) {

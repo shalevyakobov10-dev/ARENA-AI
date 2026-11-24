@@ -65,7 +65,8 @@ def test_dashboard_source_forwards_token_to_api_and_csv_links():
     from pathlib import Path
 
     ui_source = (Path(__file__).resolve().parents[1] / "src" / "pmmb" / "ui.py").read_text(encoding="utf-8")
-    assert 'const STATUS_TOKEN = new URLSearchParams(window.location.search).get("token")' in ui_source
+    assert 'new URLSearchParams(window.location.hash.replace(/^#/, ""))' in ui_source
+    assert 'const STATUS_TOKEN = tokenFromHash || tokenFromQuery || ""' in ui_source
     assert 'window.history.replaceState' in ui_source
     assert '"X-Token": STATUS_TOKEN' in ui_source
     assert 'function downloadTradesCsv()' in ui_source
@@ -100,3 +101,30 @@ def test_auth_header_takes_precedence_over_route_token_query(cfg):
     # The query token remains available for the initial browser navigation.
     handler.headers = {}
     assert handler._authorized({"token": ["dashboard-secret"]})
+
+
+def test_unauthenticated_dashboard_bootstrap_is_empty_and_api_stays_protected(cfg):
+    handler_type = make_handler(
+        cfg, max_age_sec=60, refresh_sec=30, token="dashboard-secret", trader=object()
+    )
+    handler = object.__new__(handler_type)
+    handler.client_address = ("198.51.100.12", 12345)
+    handler.headers = {}
+    responses = []
+
+    def capture(code, body, content_type, **_kwargs):
+        responses.append((code, body, content_type))
+
+    handler._send = capture
+    handler.path = "/"
+    handler._handle_get(head_only=False)
+    assert responses[-1][0] == 200
+    assert responses[-1][2].startswith("text/html")
+    html = responses[-1][1].decode("utf-8")
+    assert "dashboard-secret" not in html
+    assert "account-equity-secret" not in html
+    assert "window.__PMMB_INIT__ = {};" in html
+
+    handler.path = "/api/state"
+    handler._handle_get(head_only=False)
+    assert responses[-1][0] == 401
