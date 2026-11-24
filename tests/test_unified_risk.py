@@ -310,3 +310,14 @@ def test_missing_global_halt_file_does_not_block(shared_store, cfg, tmp_path, mo
     )
 
     assert decision.approved
+
+
+def test_disabled_nonpaper_perps_arm_does_not_block_polymarket_paper(shared_store, cfg):
+    cfg.perps.enabled = False
+    cfg.perps.mode = "live"
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0
+    )
+
+    assert decision.approved
