@@ -280,11 +280,25 @@ class LivePerpBroker:
                 self._execution_uncertain(order, f"could not query accepted OKX order {order_id}: {exc}")
             state = str(row.get("state") or "").lower()
             if state in terminal:
-                contracts = _positive_number(row.get("accFillSz"))
-                if contracts is None:
+                raw_contracts = row.get("accFillSz")
+                if raw_contracts in (None, ""):
+                    self._execution_uncertain(
+                        order, f"OKX order details omitted accFillSz (order {order_id}, state={state})"
+                    )
+                try:
+                    contracts = float(raw_contracts)
+                except (TypeError, ValueError):
+                    self._execution_uncertain(
+                        order, f"OKX returned invalid accFillSz={raw_contracts!r} (order {order_id})"
+                    )
+                if not math.isfinite(contracts) or contracts < 0:
+                    self._execution_uncertain(
+                        order, f"OKX returned invalid accFillSz={raw_contracts!r} (order {order_id})"
+                    )
+                if contracts == 0:
                     if state == "filled":
                         self._execution_uncertain(
-                            order, f"OKX reports state=filled but accFillSz is empty (order {order_id})"
+                            order, f"OKX reports state=filled but accFillSz is zero (order {order_id})"
                         )
                     return None
                 avg_px = _positive_number(row.get("avgPx"))
@@ -316,8 +330,22 @@ class LivePerpBroker:
                 self._execution_uncertain(order, f"cannot confirm final OKX state after cancel for {order_id}: {exc}")
             state = str(row.get("state") or "").lower()
             if state in terminal:
-                contracts = _positive_number(row.get("accFillSz"))
-                if contracts is None:
+                raw_contracts = row.get("accFillSz")
+                if raw_contracts in (None, ""):
+                    self._execution_uncertain(
+                        order, f"OKX final order details omitted accFillSz after cancellation (order {order_id})"
+                    )
+                try:
+                    contracts = float(raw_contracts)
+                except (TypeError, ValueError):
+                    self._execution_uncertain(
+                        order, f"OKX returned invalid final accFillSz={raw_contracts!r} (order {order_id})"
+                    )
+                if not math.isfinite(contracts) or contracts < 0:
+                    self._execution_uncertain(
+                        order, f"OKX returned invalid final accFillSz={raw_contracts!r} (order {order_id})"
+                    )
+                if contracts == 0:
                     return None
                 avg_px = _positive_number(row.get("avgPx"))
                 if avg_px is None:

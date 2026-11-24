@@ -120,6 +120,28 @@ def test_okx_canceled_without_any_fill_returns_none(monkeypatch):
     assert broker.execute(_order("okx")) is None
 
 
+def test_okx_canceled_order_with_missing_fill_quantity_is_uncertain(monkeypatch, tmp_path):
+    broker = _live_broker(monkeypatch, "okx")
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        "pmmb.perps.broker.httpx.post",
+        lambda *a, **k: _Response({"code": "0", "data": [{"sCode": "0", "ordId": "oid-missing-qty"}]}),
+    )
+    monkeypatch.setattr(
+        "pmmb.perps.broker.httpx.get",
+        lambda *a, **k: _Response({
+            "code": "0",
+            "data": [{"state": "canceled", "avgPx": "", "ordId": "oid-missing-qty"}],
+        }),
+    )
+
+    with pytest.raises(PerpsExecutionUncertain):
+        broker.execute(_order("okx"))
+
+    halt = read_halt()
+    assert halt is not None and halt.source == "execution_uncertain"
+
+
 def test_okx_unavailable_order_confirmation_sets_persistent_halt(monkeypatch, tmp_path):
     broker = _live_broker(monkeypatch, "okx")
     monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
