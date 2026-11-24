@@ -592,6 +592,95 @@ def cmd_status(args, cfg: Config) -> int:
     return 0 if h["healthy"] else 3
 
 
+def cmd_portfolio_risk(args, cfg: Config) -> int:
+    """מצב סיכון מאוחד — הקצאת הון, PnL יומי, טריות סימונים ו-baseline."""
+    import json
+
+    from .data.store import Store
+    from .unified_risk import _global_halt_reason, build_unified_risk_status
+
+    store = Store(cfg.data.db_path)
+    try:
+        snapshot = build_unified_risk_status(store, cfg)
+    finally:
+        store.close()
+
+    capital_limit = snapshot.starting_capital * cfg.portfolio_risk.max_capital_utilization_pct
+    daily_loss_limit = snapshot.starting_capital * cfg.portfolio_risk.max_daily_loss_pct
+    utilization_pct = (
+        snapshot.committed_capital / capital_limit * 100.0
+        if capital_limit > 0 else None
+    )
+    halt_reason = _global_halt_reason()
+    blockers: list[str] = []
+    if cfg.execution.mode != "paper":
+        blockers.append("Polymarket execution is not Paper")
+    if cfg.perps.enabled and cfg.perps.mode != "paper":
+        blockers.append("PERPS is enabled outside Paper mode")
+    if halt_reason:
+        blockers.append(halt_reason)
+    if snapshot.baseline_status != "ready":
+        blockers.append(f"UTC day-start baseline is {snapshot.baseline_status}")
+    if not snapshot.marks_fresh:
+        blockers.append("one or more open-position marks are missing, stale, or invalid")
+    daily_pnl = snapshot.daily_risk_pnl
+    if daily_pnl is None:
+        blockers.append("verified daily mark-to-market PnL is unavailable")
+    elif daily_pnl <= -daily_loss_limit:
+        blockers.append("combined daily loss limit has been reached")
+    if snapshot.committed_capital > capital_limit + 1e-9:
+        blockers.append("combined committed capital exceeds its limit")
+    if snapshot.open_positions >= cfg.portfolio_risk.max_open_positions:
+        blockers.append("combined open-position limit has been reached")
+
+    report = {
+        "entry_ready": not blockers,
+        "mode": cfg.execution.mode,
+        "perps_mode": cfg.perps.mode,
+        "snapshot": snapshot.as_dict(),
+        "limits": {
+            "capital_limit": round(capital_limit, 2),
+            "max_capital_utilization_pct": cfg.portfolio_risk.max_capital_utilization_pct,
+            "daily_loss_limit": round(daily_loss_limit, 2),
+            "max_daily_loss_pct": cfg.portfolio_risk.max_daily_loss_pct,
+            "max_open_positions": cfg.portfolio_risk.max_open_positions,
+        },
+        "capital_utilization_pct": round(utilization_pct, 2) if utilization_pct is not None else None,
+        "daily_loss_remaining": (
+            round(max(0.0, daily_loss_limit + daily_pnl), 2)
+            if daily_pnl is not None else None
+        ),
+        "halt_reason": halt_reason,
+        "blockers": blockers,
+    }
+
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+    else:
+        state = "🟢 מוכן לכניסה" if report["entry_ready"] else "🔴 כניסות חסומות / לא מאומתות"
+        print(f"\n{state}")
+        print(f"מצב: Polymarket={cfg.execution.mode} · PERPS={cfg.perps.mode} · PERPS enabled={cfg.perps.enabled}")
+        print(
+            f"הקצאת הון: {snapshot.committed_capital:.2f} / {capital_limit:.2f} "
+            f"({utilization_pct:.1f}% מהתקרה)" if utilization_pct is not None
+            else "הקצאת הון: נתון לא זמין"
+        )
+        print(
+            f"PnL סיכון יומי: {daily_pnl:+.2f} / -{daily_loss_limit:.2f} · "
+            f"יתרת הפסד: {report['daily_loss_remaining']:.2f}"
+            if daily_pnl is not None else "PnL סיכון יומי: לא מאומת"
+        )
+        print(
+            f"פוזיציות: {snapshot.open_positions} / "
+            f"{cfg.portfolio_risk.max_open_positions} · "
+            f"סימונים טריים: {'כן' if snapshot.marks_fresh else 'לא'} · "
+            f"UTC baseline: {snapshot.baseline_status}"
+        )
+        for reason in blockers:
+            print(f"  • {reason}")
+    return 0 if report["entry_ready"] else 3
+
+
 def cmd_serve(args, cfg: Config) -> int:
     """מרים את תוכנת הבקרה והמצב (http://host:port)."""
     from .server import serve
@@ -1090,6 +1179,9 @@ def build_parser() -> argparse.ArgumentParser:
     stt.add_argument("--html-out", default=None, help="יצוא דוח תוכנת בקרה HTML עצמאי לקובץ")
     stt.add_argument("--max-age", type=float, default=300, help="גיל דופק מקסימלי (שניות)")
 
+    rk = sub.add_parser("portfolio-risk", help="מצב שער הסיכון המאוחד של Polymarket + PERPS")
+    rk.add_argument("--json", action="store_true", help="פלט JSON למכונה")
+
     srv = sub.add_parser("serve", help="תוכנת בקרה ודשבורד חיים בדפדפן")
     srv.add_argument("--host", default="0.0.0.0")
     srv.add_argument("--port", type=int, default=8787)
@@ -1169,7 +1261,7 @@ def main(argv: list[str] | None = None) -> int:
         cfg.signal.engine = args.engine
     if args.log_level:
         cfg.logging.level = args.log_level
-    setup_logging(cfg.logging, quiet=args.command in {"scan", "backtest", "report", "doctor"})
+    setup_logging(cfg.logging, quiet=args.command in {"scan", "backtest", "report", "doctor", "portfolio-risk"})
 
     handlers = {
         "doctor": cmd_doctor,
@@ -1189,6 +1281,7 @@ def main(argv: list[str] | None = None) -> int:
         "fees": cmd_fees,
         "readiness": cmd_readiness,
         "status": cmd_status,
+        "portfolio-risk": cmd_portfolio_risk,
         "serve": cmd_serve,
         "notify-test": cmd_notify_test,
         "reconcile": cmd_reconcile,
