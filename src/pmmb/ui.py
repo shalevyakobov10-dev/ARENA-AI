@@ -884,17 +884,41 @@ function riskDeskMetrics(data) {
   const perpsNotionalPct = perpsNotional !== null && combinedEquity !== null && combinedEquity > 0 ? Math.round(perpsNotional / combinedEquity * 1000) / 10 : null;
   const combinedPositions = riskDeskNumber(combined.open_positions);
   const openPositions = combinedPositions !== null ? combinedPositions : ((data.positions || []).length + perpsPositions.length);
+  const unifiedRisk = data.unified_risk || {};
   const sharedConfig = config.portfolio_risk || null;
-  let overall = (polyUtil.status === "over" || perpsUtil.status === "over") ? "breach" : "warning";
-  if (sharedConfig && polyUtil.status !== "unknown" && (!perpsEnabled || perpsUtil.status !== "unknown") &&
-      polyUtil.status !== "warning" && perpsUtil.status !== "warning") overall = "healthy";
+  const sharedSnapshotAvailable = ["committed_capital", "combined_risk_pnl", "marks_fresh", "halted"]
+    .some((key) => Object.prototype.hasOwnProperty.call(unifiedRisk, key));
+  const sharedCommitted = riskDeskNumber(unifiedRisk.committed_capital);
+  const sharedCapitalLimit = riskDeskNumber(unifiedRisk.capital_limit);
+  const sharedUtilization = riskDeskNumber(unifiedRisk.utilization_pct);
+  const sharedOpenPositions = riskDeskNumber(unifiedRisk.open_positions);
+  const sharedMaxPositions = riskDeskNumber(unifiedRisk.max_open_positions);
+  const combinedRiskPnl = riskDeskNumber(unifiedRisk.combined_risk_pnl);
+  const dailyLossLimit = riskDeskNumber(unifiedRisk.daily_loss_limit);
+  const marksFresh = Object.prototype.hasOwnProperty.call(unifiedRisk, "marks_fresh") ? unifiedRisk.marks_fresh : null;
+  const halted = !!unifiedRisk.halted;
+  const haltReason = String(unifiedRisk.halt_reason || "");
+  const markFailures = Array.isArray(unifiedRisk.mark_failures) ? unifiedRisk.mark_failures : [];
+  const sharedConfigured = !!sharedConfig || !!unifiedRisk.enabled;
+  let overall = (polyUtil.status === "over" || perpsUtil.status === "over" || halted ||
+    (combinedRiskPnl !== null && dailyLossLimit !== null && combinedRiskPnl <= -dailyLossLimit)) ? "breach" : "warning";
+  if (sharedSnapshotAvailable && marksFresh === true && !halted &&
+      polyUtil.status !== "unknown" && (!perpsEnabled || perpsUtil.status !== "unknown") &&
+      polyUtil.status !== "warning" && perpsUtil.status !== "warning" &&
+      polyUtil.status !== "over" && perpsUtil.status !== "over") overall = "healthy";
   return {
     gross_notional: gross, gross_exposure_pct: grossPct,
     poly_exposure: polyExposure, poly_limit: polyLimit, poly_utilization_pct: polyUtil.pct, poly_status: polyUtil.status,
     perps_notional: perpsNotional, perps_notional_pct: perpsNotionalPct,
     perps_margin: perpsMargin, perps_margin_limit: perpsLimit, perps_margin_utilization_pct: perpsUtil.pct,
     perps_status: perpsUtil.status, perps_avg_leverage: (perpsEnabled || perpsHasRisk) ? riskDeskNumber(perps.avg_leverage) : null,
-    open_positions: openPositions, shared_limit_configured: !!sharedConfig, overall_status: overall
+    open_positions: openPositions, shared_limit_configured: sharedConfigured, shared_snapshot_available: sharedSnapshotAvailable,
+    shared_committed_capital: sharedCommitted, shared_capital_limit: sharedCapitalLimit, shared_utilization_pct: sharedUtilization,
+    shared_open_positions: sharedOpenPositions, shared_max_open_positions: sharedMaxPositions,
+    combined_risk_pnl: combinedRiskPnl, daily_loss_limit: dailyLossLimit, marks_fresh: marksFresh,
+    mark_failures: markFailures, halted, halt_reason: haltReason,
+    shared_mode: String(unifiedRisk.mode || "—"), shared_paper_only: Object.prototype.hasOwnProperty.call(unifiedRisk, "paper_only") ? !!unifiedRisk.paper_only : null,
+    overall_status: overall
   };
 }
 function riskUtilTile(title, used, cap, pct, status) {
@@ -911,7 +935,29 @@ function renderRiskDesk() {
   const total = m.gross_notional == null ? "—" : "$" + fmt(m.gross_notional);
   const ratio = m.gross_exposure_pct == null ? "—" : fmt(m.gross_exposure_pct, 1) + "%";
   const tone = m.overall_status === "breach" ? "red" : (m.overall_status === "healthy" ? "green" : "amber");
-  const label = m.overall_status === "breach" ? "חריגה מזוהה" : (m.overall_status === "healthy" ? "ללא חריגות בתקרות" : "נדרשת תשומת לב");
+  const label = m.halted ? "עצירת חירום פעילה" : (m.overall_status === "breach" ? "חריגה מזוהה" : (m.overall_status === "healthy" ? "שער Paper מאומת · ללא חריגה" : "נדרשת תשומת לב"));
+  const sharedBudget = m.shared_snapshot_available
+    ? ((m.shared_committed_capital == null || m.shared_capital_limit == null)
+      ? "נתוני הקצאה חלקיים"
+      : "$" + fmt(m.shared_committed_capital) + " / $" + fmt(m.shared_capital_limit))
+    : (m.shared_limit_configured ? "הגדרה קיימת · snapshot לא זמין" : "נתוני אכיפה משותפת לא זמינים");
+  const markedPnl = m.combined_risk_pnl == null ? "—" : (m.combined_risk_pnl >= 0 ? "+" : "") + "$" + fmt(m.combined_risk_pnl);
+  const marksBadge = m.marks_fresh === true ? "מחירים טריים" : (m.marks_fresh === false ? "מחיר חסר / מיושן" : "טריות לא נמסרה");
+  const marksTone = m.marks_fresh === true ? "green" : (m.marks_fresh === false ? "red" : "amber");
+  const sharedTile = m.shared_snapshot_available
+    ? `<div class="risk-tile">
+        <div class="risk-tile-k">שער סיכון משותף · ${esc(m.shared_mode || "—")}</div>
+        <div class="risk-tile-v">${esc(sharedBudget)}</div>
+        <div class="risk-tile-sub">${m.shared_utilization_pct == null ? "ניצולת —" : esc(fmt(m.shared_utilization_pct, 1) + "% ניצולת")} · ${m.shared_open_positions == null ? "—" : fmt(m.shared_open_positions, 0)} / ${m.shared_max_positions == null ? "—" : fmt(m.shared_max_positions, 0)} פוזיציות</div>
+        <div class="risk-tile-sub"><span class="badge ${marksTone}">${marksBadge}</span> · PnL מסומן: <b>${esc(markedPnl)}</b> / הפסד יומי מרבי: ${m.daily_loss_limit == null ? "—" : "$" + fmt(m.daily_loss_limit)}</div>
+        ${m.halted ? '<div class="risk-tile-sub neg">' + esc(m.halt_reason || "עצירת חירום פעילה") + '</div>' : ""}
+        ${m.mark_failures.length ? '<div class="risk-tile-sub warn">' + esc(m.mark_failures.slice(0, 3).join(", ")) + '</div>' : ""}
+      </div>`
+    : `<div class="risk-tile">
+        <div class="risk-tile-k">שער סיכון משותף</div>
+        <div class="risk-tile-v">${esc(sharedBudget)}</div>
+        <div class="risk-tile-sub">לא מוצגת תמונת אכיפה מאומתת; מצב זה אינו מעיד על תקרת סיכון פעילה.</div>
+      </div>`;
   root.innerHTML = `
     <div class="risk-desk-head">
       <div><div class="risk-desk-title">שולחן סיכון — תיק מאוחד</div><div class="risk-desk-caption">ניטור החשיפה והמרג׳ין ב־Polymarket וב־PERPS</div></div>
@@ -922,8 +968,9 @@ function renderRiskDesk() {
       ${riskUtilTile("Polymarket · חשיפה / תקרה", m.poly_exposure, m.poly_limit, m.poly_utilization_pct, m.poly_status)}
       ${riskUtilTile("PERPS · מרג׳ין / תקרה", m.perps_margin, m.perps_margin_limit, m.perps_margin_utilization_pct, m.perps_status)}
       <div class="risk-tile"><div class="risk-tile-k">PERPS · נומינלי ומינוף</div><div class="risk-tile-v">${m.perps_notional == null ? "—" : "$" + fmt(m.perps_notional)}</div><div class="risk-tile-sub">מינוף ממוצע פתוח: ${m.perps_avg_leverage == null ? "—" : "×" + fmt(m.perps_avg_leverage, 1)}</div><div class="risk-track"><div class="risk-fill" style="width:${m.perps_notional_pct == null ? 0 : Math.max(0,Math.min(100,Number(m.perps_notional_pct)))}%"></div></div></div>
+      ${sharedTile}
     </div>
-    <div class="risk-desk-note"><strong>חשוב:</strong> מדדי החשיפה כאן מיועדים לניטור בלבד. שער הכניסה המשותף נאכף במנועים כאשר PR #9 משולב; מצב השער והיתרה הזמינה עדיין אינם מוצגים דרך API המצב. חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול.</div>
+    <div class="risk-desk-note"><strong>חשוב:</strong> ${esc(m.notice || "חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול.")}</div>
   `;
 }
 
