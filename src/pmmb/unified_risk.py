@@ -388,6 +388,21 @@ def build_unified_portfolio_snapshot(
         mark_skew_sec=(max(mark_timestamps) - min(mark_timestamps)) if mark_timestamps else 0.0,
     )
 
+def _has_utc_day_trade_activity(store: Store, cfg: Config, day_start: int, now_ts: int) -> bool:
+    """Whether either venue recorded any fills since UTC midnight."""
+    with store.tx() as conn:
+        poly = conn.execute(
+            "SELECT COUNT(*) AS n FROM fills WHERE mode=? AND ts>=? AND ts<=?",
+            (cfg.execution.mode, int(day_start), int(now_ts)),
+        ).fetchone()
+        perps = conn.execute(
+            """SELECT COUNT(*) AS n FROM perp_fills
+               WHERE mode=? AND ts>=? AND ts<=?""",
+            (cfg.perps.mode, int(day_start), int(now_ts)),
+        ).fetchone()
+    return bool(int(poly["n"] or 0) or int(perps["n"] or 0))
+
+
 def ensure_unified_day_baseline(
     store: Store,
     cfg: Config,
@@ -428,15 +443,28 @@ def ensure_unified_day_baseline(
                 "failures": ["system UTC clock is before the requested UTC day"],
             }
 
+        snapshot = build_unified_portfolio_snapshot(store, cfg, now=current)
+        has_activity = _has_utc_day_trade_activity(store, cfg, day_start, now_ts)
         if delay > UNIFIED_BASELINE_CAPTURE_WINDOW_SEC:
+            if snapshot.open_positions == 0 and not has_activity:
+                # No fills and no open positions means there is no intraday
+                # realized or floating PnL to anchor; late startup is safe.
+                return store.save_unified_day_baseline(
+                    utc_day=utc_day, status="ready", recorded_at=now_ts,
+                    baseline_ts=now_ts, baseline_realized_pnl=0.0,
+                    baseline_unrealized_pnl=0.0, open_positions=0,
+                    mark_ts_min=None, mark_ts_max=None, mark_skew_sec=0.0,
+                    failures=(),
+                )
             return store.save_unified_day_baseline(
                 utc_day=utc_day, status="expired", recorded_at=now_ts,
                 baseline_ts=None, baseline_realized_pnl=None, baseline_unrealized_pnl=None,
-                open_positions=0, mark_ts_min=None, mark_ts_max=None, mark_skew_sec=None,
+                open_positions=snapshot.open_positions,
+                mark_ts_min=snapshot.mark_ts_min, mark_ts_max=snapshot.mark_ts_max,
+                mark_skew_sec=snapshot.mark_skew_sec,
                 failures=[f"no synchronized baseline captured within {UNIFIED_BASELINE_CAPTURE_WINDOW_SEC}s of UTC midnight"],
             )
 
-        snapshot = build_unified_portfolio_snapshot(store, cfg, now=current)
         failures = list(snapshot.mark_failures)
         if snapshot.open_positions and not snapshot.marks_fresh:
             failures.append("one or more open-position marks are missing, stale, or invalid")
@@ -456,8 +484,8 @@ def ensure_unified_day_baseline(
 
         # A non-zero realized figure means something closed before the first
         # cycle could capture the day-start anchor. Do not reset its daily loss.
-        if abs(snapshot.realized_today) > 1e-8:
-            failures.append("realized activity occurred before the first UTC baseline capture")
+        if has_activity or abs(snapshot.realized_today) > 1e-8:
+            failures.append("trading activity occurred before the first UTC baseline capture")
 
         if failures:
             if delay >= UNIFIED_BASELINE_CAPTURE_WINDOW_SEC:
