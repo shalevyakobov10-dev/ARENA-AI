@@ -487,7 +487,7 @@ class PerpEngine:
         if applied["fully_closed"]:
             exit_label = "יציאה"
         else:
-            exit_label = f"יציאה חלקית {applied['closed_size']:.6g}/{pos.size + applied['closed_size']:.6g} · נותרו {applied['remaining_size']:.6g}"
+            exit_label = f"יציאה חלקית {applied['closed_size']:.6g}/{applied['closed_size'] + applied['remaining_size']:.6g} · נותרו {applied['remaining_size']:.6g}"
         msg = (
             f"⚡ {exit_label} PERPS {pos.symbol} {pos.side} ×{pos.leverage:.0f} ({pos.exchange.upper()}) | "
             f"{exit_reason} | נטו {applied['realized']:+.2f} USDC"
@@ -532,15 +532,16 @@ class PerpEngine:
             stats.skip("מילוי Perps נכשל")
             return
 
-        margin_used = round(fill.notional / dec.leverage, 4)
+        actual_leverage = float(fill.leverage or dec.leverage)
+        margin_used = round(fill.notional / actual_leverage, 4)
         fill.margin_delta = -margin_used
         self.cash -= margin_used + fill.fee
 
-        liq_px = calc_liquidation_price(sig.direction, fill.price, dec.leverage, inst.mmr or self.pcfg.risk.default_mmr)
+        liq_px = calc_liquidation_price(sig.direction, fill.price, actual_leverage, inst.mmr or self.pcfg.risk.default_mmr)
         pos = PerpPosition(
             symbol=inst.symbol, exchange=inst.exchange, side=sig.direction,  # type: ignore[arg-type]
             size=fill.size, entry_price=fill.price, notional=fill.notional,
-            leverage=dec.leverage, margin_used=margin_used, liquidation_price=round(liq_px, 6),
+            leverage=actual_leverage, margin_used=margin_used, liquidation_price=round(liq_px, 6),
             stop_price=dec.stop_price, target_price=dec.target_price,
             highest_price=fill.price, lowest_price=fill.price, atr=sig.atr,
             strategy=sig.strategy, regime=sig.regime, entry_score=sig.score,
@@ -550,17 +551,17 @@ class PerpEngine:
         self.store.record_perp_fill(fill, self.pcfg.mode)
         self.store.upsert_perp_position(pos, self.pcfg.mode)
         row["status"] = "OPEN"
-        row["reason"] = f"כניסה {sig.direction} ×{dec.leverage:.0f} ({sig.tier}) @ {fill.price:.4f}"
+        row["reason"] = f"כניסה {sig.direction} ×{actual_leverage:.0f} ({sig.tier}) @ {fill.price:.4f}"
         stats.entries += 1
 
         msg = (
-            f"🚀 כניסה PERPS {inst.symbol} {sig.direction} ×{dec.leverage:.0f} [{sig.tier}] "
+            f"🚀 כניסה PERPS {inst.symbol} {sig.direction} ×{actual_leverage:.0f} [{sig.tier}] "
             f"@ {fill.price:.4f} | מרג'ין {margin_used:.2f}$ | נומינלי {fill.notional:.0f}$ | "
             f"SL={dec.stop_price:.4f} TP={dec.target_price:.4f} LIQ={pos.liquidation_price:.4f}"
         )
         log.info(msg)
         self._notify(msg)
-        self.store.event("perp_entry", msg, data={"symbol": inst.symbol, "leverage": dec.leverage, "margin": margin_used})
+        self.store.event("perp_entry", msg, data={"symbol": inst.symbol, "leverage": actual_leverage, "margin": margin_used})
 
     def close_position_by_symbol(self, symbol: str, reason: str = "סגירה ידנית מהטרמינל") -> dict[str, Any]:
         """סוגר פוזיציית PERPS פתוחה לפי סמל נכס במחיר שוק חי (reduce_only=True)."""

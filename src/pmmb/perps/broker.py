@@ -465,12 +465,22 @@ class LivePerpBroker:
                     headers=hdr,
                     timeout=10.0,
                 )
-                margin_response.raise_for_status()
-                margin_data = margin_response.json()
-                margin_code = int(margin_data.get("code", 0)) if isinstance(margin_data, dict) else 0
-                if margin_code < 0 and margin_code != -4046:  # -4046 = already in requested margin mode
-                    log.warning("Binance isolated-margin setup rejected: %s", margin_data)
-                    return None
+                try:
+                    margin_response.raise_for_status()
+                except httpx.HTTPStatusError as exc:
+                    try:
+                        margin_data = exc.response.json()
+                    except Exception:
+                        raise
+                    margin_code = int(margin_data.get("code", 0)) if isinstance(margin_data, dict) else 0
+                    if margin_code != -4046:  # Already in isolated mode is the desired state.
+                        raise
+                else:
+                    margin_data = margin_response.json()
+                    margin_code = int(margin_data.get("code", 0)) if isinstance(margin_data, dict) else 0
+                    if margin_code < 0 and margin_code != -4046:
+                        log.warning("Binance isolated-margin setup rejected: %s", margin_data)
+                        return None
             except Exception as exc:  # noqa: BLE001
                 log.warning("Binance margin setup failed before order submission: %s", exc)
                 return None
@@ -580,12 +590,13 @@ class LivePerpBroker:
                 if isinstance(lev_result, dict) and lev_result.get("status") not in (None, "ok"):
                     log.warning("Hyperliquid leverage setup rejected: %s", lev_result)
                     return None
-                if is_buy:
-                    result = hl_ex.market_open(order.symbol.upper(), True, order.size, px=None, slippage=0.01)
-                elif order.action == "CLOSE" and order.reduce_only:
-                    result = hl_ex.market_close(order.symbol.upper(), sz=order.size)
+                sz_hl = round_step(order.size, lot_size)
+                if sz_hl < lot_size:
+                    return None
+                if order.action == "CLOSE" and order.reduce_only:
+                    result = hl_ex.market_close(order.symbol.upper(), sz=sz_hl)
                 else:
-                    result = hl_ex.market_open(order.symbol.upper(), False, order.size, px=None, slippage=0.01)
+                    result = hl_ex.market_open(order.symbol.upper(), is_buy, sz_hl, px=None, slippage=0.01)
             except Exception as exc:  # noqa: BLE001 — SDK may lose response after submission
                 self._execution_uncertain(order, f"Hyperliquid order transport/SDK error: {exc}")
             if not isinstance(result, dict):
