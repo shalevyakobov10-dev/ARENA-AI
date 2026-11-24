@@ -27,29 +27,47 @@ def run_auto_reconcile(cfg, store) -> dict[str, Any]:
         return {"ok": True, "fixed": False, "summary": "דילוג (מצב live — דורש סנכרון מפורש)"}
 
     rep = reconcile_paper(store, starting_cash=cfg.execution.starting_cash, fix=False)
-    perp_fixed = 0
-    if cfg.perps.enabled and cfg.perps.mode == "paper":
+    perps_enabled = bool(cfg.perps.enabled and cfg.perps.mode == "paper")
+    p_rep = None
+    if perps_enabled:
+        # Always inspect first. A zero fix count does not mean the Perps ledger is clean.
         p_rep = reconcile_perps(
-            store, mode="paper", starting_cash=cfg.perps.risk.starting_cash, fix=cfg.autopilot.auto_fix_paper
+            store, mode="paper", starting_cash=cfg.perps.risk.starting_cash, fix=False
         )
-        perp_fixed = p_rep.fixes_applied
 
-    if rep.clean and perp_fixed == 0:
+    perps_clean = p_rep.clean if p_rep is not None else True
+    if rep.clean and perps_clean:
         store.record_autopilot_run("reconcile", "ok", "אימות DB נקי (Polymarket + PERPS) — 0 פערים")
         return {"ok": True, "fixed": False, "summary": "0 פערים"}
 
     if cfg.autopilot.auto_fix_paper:
         rep_fix = reconcile_paper(store, starting_cash=cfg.execution.starting_cash, fix=True)
         rep_verify = reconcile_paper(store, starting_cash=cfg.execution.starting_cash, fix=False)
+        p_fixed = None
+        p_verify = None
+        if perps_enabled:
+            p_fixed = reconcile_perps(
+                store, mode="paper", starting_cash=cfg.perps.risk.starting_cash, fix=True
+            )
+            p_verify = reconcile_perps(
+                store, mode="paper", starting_cash=cfg.perps.risk.starting_cash, fix=False
+            )
+        perp_fixed = p_fixed.fixes_applied if p_fixed is not None else 0
+        perps_clean_after = p_verify.clean if p_verify is not None else True
+        all_clean_after = rep_verify.clean and perps_clean_after
         msg = f"תוקנו אוטומטית {rep_fix.fixes_applied + perp_fixed} פערים ב-DB"
-        store.record_autopilot_run(
-            "reconcile", "fixed", msg,
-            details={"discrepancies": [d.kind for d in rep_fix.discrepancies], "clean_after": rep_verify.clean, "perps_fixed": perp_fixed},
-        )
+        details = {
+            "discrepancies": [d.kind for d in rep_fix.discrepancies],
+            "clean_after": all_clean_after,
+            "perps_fixed": perp_fixed,
+            "perps_clean_after": perps_clean_after,
+        }
+        store.record_autopilot_run("reconcile", "fixed" if all_clean_after else "warn", msg, details=details)
         store.event("autopilot_reconcile", msg, level="WARNING")
-        return {"ok": rep_verify.clean, "fixed": True, "summary": msg}
+        return {"ok": all_clean_after, "fixed": bool(rep_fix.fixes_applied or perp_fixed), "summary": msg}
 
-    msg = f"זוהו {len(rep.discrepancies)} פערים (תיקון אוטומטי כבוי)"
+    total_discrepancies = len(rep.discrepancies) + (len(p_rep.discrepancies) if p_rep is not None else 0)
+    msg = f"זוהו {total_discrepancies} פערים (תיקון אוטומטי כבוי)"
     store.record_autopilot_run("reconcile", "warn", msg)
     return {"ok": False, "fixed": False, "summary": msg}
 
