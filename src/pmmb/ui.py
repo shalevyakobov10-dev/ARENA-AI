@@ -918,6 +918,9 @@ function riskDeskMetrics(data) {
     combined_risk_pnl: combinedRiskPnl, daily_loss_limit: dailyLossLimit, marks_fresh: marksFresh,
     mark_failures: markFailures, halted, halt_reason: haltReason,
     shared_mode: String(unifiedRisk.mode || "—"), shared_paper_only: Object.prototype.hasOwnProperty.call(unifiedRisk, "paper_only") ? !!unifiedRisk.paper_only : null,
+    notice: sharedSnapshotAvailable
+      ? "הנתונים משקפים את שער הסיכון המשותף וה־Ledger. חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול."
+      : "מדדי החשיפה כאן מיועדים לניטור בלבד; מצב השער והיתרה הגלובלית יופיעו כאשר API המצב יספק snapshot מאומת.",
     overall_status: overall
   };
 }
