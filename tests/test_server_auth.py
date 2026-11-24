@@ -23,7 +23,8 @@ def test_empty_token_never_authenticates():
     assert token_ok("secret", "secret") is True
 
 
-def test_missing_token_only_authorizes_loopback_clients(cfg):
+def test_missing_token_only_authorizes_loopback_clients(monkeypatch, cfg):
+    monkeypatch.setenv("PMMB_STATUS_TOKEN", "")
     handler_type = make_handler(
         cfg, max_age_sec=60, refresh_sec=30, token="", trader=object()
     )
@@ -58,3 +59,12 @@ def test_public_bind_works_with_environment_token(monkeypatch, cfg):
         assert httpd.server_address[1] > 0
     finally:
         httpd.server_close()
+
+
+def test_dashboard_source_forwards_token_to_api_and_csv_links():
+    from pathlib import Path
+
+    ui_source = (Path(__file__).resolve().parents[1] / "src" / "pmmb" / "ui.py").read_text(encoding="utf-8")
+    assert 'const STATUS_TOKEN = new URLSearchParams(window.location.search).get("token")' in ui_source
+    assert '"X-Token": STATUS_TOKEN' in ui_source
+    assert 'authUrl("/api/export/trades.csv")' in ui_source
