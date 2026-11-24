@@ -27,7 +27,7 @@ from .risk.sizing import stop_and_target
 from .notify import Notifier, fmt_entry, fmt_exit, fmt_halt
 from .runtime import Heartbeat, read_halt, write_heartbeat
 from .signals import build_signal_engine
-from .unified_risk import evaluate_unified_entry, unified_entry_lock
+from .unified_risk import ensure_unified_day_baseline, evaluate_unified_entry, unified_entry_lock
 
 log = logging.getLogger(__name__)
 
@@ -197,6 +197,9 @@ class Engine:
         self.cycle += 1
         stats = CycleStats()
         self.portfolio.roll_day_if_needed()
+        # Capture the UTC-day anchor before this cycle can close or open a position.
+        with unified_entry_lock(self.cfg):
+            ensure_unified_day_baseline(self.store, self.cfg)
         halt_flag = read_halt(self.state_dir)
         if halt_flag is not None:
             self.risk.halt(f"עצירה חיצונית ({halt_flag.source}): {halt_flag.reason}")
@@ -245,7 +248,9 @@ class Engine:
         for mk in markets:
             try:
                 pre_bk, pre_cs = prefetched.get(mk.condition_id, (None, None))
-                prep = self._prepare_market(mk, stats, prefetched_book=pre_bk, prefetched_candles=pre_cs)
+                # Serialize exits against the shared baseline capture and the other venue's exits.
+                with unified_entry_lock(self.cfg):
+                    prep = self._prepare_market(mk, stats, prefetched_book=pre_bk, prefetched_candles=pre_cs)
                 if prep is not None:
                     pending_entries.append(prep)
             except Exception as exc:  # לא מפילים את כל המחזור בגלל שוק אחד
@@ -253,7 +258,8 @@ class Engine:
                 log.exception("שגיאה בעיבוד %s: %s", mk.slug, exc)
 
         # --- שלב 1.5: מעקב / סגירה מבוקרת לפוזיציות שיצאו מרשימת היקום (מפנה מקום לפני כניסות) ---
-        self._close_orphans(stats)
+        with unified_entry_lock(self.cfg):
+            self._close_orphans(stats)
 
         # --- שלב 2: כניסות מתועדפות לפי איכות סטאפ (score, edge, מחזור) ---
         pending_entries.sort(
@@ -908,7 +914,13 @@ class Engine:
             self._news_articles = []
 
     def close_position_by_token(self, token_id: str, reason: str = "סגירה ידנית מהטרמינל") -> dict:
-        """סוגר פוזיציית Polymarket פתוחה לפי token_id (או prefix) במחיר השוק."""
+        """סוגר פוזיציית Polymarket פתוחה תחת הנעילה המאוחדת."""
+        with unified_entry_lock(self.cfg):
+            ensure_unified_day_baseline(self.store, self.cfg)
+            return self._close_position_by_token_locked(token_id, reason)
+
+    def _close_position_by_token_locked(self, token_id: str, reason: str) -> dict:
+        """סגירה ידנית; caller מחזיק unified_entry_lock."""
         resolved_tid = (
             token_id
             if token_id in self.portfolio.positions
