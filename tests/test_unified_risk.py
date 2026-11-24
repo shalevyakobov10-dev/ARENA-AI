@@ -30,16 +30,22 @@ def shared_store(tmp_path, cfg, monkeypatch):
 
 
 def _seed_poly_position(store: Store, token: str, *, size: float, avg_price: float) -> None:
+    ts = int(time.time())
     with store.tx() as conn:
         conn.execute(
             """INSERT INTO positions
                (token_id, condition_id, mode, direction, size, avg_price, opened_at)
                VALUES (?, ?, 'paper', 'LONG', ?, ?, ?)""",
-            (token, f"condition-{token}", size, avg_price, int(time.time())),
+            (token, f"condition-{token}", size, avg_price, ts),
+        )
+        conn.execute(
+            "INSERT INTO books(token_id, ts, mid, best_bid) VALUES (?, ?, ?, ?)",
+            (token, ts, avg_price, avg_price),
         )
 
 
 def _seed_perp_position(store: Store, symbol: str, *, margin: float) -> None:
+    ts = int(time.time())
     with store.tx() as conn:
         conn.execute(
             """INSERT INTO perp_positions
@@ -48,7 +54,12 @@ def _seed_perp_position(store: Store, symbol: str, *, margin: float) -> None:
                 highest_price, lowest_price, fees_paid, opened_at)
                VALUES (?, 'okx', 'paper', 'LONG', 0.01, 100.0, ?, 10.0,
                        ?, 90.0, 95.0, 110.0, 100.0, 100.0, 0, ?)""",
-            (symbol, margin * 10.0, margin, int(time.time())),
+            (symbol, margin * 10.0, margin, ts),
+        )
+        conn.execute(
+            """INSERT INTO perp_intel(symbol, exchange, price, mark_price, updated_at)
+               VALUES (?, 'okx', 100.0, 100.0, ?)""",
+            (symbol, ts),
         )
 
 
@@ -312,6 +323,78 @@ def test_missing_global_halt_file_does_not_block(shared_store, cfg, tmp_path, mo
     assert decision.approved
 
 
+def test_snapshot_marks_open_positions_across_both_arms(shared_store, cfg):
+    _seed_poly_position(shared_store, "poly-mtm", size=100.0, avg_price=0.5)
+    _seed_perp_position(shared_store, "BTC", margin=100.0)
+    now_ts = int(time.time())
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE books SET mid=0.4, best_bid=0.4, ts=? WHERE token_id='poly-mtm'",
+            (now_ts,),
+        )
+        conn.execute(
+            "UPDATE perp_intel SET price=90.0, mark_price=90.0, updated_at=? WHERE symbol='BTC'",
+            (now_ts,),
+        )
+
+    snapshot = build_unified_portfolio_snapshot(shared_store, cfg)
+
+    assert snapshot.marks_fresh is True
+    assert snapshot.mark_failures == ()
+    assert snapshot.unrealized_pnl == pytest.approx(-10.1)
+    assert snapshot.combined_risk_pnl == pytest.approx(-10.1)
+
+
+def test_combined_mark_to_market_loss_persists_global_halt(shared_store, cfg):
+    clear_halt()
+    cfg.portfolio_risk.max_daily_loss_pct = 0.05
+    _seed_poly_position(shared_store, "poly-drawdown", size=250.0, avg_price=0.7)
+    now_ts = int(time.time())
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE books SET mid=0.3, best_bid=0.3, ts=? WHERE token_id='poly-drawdown'",
+            (now_ts,),
+        )
+        conn.execute(
+            """INSERT INTO fills
+               (ts, mode, token_id, condition_id, side, price, size, fee, realized)
+               VALUES (?, 'paper', 'closed-token', 'closed-condition', 'SELL', 0.4, 1, 0, -10)""",
+            (now_ts,),
+        )
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0
+    )
+
+    assert not decision.approved
+    assert "הפסד מסומן משולב" in decision.reason
+    flag = read_halt()
+    assert flag is not None
+    assert flag.source == "unified-risk"
+
+
+def test_stale_open_position_mark_fails_closed_without_setting_halt(
+    shared_store, cfg
+):
+    clear_halt()
+    _seed_poly_position(shared_store, "poly-stale", size=20.0, avg_price=0.5)
+    stale_ts = int(time.time()) - 900
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE books SET ts=? WHERE token_id='poly-stale'",
+            (stale_ts,),
+        )
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0
+    )
+
+    assert not decision.approved
+    assert "Mark-to-Market" in decision.reason
+    assert read_halt() is None
+
+ 
+ 
 def test_disabled_nonpaper_perps_arm_does_not_block_polymarket_paper(shared_store, cfg):
     cfg.perps.enabled = False
     cfg.perps.mode = "live"
