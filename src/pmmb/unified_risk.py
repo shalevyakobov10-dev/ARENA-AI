@@ -44,7 +44,7 @@ class UnifiedPortfolioSnapshot:
         return self.polymarket_realized_today + self.perps_realized_today
 
     @property
-    def risk_pnl_today(self) -> float:
+    def combined_risk_pnl(self) -> float:
         """Realized PnL plus the current floating PnL of all open positions."""
         return self.realized_today + self.unrealized_pnl
 
@@ -59,7 +59,7 @@ class UnifiedPortfolioSnapshot:
             "perps_realized_today": round(self.perps_realized_today, 2),
             "realized_today": round(self.realized_today, 2),
             "unrealized_pnl": round(self.unrealized_pnl, 2),
-            "risk_pnl_today": round(self.risk_pnl_today, 2),
+            "combined_risk_pnl": round(self.combined_risk_pnl, 2),
             "marks_fresh": self.marks_fresh,
             "mark_failures": list(self.mark_failures),
         }
@@ -340,7 +340,7 @@ def evaluate_unified_entry(
             utilization,
         )
 
-    if snapshot.risk_pnl_today <= -daily_limit:
+    if snapshot.combined_risk_pnl <= -daily_limit:
         reason = (
             f"הפסד מסומן משולב {snapshot.risk_pnl_today:.2f} עבר את תקרת היום "
             f"({-daily_limit:.2f}); עצירת חירום הופעלה"
