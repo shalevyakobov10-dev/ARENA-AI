@@ -444,6 +444,25 @@ table.clean-tbl tbody tr.clickable { cursor: pointer; }
 /* Quick Trade Segmented Side */
 .side-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 
+
+/* Operations and observability */
+.ops-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:16px 20px; }
+.ops-grid.cols-3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.ops-grid.cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.ops-kpi { min-width:0; background:rgba(15,23,42,.65); border:1px solid var(--border); border-radius:13px; padding:13px 15px; }
+.ops-kpi-label { color:var(--muted); font-size:12px; margin-bottom:5px; }
+.ops-kpi-value { font-size:20px; line-height:1.25; font-weight:800; overflow-wrap:anywhere; }
+.ops-kpi-sub { color:var(--dim); font-size:11.5px; margin-top:5px; }
+.ops-fresh { display:flex; flex-direction:column; gap:5px; min-width:0; }
+.ops-fresh-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.ops-fresh-time { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.ops-warning { margin:0 20px 16px; padding:12px 14px; border:1px solid rgba(245,158,11,.35); background:var(--amber-soft); border-radius:12px; color:#fde68a; font-size:12.5px; }
+.ops-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.ops-actions .btn:disabled { opacity:.38; cursor:not-allowed; transform:none; }
+.ops-event-msg { min-width:180px; max-width:620px; white-space:normal; overflow-wrap:anywhere; }
+@media (max-width: 1060px) { .ops-grid, .ops-grid.cols-3 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width: 640px) { .ops-grid, .ops-grid.cols-2, .ops-grid.cols-3 { grid-template-columns:1fr; } }
+
 /* Search Overlay (#spot-overlay) */
 .spot-overlay {
   position: fixed;
@@ -1715,6 +1734,150 @@ function renderSettingsTab() {
   }
 }
 
+
+function opsAge(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  if (s < 60) return "לפני " + Math.max(1, Math.floor(s)) + " שנ׳";
+  if (s < 3600) return "לפני " + Math.floor(s / 60) + " דק׳";
+  if (s < 86400) return "לפני " + Math.floor(s / 3600) + " שע׳";
+  return "לפני " + Math.floor(s / 86400) + " ימים";
+}
+
+function opsFreshCard(label, ts, limitSec) {
+  const stamp = Number(ts || 0);
+  if (!stamp) {
+    return '<div class="rule-box ops-fresh"><div class="ops-fresh-head"><b>' + esc(label) + '</b><span class="badge amber">לא התקבל</span></div><div class="ops-fresh-time">אין חותמת זמן שמורה</div></div>';
+  }
+  const age = Math.max(0, Date.now() / 1000 - stamp);
+  const fresh = age <= limitSec;
+  const cls = fresh ? "green" : "amber";
+  const state = fresh ? "טרי" : "מיושן";
+  return '<div class="rule-box ops-fresh"><div class="ops-fresh-head"><b>' + esc(label) + '</b><span class="badge ' + cls + '">' + state + '</span></div><div class="ops-fresh-time">' + esc(fmtDateTime(stamp)) + ' · ' + esc(opsAge(age)) + '</div></div>';
+}
+
+function opsKpi(label, value, sub, tone) {
+  return '<div class="ops-kpi"><div class="ops-kpi-label">' + esc(label) + '</div><div class="ops-kpi-value ' + esc(tone || '') + '">' + esc(value) + '</div><div class="ops-kpi-sub">' + esc(sub || '') + '</div></div>';
+}
+
+function renderOpsTab() {
+  const tr = DATA.trader || {};
+  const hb = DATA.heartbeat || {};
+  const health = DATA.health || {};
+  const halt = !!(DATA.halt || hb.halted);
+  const running = !!tr.running;
+  const healthy = !!health.healthy;
+  const mode = String(DATA.mode || "paper").toLowerCase();
+  const isPaper = mode === "paper";
+  const statusEl = $("ops-status");
+  if (statusEl) {
+    statusEl.className = "badge " + (halt ? "red" : (healthy && running ? "green" : "amber"));
+    statusEl.textContent = halt ? "עצירת חירום פעילה" : (healthy && running ? "הבוט פועל" : (healthy ? "השירות זמין · הלולאה מושהית" : "נדרשת בדיקה"));
+  }
+  const riskMode = $("ops-risk-mode");
+  if (riskMode) {
+    riskMode.className = "badge " + (isPaper ? "blue" : "amber");
+    riskMode.textContent = isPaper ? "Paper" : "מצב Live מוגבל";
+  }
+  document.querySelectorAll("[data-ops-paper-only]").forEach((el) => {
+    el.disabled = !isPaper;
+    el.title = isPaper ? "פעולת סימולציה בלבד" : "סריקה יזומה זמינה רק במצב Paper";
+  });
+
+  const combined = DATA.combined || {};
+  const poly = DATA.bankroll || {};
+  const perps = DATA.perps || {};
+  const today = DATA.today || {};
+  const totalDaily = Number(today.realized_pnl || 0) + Number(perps.today_pnl || 0);
+  const positions = Number(combined.open_positions || 0);
+  const overview = $("ops-overview-grid");
+  if (overview) {
+    overview.innerHTML = [
+      opsKpi("שווי התיק המשולב", "$" + fmt(combined.equity), "Polymarket + PERPS", "cyan"),
+      opsKpi("רווח/הפסד ממומש היום", (totalDaily >= 0 ? "+" : "") + "$" + fmt(totalDaily), "סכום יומי משתי הזרועות", pnlCls(totalDaily)),
+      opsKpi("פוזיציות פתוחות", String(positions), "Polymarket + PERPS", ""),
+      opsKpi("מצב מנוע", halt ? "HALTED" : (running ? "RUNNING" : "PAUSED"), isPaper ? "Paper · ללא פקודות Live מהממשק" : "מצב הריצה מוגבל", "")
+    ].join("");
+  }
+
+  const polyExposure = Number(poly.exposure || 0);
+  const perpsNotional = Number(perps.notional || 0);
+  const totalGross = polyExposure + perpsNotional;
+  const equity = Number(combined.equity || 0);
+  const grossPct = equity > 0 ? totalGross / equity * 100 : 0;
+  const usedMargin = Number(perps.margin_used || 0);
+  const nearestLiq = (perps.positions || []).map((p) => Number(p.liq_distance_pct)).filter((v) => Number.isFinite(v) && v >= 0);
+  const minLiq = nearestLiq.length ? Math.min(...nearestLiq) : null;
+  const riskGrid = $("ops-risk-grid");
+  if (riskGrid) {
+    riskGrid.innerHTML = [
+      opsKpi("חשיפת Polymarket", "$" + fmt(polyExposure), "חשיפה לפי מצב החשבון", ""),
+      opsKpi("PERPS — נומינלי פתוח", "$" + fmt(perpsNotional), "מרג׳ין בשימוש: $" + fmt(usedMargin), ""),
+      opsKpi("חשיפה גולמית אינדיקטיבית", "$" + fmt(totalGross), equity > 0 ? fmt(grossPct, 1) + "% מההון המשולב" : "אין נתון הון זמין", "warn"),
+      opsKpi("מרחק ליקווידציה הקרוב", minLiq == null ? "—" : fmt(minLiq, 2) + "%", "המרחק הקטן ביותר בפוזיציות PERPS", minLiq != null && minLiq < 5 ? "neg" : "")
+    ].join("");
+  }
+
+  const cfg = DATA.config || {};
+  const newsLimit = Math.max(900, Number((cfg.news || {}).refresh_interval_sec || 900) * 2);
+  const learnLimit = Math.max(3600, Number((cfg.learning || {}).interval_sec || 21600) * 2);
+  const tradeLimit = Math.max(600, Number((cfg.autopilot || {}).trade_interval_sec || 180) * 3);
+  const freshness = $("ops-freshness-grid");
+  if (freshness) {
+    freshness.innerHTML = [
+      opsFreshCard("דופק מערכת", hb.ts, 300),
+      opsFreshCard("זרם מחירים וספרים", tr.last_stream_ts, Math.max(180, Number((cfg.autopilot || {}).stream_interval_sec || 60) * 3)),
+      opsFreshCard("חדשות", tr.last_news_ts, newsLimit),
+      opsFreshCard("למידה Polymarket", tr.last_learn_ts, learnLimit),
+      opsFreshCard("Reconciliation", tr.last_reconcile_ts, tradeLimit * 5),
+      opsFreshCard("גיבוי אחרון", tr.last_backup_ts, 86400 * 2)
+    ].join("");
+  }
+
+  const tel = DATA.telemetry || {};
+  const telemetry = $("ops-telemetry-grid");
+  if (telemetry) {
+    telemetry.innerHTML = [
+      opsKpi("Ticks שנשמרו", fmt(tel.ticks, 0), "ספירה מצטברת", ""),
+      opsKpi("ספרי פקודות", fmt(tel.books, 0), "Snapshots שנשמרו", ""),
+      opsKpi("סיגנלים", fmt(tel.signals, 0), "רשומות איתותים", ""),
+      opsKpi("כתבות חדשות", fmt(tel.news, 0), "מאגר חדשות", ""),
+      opsKpi("Market intelligence", fmt(tel.intel, 0), "רשומות שוק", ""),
+      opsKpi("מחזורי מסחר", fmt(tr.cycles, 0) + " Poly · " + fmt(tr.perps_cycles, 0) + " PERPS", "מאז אתחול מנהל הבוט", ""),
+      opsKpi("רענוני חדשות", fmt(tr.news_fetches, 0), "מאז אתחול מנהל הבוט", ""),
+      opsKpi("למידה", fmt(tr.learn_cycles, 0) + " Poly · " + fmt(tr.perps_learn_cycles, 0) + " PERPS", "מחזורי למידה שהושלמו", "")
+    ].join("");
+  }
+
+  const readiness = DATA.readiness || {};
+  const gatesBody = $("ops-gates-body");
+  const gatesSummary = $("ops-gates-summary");
+  const checks = Array.isArray(readiness.checks) ? readiness.checks : [];
+  const blocked = checks.filter((c) => c.status !== "ok");
+  if (gatesSummary) {
+    gatesSummary.className = "badge " + (readiness.ready ? "green" : "amber");
+    gatesSummary.textContent = readiness.ready ? "כל שערי המוכנות עברו" : (checks.length ? blocked.length + " דורשים טיפול" : "אין תוצאות בדיקה");
+  }
+  if (gatesBody) {
+    gatesBody.innerHTML = (blocked.length ? blocked : checks).slice(0, 10).map((c) => {
+      const ok = c.status === "ok";
+      const warning = c.status === "warn";
+      const cls = ok ? "green" : (warning ? "amber" : "red");
+      const label = ok ? "תקין" : (warning ? "אזהרה" : "חסום");
+      return '<tr><td><span class="badge ' + cls + '">' + label + '</span></td><td><b>' + esc(c.label || "בדיקה") + '</b></td><td class="muted">' + esc(c.detail || "") + '</td></tr>';
+    }).join("") || '<tr><td colspan="3" class="muted">אין בדיקות מוכנות זמינות</td></tr>';
+  }
+
+  const eventBody = $("ops-event-body");
+  const events = Array.isArray(DATA.events) ? DATA.events : [];
+  if (eventBody) {
+    eventBody.innerHTML = events.slice(0, 15).map((ev) => {
+      const level = String(ev.level || "info").toLowerCase();
+      const cls = level.includes("error") || level.includes("critical") ? "red" : (level.includes("warn") ? "amber" : "blue");
+      return '<tr><td class="num muted">' + fmtDateTime(ev.ts) + '</td><td><span class="badge ' + cls + '">' + esc(level) + '</span></td><td class="muted">' + esc(ev.kind || "") + '</td><td class="ops-event-msg">' + esc(ev.msg || "") + '</td></tr>';
+    }).join("") || '<tr><td colspan="4" class="muted">אין אירועי מערכת שמורים</td></tr>';
+  }
+}
+
 function openSpot() {
   const ov = $("spot-overlay");
   if (!ov) return;
@@ -1756,6 +1919,7 @@ function renderAll() {
   renderHomeBottomTables();
   renderMarketsTab();
   renderSettingsTab();
+  renderOpsTab();
   redrawActiveCharts();
 }
 
@@ -1828,6 +1992,7 @@ _HTML_TEMPLATE = """<!doctype html>
       <button class="nav-tab active" data-tab="home" onclick="switchTab('home')">התיק והמסחר שלי</button>
       <button class="nav-tab" data-tab="markets" onclick="switchTab('markets')">שווקים, PERPS וחדשות</button>
       <button class="nav-tab" data-tab="settings" onclick="switchTab('settings')">מוכנות, סיכונים והגדרות</button>
+      <button class="nav-tab" data-tab="ops" onclick="switchTab('ops')">מרכז תפעול וניטור</button>
     </nav>
     <div class="header-actions">
       <button class="btn sm" onclick="openSpot()">חיפוש (⌘K)</button>
@@ -2148,6 +2313,91 @@ _HTML_TEMPLATE = """<!doctype html>
             <tbody id="backups-body"></tbody>
           </table>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 4: Unified operations and observability -->
+  <section id="tab-ops" class="tab-pane">
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-head">
+        <div>
+          <div class="card-title">מרכז תפעול — תמונת מצב מאוחדת</div>
+          <div class="card-sub">בריאות, נתוני שוק, פעילות מנועים וחשיפה בשתי זרועות המסחר</div>
+        </div>
+        <div id="ops-status" class="badge amber">בודק מצב מערכת…</div>
+      </div>
+      <div class="card-pad">
+        <div class="ops-actions">
+          <button class="btn sm" onclick="runAction('/api/news-refresh',{})">רענן חדשות ונתונים</button>
+          <button class="btn sm" onclick="runAction('/api/reconcile',{})">אמת שני חשבונות</button>
+          <button class="btn sm" onclick="runAction('/api/backup',{})">גיבוי מסד נתונים</button>
+          <button class="btn sm primary" data-ops-paper-only onclick="runAction('/api/paper-cycle',{})">סרוק Polymarket (Paper)</button>
+          <button class="btn sm primary" data-ops-paper-only onclick="runAction('/api/perps/cycle',{})">סרוק PERPS (Paper)</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ops-overview-grid" class="ops-grid"></div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">חשיפה וסיכון — שתי הזרועות</div>
+            <div class="card-sub">סיכום מדדים קיימים מה־DB; לא שער סיכון משותף</div>
+          </div>
+          <span id="ops-risk-mode" class="badge">Paper</span>
+        </div>
+        <div id="ops-risk-grid" class="ops-grid cols-2"></div>
+        <div class="ops-warning">החשיפה המצרפית מוצגת לצורכי ניטור בלבד. תקרת חשיפה/הפסד אחת שמחייבת את Polymarket ואת PERPS יחד עדיין אינה נאכפת דרך המסך הזה.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">טריות מקורות ופעולות תחזוקה</div>
+            <div class="card-sub">הזמן האחרון שנרשם בכל צינור נתונים</div>
+          </div>
+        </div>
+        <div id="ops-freshness-grid" class="ops-grid cols-2"></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">טלמטריית נתונים</div>
+          <span class="badge blue">ספירות מצטברות במסד הנתונים</span>
+        </div>
+        <div id="ops-telemetry-grid" class="ops-grid cols-2"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">שערי בטיחות ומוכנות</div>
+          <span id="ops-gates-summary" class="badge">—</span>
+        </div>
+        <div class="tbl-scroll">
+          <table class="clean-tbl">
+            <thead><tr><th>מצב</th><th>בדיקה</th><th>הערה</th></tr></thead>
+            <tbody id="ops-gates-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">אירועי מערכת אחרונים</div>
+          <div class="card-sub">יומן אירועים שנשמר במסד הנתונים</div>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <table class="clean-tbl">
+          <thead><tr><th>זמן</th><th>רמה</th><th>סוג</th><th>פרטים</th></tr></thead>
+          <tbody id="ops-event-body"></tbody>
+        </table>
       </div>
     </div>
   </section>
