@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - agent/chatgpt/shared-portfolio-risk-guard
+      - agent/chatgpt/utc-day-start-baseline
   pull_request:
     paths:
       - src/pmmb/config.py
       - src/pmmb/unified_risk.py
+      - src/pmmb/data/store.py
+      - docs/UNIFIED_PORTFOLIO_RISK.md
       - src/pmmb/engine.py
       - src/pmmb/perps/engine.py
       - config/config.yaml
