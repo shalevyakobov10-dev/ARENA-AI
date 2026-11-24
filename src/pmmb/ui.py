@@ -10,6 +10,7 @@ PMMB Command Center — ממשק דור חדש אינטראקטיבי (Obsidian 
 from __future__ import annotations
 
 import json
+import math
 
 _UI_CSS = r"""
 :root {
@@ -100,7 +101,11 @@ html, body {
   box-shadow: 0 0 24px rgba(56, 189, 248, 0.16);
 }
 .brand-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
-.brand-sub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.brand-sub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.connection-pill { display:inline-flex; align-items:center; border:1px solid var(--border); border-radius:999px; padding:2px 7px; font-size:10.5px; font-weight:700; white-space:nowrap; }
+.connection-pill.connected { color:#6ee7b7; border-color:rgba(16,185,129,.34); background:var(--green-soft); }
+.connection-pill.degraded { color:#fcd34d; border-color:rgba(245,158,11,.34); background:var(--amber-soft); }
+.connection-pill.offline { color:#fda4af; border-color:rgba(244,63,94,.4); background:var(--red-soft); }
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--green);
@@ -441,8 +446,45 @@ table.clean-tbl tbody tr.clickable { cursor: pointer; }
 .cfg-field { background: rgba(15, 23, 42, 0.65); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
 .cfg-field label { font-size: 12px; color: var(--muted); font-weight: 600; }
 
+/* Portfolio Risk Desk — monitoring only; admission remains in engine code. */
+.risk-desk { margin:0 0 18px; padding:16px 18px; border:1px solid var(--border); border-radius:18px; background:linear-gradient(145deg,rgba(14,22,37,.94),rgba(7,11,20,.90)); }
+.risk-desk-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:14px; }
+.risk-desk-title { font-size:15px; font-weight:750; }
+.risk-desk-caption { color:var(--muted); font-size:12px; margin-top:3px; }
+.risk-desk-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; }
+.risk-tile { min-width:0; padding:12px 13px; border-radius:13px; background:rgba(15,23,42,.68); border:1px solid rgba(148,163,184,.12); }
+.risk-tile-k { color:var(--muted); font-size:11.5px; font-weight:600; }
+.risk-tile-v { margin-top:4px; font-size:20px; line-height:1.25; font-weight:800; font-family:var(--mono); font-variant-numeric:tabular-nums; }
+.risk-tile-sub { margin-top:4px; color:var(--muted); font-size:11.5px; }
+.risk-track { height:6px; border-radius:999px; margin-top:10px; background:rgba(148,163,184,.14); overflow:hidden; }
+.risk-fill { height:100%; border-radius:999px; background:var(--green); }
+.risk-fill.warning { background:var(--amber); }
+.risk-fill.over { background:var(--red); }
+.risk-fill.disabled { background:var(--dim); }
+.risk-desk-note { margin-top:12px; padding:10px 12px; border-radius:11px; background:var(--amber-soft); border:1px solid rgba(245,158,11,.24); color:#fcd34d; font-size:12px; }
+.risk-desk-note strong { color:#fde68a; }
+
 /* Quick Trade Segmented Side */
 .side-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+
+
+/* Operations and observability */
+.ops-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:16px 20px; }
+.ops-grid.cols-3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.ops-grid.cols-2 { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.ops-kpi { min-width:0; background:rgba(15,23,42,.65); border:1px solid var(--border); border-radius:13px; padding:13px 15px; }
+.ops-kpi-label { color:var(--muted); font-size:12px; margin-bottom:5px; }
+.ops-kpi-value { font-size:20px; line-height:1.25; font-weight:800; overflow-wrap:anywhere; }
+.ops-kpi-sub { color:var(--dim); font-size:11.5px; margin-top:5px; }
+.ops-fresh { display:flex; flex-direction:column; gap:5px; min-width:0; }
+.ops-fresh-head { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+.ops-fresh-time { color:var(--muted); font-size:12px; overflow-wrap:anywhere; }
+.ops-warning { margin:0 20px 16px; padding:12px 14px; border:1px solid rgba(245,158,11,.35); background:var(--amber-soft); border-radius:12px; color:#fde68a; font-size:12.5px; }
+.ops-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.ops-actions .btn:disabled { opacity:.38; cursor:not-allowed; transform:none; }
+.ops-event-msg { min-width:180px; max-width:620px; white-space:normal; overflow-wrap:anywhere; }
+@media (max-width: 1060px) { .ops-grid, .ops-grid.cols-3 { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width: 640px) { .ops-grid, .ops-grid.cols-2, .ops-grid.cols-3 { grid-template-columns:1fr; } }
 
 /* Search Overlay (#spot-overlay) */
 .spot-overlay {
@@ -492,11 +534,14 @@ table.clean-tbl tbody tr.clickable { cursor: pointer; }
 
 @media (max-width: 1060px) {
   .hero-grid, .main-split, .grid-2, .rule-grid, .cfg-grid { grid-template-columns: 1fr; }
+  .risk-desk-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 640px) {
   .header-inner { padding: 10px 14px; }
   .container { padding: 14px 12px 32px; }
   .hero-value { font-size: 26px; }
+  .risk-desk-grid { grid-template-columns: 1fr; }
+  .risk-desk { padding: 13px; }
 }
 """
 
@@ -510,6 +555,10 @@ let PERP_SYM = null;
 let POLY_TID = null;
 let CHART_CACHE = { home: null, perps: null, poly: null };
 let POLL_TIMER = null;
+let REFRESH_INTERVAL_SEC = 30;
+let LAST_SUCCESS_TS = 0;
+let LAST_REFRESH_ERROR = "";
+let REFRESH_IN_FLIGHT = false;
 let PERPS_ONLY_SIGNALS = false;
 let QUICK_SIDE = "LONG";
 let BOOK_CACHE = {};
@@ -787,6 +836,148 @@ function renderHero() {
         <button class="btn sm" onclick="switchTab('settings')">הגדרות ו־Live</button>
       </div>
     </div>
+  `;
+}
+
+
+function riskStatusLabel(status) {
+  return ({ healthy: "בתוך התקרה", warning: "מתקרב לתקרה", over: "חריגה מהתקרה", disabled: "זרוע מושבתת", unknown: "נתון לא זמין" })[status] || "לא ידוע";
+}
+function riskStatusClass(status) {
+  return status === "over" ? "over" : (status === "warning" ? "warning" : (status === "disabled" ? "disabled" : ""));
+}
+function riskDeskNumber(value) {
+  if (value === null || value === undefined || typeof value === "boolean" || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+function riskDeskUtilization(used, limit) {
+  if (used === null || limit === null || limit <= 0) return { pct: null, status: "unknown" };
+  const pct = used / limit * 100;
+  return { pct: Math.round(pct * 10) / 10, status: pct >= 100 ? "over" : (pct >= 80 ? "warning" : "healthy") };
+}
+function riskDeskMetrics(data) {
+  const bankroll = data.bankroll || {};
+  const perps = data.perps || {};
+  const combined = data.combined || {};
+  const config = data.config || {};
+  const risk = config.risk || {};
+  const perpsGuards = perps.guards || {};
+  const polyEquity = riskDeskNumber(bankroll.equity);
+  const polyExposure = riskDeskNumber(bankroll.exposure);
+  const perpsEnabled = perps.enabled !== false;
+  const perpsNotional = riskDeskNumber(perps.notional);
+  const perpsMargin = riskDeskNumber(perps.margin_used);
+  const perpsPositions = Array.isArray(perps.positions) ? perps.positions : [];
+  const perpsHasRisk = perpsPositions.length > 0 || (perpsNotional !== null && perpsNotional > 0) || (perpsMargin !== null && perpsMargin > 0);
+  const perpsEquity = (perpsEnabled || perpsHasRisk) ? riskDeskNumber(perps.equity) : 0;
+  const combinedEquity = riskDeskNumber(combined.equity);
+  const polyCapPct = riskDeskNumber(risk.max_total_exposure_pct);
+  const perpsCapPct = riskDeskNumber(perpsGuards.max_margin_pct);
+  const polyLimit = polyEquity !== null && polyCapPct !== null && polyCapPct > 0 ? polyEquity * polyCapPct : null;
+  const perpsLimit = perpsEquity !== null && perpsCapPct !== null && perpsCapPct > 0 ? perpsEquity * perpsCapPct / 100 : null;
+  const polyUtil = riskDeskUtilization(polyExposure, polyLimit);
+  const perpsUtil = !perpsEnabled && !perpsHasRisk ? { pct: null, status: "disabled" } : riskDeskUtilization(perpsMargin, perpsLimit);
+  const grossKnown = polyExposure !== null && perpsNotional !== null;
+  const gross = grossKnown ? polyExposure + perpsNotional : null;
+  const grossPct = gross !== null && combinedEquity !== null && combinedEquity > 0 ? Math.round(gross / combinedEquity * 1000) / 10 : null;
+  const perpsNotionalPct = perpsNotional !== null && combinedEquity !== null && combinedEquity > 0 ? Math.round(perpsNotional / combinedEquity * 1000) / 10 : null;
+  const combinedPositions = riskDeskNumber(combined.open_positions);
+  const openPositions = combinedPositions !== null ? combinedPositions : ((data.positions || []).length + perpsPositions.length);
+  const unifiedRisk = data.unified_risk || {};
+  const sharedConfig = config.portfolio_risk || null;
+  const sharedSnapshotAvailable = ["committed_capital", "combined_risk_pnl", "marks_fresh", "halted"]
+    .some((key) => Object.prototype.hasOwnProperty.call(unifiedRisk, key));
+  const sharedCommitted = riskDeskNumber(unifiedRisk.committed_capital);
+  const sharedCapitalLimit = riskDeskNumber(unifiedRisk.capital_limit);
+  const sharedUtilization = riskDeskNumber(unifiedRisk.utilization_pct);
+  const sharedOpenPositions = riskDeskNumber(unifiedRisk.open_positions);
+  const sharedMaxPositions = riskDeskNumber(unifiedRisk.max_open_positions);
+  const combinedRiskPnl = riskDeskNumber(unifiedRisk.combined_risk_pnl);
+  const dailyLossLimit = riskDeskNumber(unifiedRisk.daily_loss_limit);
+  const marksFresh = Object.prototype.hasOwnProperty.call(unifiedRisk, "marks_fresh") ? unifiedRisk.marks_fresh : null;
+  const halted = !!unifiedRisk.halted;
+  const haltReason = String(unifiedRisk.halt_reason || "");
+  const markFailures = Array.isArray(unifiedRisk.mark_failures) ? unifiedRisk.mark_failures : [];
+  const sharedConfigured = !!sharedConfig || !!unifiedRisk.enabled;
+  let overall = (polyUtil.status === "over" || perpsUtil.status === "over" || halted ||
+    (combinedRiskPnl !== null && dailyLossLimit !== null && combinedRiskPnl <= -dailyLossLimit)) ? "breach" : "warning";
+  if (sharedSnapshotAvailable && marksFresh === true && !halted &&
+      polyUtil.status !== "unknown" && (!perpsEnabled || perpsUtil.status !== "unknown") &&
+      polyUtil.status !== "warning" && perpsUtil.status !== "warning" &&
+      polyUtil.status !== "over" && perpsUtil.status !== "over") overall = "healthy";
+  return {
+    gross_notional: gross, gross_exposure_pct: grossPct,
+    poly_exposure: polyExposure, poly_limit: polyLimit, poly_utilization_pct: polyUtil.pct, poly_status: polyUtil.status,
+    perps_notional: perpsNotional, perps_notional_pct: perpsNotionalPct,
+    perps_margin: perpsMargin, perps_margin_limit: perpsLimit, perps_margin_utilization_pct: perpsUtil.pct,
+    perps_status: perpsUtil.status, perps_avg_leverage: (perpsEnabled || perpsHasRisk) ? riskDeskNumber(perps.avg_leverage) : null,
+    open_positions: openPositions, shared_limit_configured: sharedConfigured, shared_snapshot_available: sharedSnapshotAvailable,
+    shared_committed_capital: sharedCommitted, shared_capital_limit: sharedCapitalLimit, shared_utilization_pct: sharedUtilization,
+    shared_open_positions: sharedOpenPositions, shared_max_positions: sharedMaxPositions,
+    combined_risk_pnl: combinedRiskPnl, daily_loss_limit: dailyLossLimit, marks_fresh: marksFresh,
+    mark_failures: markFailures, halted, halt_reason: haltReason,
+    shared_mode: String(unifiedRisk.mode || "—"), shared_paper_only: Object.prototype.hasOwnProperty.call(unifiedRisk, "paper_only") ? !!unifiedRisk.paper_only : null,
+    notice: sharedSnapshotAvailable
+      ? "הנתונים משקפים את שער הסיכון המשותף וה־Ledger. חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול."
+      : "מדדי החשיפה כאן מיועדים לניטור בלבד; מצב השער והיתרה הגלובלית יופיעו כאשר API המצב יספק snapshot מאומת.",
+    overall_status: overall
+  };
+}
+function riskUtilTile(title, used, cap, pct, status) {
+  const available = used !== null && cap !== null && pct !== null;
+  const value = available ? `${fmt(used)} / ${fmt(cap)}` : (status === "disabled" ? "לא פעיל" : "—");
+  const detail = available ? `${fmt(pct, 1)}% מהתקרה · ${riskStatusLabel(status)}` : riskStatusLabel(status);
+  const width = available ? Math.max(0, Math.min(100, Number(pct))) : 0;
+  return `<div class="risk-tile"><div class="risk-tile-k">${esc(title)}</div><div class="risk-tile-v">${value}</div><div class="risk-tile-sub">${detail}</div><div class="risk-track"><div class="risk-fill ${riskStatusClass(status)}" style="width:${width}%"></div></div></div>`;
+}
+function renderRiskDesk() {
+  const root = $("risk-desk");
+  if (!root) return;
+  const m = riskDeskMetrics(DATA);
+  const total = m.gross_notional == null ? "—" : "$" + fmt(m.gross_notional);
+  const ratio = m.gross_exposure_pct == null ? "—" : fmt(m.gross_exposure_pct, 1) + "%";
+  const tone = m.overall_status === "breach" ? "red" : (m.overall_status === "healthy" ? "green" : "amber");
+  const label = m.halted ? "עצירת חירום פעילה" : (m.overall_status === "breach" ? "חריגה מזוהה" : (m.overall_status === "healthy" ? "שער Paper מאומת · ללא חריגה" : "נדרשת תשומת לב"));
+  const sharedBudget = m.shared_snapshot_available
+    ? ((m.shared_committed_capital == null || m.shared_capital_limit == null)
+      ? "נתוני הקצאה חלקיים"
+      : "$" + fmt(m.shared_committed_capital) + " / $" + fmt(m.shared_capital_limit))
+    : (m.shared_limit_configured ? "הגדרה קיימת · snapshot לא זמין" : "נתוני אכיפה משותפת לא זמינים");
+  const markedPnl = m.combined_risk_pnl == null ? "—" : (m.combined_risk_pnl >= 0 ? "+" : "") + "$" + fmt(m.combined_risk_pnl);
+  const marksBadge = m.marks_fresh === true ? "מחירים טריים" : (m.marks_fresh === false ? "מחיר חסר / מיושן" : "טריות לא נמסרה");
+  const marksTone = m.marks_fresh === true ? "green" : (m.marks_fresh === false ? "red" : "amber");
+  const paperGateBadge = m.shared_paper_only === true
+    ? '<span class="badge blue">Paper-only · כניסות Live חסומות</span>'
+    : '<span class="badge amber">אימות Paper-only לא זמין</span>';
+  const sharedTile = m.shared_snapshot_available
+    ? `<div class="risk-tile">
+        <div class="risk-tile-k">שער סיכון משותף · ${esc(m.shared_mode || "—")}</div>
+        <div class="risk-tile-sub">${paperGateBadge}</div>
+        <div class="risk-tile-v">${esc(sharedBudget)}</div>
+        <div class="risk-tile-sub">${m.shared_utilization_pct == null ? "ניצולת —" : esc(fmt(m.shared_utilization_pct, 1) + "% ניצולת")} · ${m.shared_open_positions == null ? "—" : fmt(m.shared_open_positions, 0)} / ${m.shared_max_positions == null ? "—" : fmt(m.shared_max_positions, 0)} פוזיציות</div>
+        <div class="risk-tile-sub"><span class="badge ${marksTone}">${marksBadge}</span> · PnL מסומן: <b>${esc(markedPnl)}</b> / הפסד יומי מרבי: ${m.daily_loss_limit == null ? "—" : "$" + fmt(m.daily_loss_limit)}</div>
+        ${m.halted ? '<div class="risk-tile-sub neg">' + esc(m.halt_reason || "עצירת חירום פעילה") + '</div>' : ""}
+        ${m.mark_failures.length ? '<div class="risk-tile-sub warn">' + esc(m.mark_failures.slice(0, 3).join(", ")) + '</div>' : ""}
+      </div>`
+    : `<div class="risk-tile">
+        <div class="risk-tile-k">שער סיכון משותף</div>
+        <div class="risk-tile-v">${esc(sharedBudget)}</div>
+        <div class="risk-tile-sub">לא מוצגת תמונת אכיפה מאומתת; מצב זה אינו מעיד על תקרת סיכון פעילה.</div>
+      </div>`;
+  root.innerHTML = `
+    <div class="risk-desk-head">
+      <div><div class="risk-desk-title">שולחן סיכון — תיק מאוחד</div><div class="risk-desk-caption">ניטור החשיפה והמרג׳ין ב־Polymarket וב־PERPS</div></div>
+      <span class="badge ${tone}">${label}</span>
+    </div>
+    <div class="risk-desk-grid">
+      <div class="risk-tile"><div class="risk-tile-k">חשיפה נומינלית ברוטו</div><div class="risk-tile-v">${total}</div><div class="risk-tile-sub">${ratio} מההון המאוחד · ${fmt(m.open_positions, 0)} פוזיציות פתוחות</div><div class="risk-track"><div class="risk-fill" style="width:${m.gross_exposure_pct == null ? 0 : Math.max(0,Math.min(100,Number(m.gross_exposure_pct)))}%"></div></div></div>
+      ${riskUtilTile("Polymarket · חשיפה / תקרה", m.poly_exposure, m.poly_limit, m.poly_utilization_pct, m.poly_status)}
+      ${riskUtilTile("PERPS · מרג׳ין / תקרה", m.perps_margin, m.perps_margin_limit, m.perps_margin_utilization_pct, m.perps_status)}
+      <div class="risk-tile"><div class="risk-tile-k">PERPS · נומינלי ומינוף</div><div class="risk-tile-v">${m.perps_notional == null ? "—" : "$" + fmt(m.perps_notional)}</div><div class="risk-tile-sub">מינוף ממוצע פתוח: ${m.perps_avg_leverage == null ? "—" : "×" + fmt(m.perps_avg_leverage, 1)}</div><div class="risk-track"><div class="risk-fill" style="width:${m.perps_notional_pct == null ? 0 : Math.max(0,Math.min(100,Number(m.perps_notional_pct)))}%"></div></div></div>
+      ${sharedTile}
+    </div>
+    <div class="risk-desk-note"><strong>חשוב:</strong> ${esc(m.notice || "חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול.")}</div>
   `;
 }
 
@@ -1715,6 +1906,158 @@ function renderSettingsTab() {
   }
 }
 
+
+function opsAge(sec) {
+  const s = Math.max(0, Number(sec) || 0);
+  if (s < 60) return "לפני " + Math.max(1, Math.floor(s)) + " שנ׳";
+  if (s < 3600) return "לפני " + Math.floor(s / 60) + " דק׳";
+  if (s < 86400) return "לפני " + Math.floor(s / 3600) + " שע׳";
+  return "לפני " + Math.floor(s / 86400) + " ימים";
+}
+
+function opsFreshCard(label, ts, limitSec) {
+  const stamp = Number(ts || 0);
+  if (!stamp) {
+    return '<div class="rule-box ops-fresh"><div class="ops-fresh-head"><b>' + esc(label) + '</b><span class="badge amber">לא התקבל</span></div><div class="ops-fresh-time">אין חותמת זמן שמורה</div></div>';
+  }
+  const age = Math.max(0, Date.now() / 1000 - stamp);
+  const fresh = age <= limitSec;
+  const cls = fresh ? "green" : "amber";
+  const state = fresh ? "טרי" : "מיושן";
+  return '<div class="rule-box ops-fresh"><div class="ops-fresh-head"><b>' + esc(label) + '</b><span class="badge ' + cls + '">' + state + '</span></div><div class="ops-fresh-time">' + esc(fmtDateTime(stamp)) + ' · ' + esc(opsAge(age)) + '</div></div>';
+}
+
+function opsKpi(label, value, sub, tone) {
+  return '<div class="ops-kpi"><div class="ops-kpi-label">' + esc(label) + '</div><div class="ops-kpi-value ' + esc(tone || '') + '">' + esc(value) + '</div><div class="ops-kpi-sub">' + esc(sub || '') + '</div></div>';
+}
+
+function renderOpsTab() {
+  const tr = DATA.trader || {};
+  const hb = DATA.heartbeat || {};
+  const health = DATA.health || {};
+  const halt = !!(DATA.halt || hb.halted);
+  const running = !!tr.running;
+  const healthy = !!health.healthy;
+  const mode = String(DATA.mode || "paper").toLowerCase();
+  const isPaper = mode === "paper";
+  const statusEl = $("ops-status");
+  if (statusEl) {
+    statusEl.className = "badge " + (halt ? "red" : (healthy && running ? "green" : "amber"));
+    statusEl.textContent = halt ? "עצירת חירום פעילה" : (healthy && running ? "הבוט פועל" : (healthy ? "השירות זמין · הלולאה מושהית" : "נדרשת בדיקה"));
+  }
+  const riskMode = $("ops-risk-mode");
+  if (riskMode) {
+    riskMode.className = "badge " + (isPaper ? "blue" : "amber");
+    riskMode.textContent = isPaper ? "Paper" : "מצב Live מוגבל";
+  }
+  document.querySelectorAll("[data-ops-paper-only]").forEach((el) => {
+    const arm = el.getAttribute("data-ops-paper-only");
+    const perpsCfg = DATA.perps || {};
+    const perpsPaper = !!perpsCfg.enabled && String(perpsCfg.mode || "").toLowerCase() === "paper";
+    const enabled = arm === "perps" ? perpsPaper : isPaper;
+    el.disabled = !enabled;
+    el.title = enabled
+      ? "פעולת סימולציה בלבד"
+      : (arm === "perps"
+          ? "סריקת PERPS זמינה רק כאשר PERPS מופעל במצב Paper"
+          : "סריקת Polymarket זמינה רק במצב Paper");
+  });
+
+  const combined = DATA.combined || {};
+  const poly = DATA.bankroll || {};
+  const perps = DATA.perps || {};
+  const today = DATA.today || {};
+  const totalDaily = Number(today.realized_pnl || 0) + Number(perps.today_pnl || 0);
+  const positions = Number(combined.open_positions || 0);
+  const overview = $("ops-overview-grid");
+  if (overview) {
+    overview.innerHTML = [
+      opsKpi("שווי התיק המשולב", "$" + fmt(combined.equity), "Polymarket + PERPS", "cyan"),
+      opsKpi("רווח/הפסד ממומש היום", (totalDaily >= 0 ? "+" : "") + "$" + fmt(totalDaily), "סכום יומי משתי הזרועות", pnlCls(totalDaily)),
+      opsKpi("פוזיציות פתוחות", String(positions), "Polymarket + PERPS", ""),
+      opsKpi("מצב מנוע", halt ? "HALTED" : (running ? "RUNNING" : "PAUSED"), isPaper ? "Paper · ללא פקודות Live מהממשק" : "מצב הריצה מוגבל", "")
+    ].join("");
+  }
+
+  const polyExposure = Number(poly.exposure || 0);
+  const perpsNotional = Number(perps.notional || 0);
+  const totalGross = polyExposure + perpsNotional;
+  const equity = Number(combined.equity || 0);
+  const grossPct = equity > 0 ? totalGross / equity * 100 : 0;
+  const usedMargin = Number(perps.margin_used || 0);
+  const nearestLiq = (perps.positions || []).map((p) => Number(p.liq_distance_pct)).filter((v) => Number.isFinite(v) && v >= 0);
+  const minLiq = nearestLiq.length ? Math.min(...nearestLiq) : null;
+  const riskGrid = $("ops-risk-grid");
+  if (riskGrid) {
+    riskGrid.innerHTML = [
+      opsKpi("חשיפת Polymarket", "$" + fmt(polyExposure), "חשיפה לפי מצב החשבון", ""),
+      opsKpi("PERPS — נומינלי פתוח", "$" + fmt(perpsNotional), "מרג׳ין בשימוש: $" + fmt(usedMargin), ""),
+      opsKpi("חשיפה גולמית אינדיקטיבית", "$" + fmt(totalGross), equity > 0 ? fmt(grossPct, 1) + "% מההון המשולב" : "אין נתון הון זמין", "warn"),
+      opsKpi("מרחק ליקווידציה הקרוב", minLiq == null ? "—" : fmt(minLiq, 2) + "%", "המרחק הקטן ביותר בפוזיציות PERPS", minLiq != null && minLiq < 5 ? "neg" : "")
+    ].join("");
+  }
+
+  const cfg = DATA.config || {};
+  const newsLimit = Math.max(900, Number((cfg.news || {}).refresh_interval_sec || 900) * 2);
+  const learnLimit = Math.max(3600, Number((cfg.learning || {}).interval_sec || 21600) * 2);
+  const tradeLimit = Math.max(600, Number((cfg.autopilot || {}).trade_interval_sec || 180) * 3);
+  const freshness = $("ops-freshness-grid");
+  if (freshness) {
+    freshness.innerHTML = [
+      opsFreshCard("דופק מערכת", hb.ts, 300),
+      opsFreshCard("זרם מחירים וספרים", tr.last_stream_ts, Math.max(180, Number((cfg.autopilot || {}).stream_interval_sec || 60) * 3)),
+      opsFreshCard("חדשות", tr.last_news_ts, newsLimit),
+      opsFreshCard("למידה Polymarket", tr.last_learn_ts, learnLimit),
+      opsFreshCard("Reconciliation", tr.last_reconcile_ts, tradeLimit * 5),
+      opsFreshCard("גיבוי אחרון", tr.last_backup_ts, 86400 * 2)
+    ].join("");
+  }
+
+  const tel = DATA.telemetry || {};
+  const telemetry = $("ops-telemetry-grid");
+  if (telemetry) {
+    telemetry.innerHTML = [
+      opsKpi("Ticks שנשמרו", fmt(tel.ticks, 0), "ספירה מצטברת", ""),
+      opsKpi("ספרי פקודות", fmt(tel.books, 0), "Snapshots שנשמרו", ""),
+      opsKpi("סיגנלים", fmt(tel.signals, 0), "רשומות איתותים", ""),
+      opsKpi("כתבות חדשות", fmt(tel.news, 0), "מאגר חדשות", ""),
+      opsKpi("Market intelligence", fmt(tel.intel, 0), "רשומות שוק", ""),
+      opsKpi("מחזורי מסחר", fmt(tr.cycles, 0) + " Poly · " + fmt(tr.perps_cycles, 0) + " PERPS", "מאז אתחול מנהל הבוט", ""),
+      opsKpi("רענוני חדשות", fmt(tr.news_fetches, 0), "מאז אתחול מנהל הבוט", ""),
+      opsKpi("למידה", fmt(tr.learn_cycles, 0) + " Poly · " + fmt(tr.perps_learn_cycles, 0) + " PERPS", "מחזורי למידה שהושלמו", "")
+    ].join("");
+  }
+
+  const readiness = DATA.readiness || {};
+  const gatesBody = $("ops-gates-body");
+  const gatesSummary = $("ops-gates-summary");
+  const checks = Array.isArray(readiness.checks) ? readiness.checks : [];
+  const blocked = checks.filter((c) => c.status !== "ok");
+  if (gatesSummary) {
+    gatesSummary.className = "badge " + (readiness.ready ? "green" : "amber");
+    gatesSummary.textContent = readiness.ready ? "כל שערי המוכנות עברו" : (checks.length ? blocked.length + " דורשים טיפול" : "אין תוצאות בדיקה");
+  }
+  if (gatesBody) {
+    gatesBody.innerHTML = (blocked.length ? blocked : checks).slice(0, 10).map((c) => {
+      const ok = c.status === "ok";
+      const warning = c.status === "warn";
+      const cls = ok ? "green" : (warning ? "amber" : "red");
+      const label = ok ? "תקין" : (warning ? "אזהרה" : "חסום");
+      return '<tr><td><span class="badge ' + cls + '">' + label + '</span></td><td><b>' + esc(c.label || "בדיקה") + '</b></td><td class="muted">' + esc(c.detail || "") + '</td></tr>';
+    }).join("") || '<tr><td colspan="3" class="muted">אין בדיקות מוכנות זמינות</td></tr>';
+  }
+
+  const eventBody = $("ops-event-body");
+  const events = Array.isArray(DATA.events) ? DATA.events : [];
+  if (eventBody) {
+    eventBody.innerHTML = events.slice(0, 15).map((ev) => {
+      const level = String(ev.level || "info").toLowerCase();
+      const cls = level.includes("error") || level.includes("critical") ? "red" : (level.includes("warn") ? "amber" : "blue");
+      return '<tr><td class="num muted">' + fmtDateTime(ev.ts) + '</td><td><span class="badge ' + cls + '">' + esc(level) + '</span></td><td class="muted">' + esc(ev.kind || "") + '</td><td class="ops-event-msg">' + esc(ev.msg || "") + '</td></tr>';
+    }).join("") || '<tr><td colspan="4" class="muted">אין אירועי מערכת שמורים</td></tr>';
+  }
+}
+
 function openSpot() {
   const ov = $("spot-overlay");
   if (!ov) return;
@@ -1749,21 +2092,72 @@ function renderSpotList(q) {
 }
 
 function renderAll() {
+  renderConnectionState();
   syncSelectors();
   renderHeader();
   renderHero();
+  renderRiskDesk();
   renderPositionsPanel();
   renderHomeBottomTables();
   renderMarketsTab();
   renderSettingsTab();
+  renderOpsTab();
   redrawActiveCharts();
 }
 
+function renderConnectionState() {
+  const pill = $("conn-pill");
+  const stamp = $("conn-last");
+  if (!pill) return;
+
+  const ageMs = LAST_SUCCESS_TS ? Date.now() - LAST_SUCCESS_TS : Infinity;
+  const warnAfterMs = Math.max(REFRESH_INTERVAL_SEC * 2000, 30000);
+  const staleAfterMs = Math.max(REFRESH_INTERVAL_SEC * 4000, 60000);
+  let state = "degraded";
+  let label = "ממתין לחיבור";
+
+  if (LAST_REFRESH_ERROR) {
+    state = "offline";
+    label = "אין חיבור";
+  } else if (ageMs > staleAfterMs) {
+    state = "offline";
+    label = "נתונים לא זמינים";
+  } else if (ageMs > warnAfterMs) {
+    state = "degraded";
+    label = "נתונים מתיישנים";
+  } else if (LAST_SUCCESS_TS) {
+    state = "connected";
+    label = "מחובר · נתונים טריים";
+  }
+
+  pill.className = "connection-pill " + state;
+  pill.textContent = label;
+  pill.title = LAST_REFRESH_ERROR || (LAST_SUCCESS_TS ? "עודכן בהצלחה" : "ממתין לתשובת השרת");
+  if (stamp) {
+    stamp.textContent = LAST_SUCCESS_TS
+      ? "עדכון: " + new Date(LAST_SUCCESS_TS).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      : "עדכון: —";
+  }
+}
+
 async function refreshState() {
+  if (REFRESH_IN_FLIGHT) return;
+  REFRESH_IN_FLIGHT = true;
   try {
-    DATA = await apiGet("/api/state");
+    const next = await apiGet("/api/state");
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      throw new Error("השרת החזיר מצב מערכת לא תקין");
+    }
+    DATA = next;
+    LAST_SUCCESS_TS = Date.now();
+    LAST_REFRESH_ERROR = "";
     renderAll();
-  } catch (_) {}
+  } catch (e) {
+    LAST_REFRESH_ERROR = String((e && e.message) || e || "שגיאת תקשורת").slice(0, 180);
+    renderConnectionState();
+  } finally {
+    REFRESH_IN_FLIGHT = false;
+  }
 }
 
 function toggleLoop() {
@@ -1773,6 +2167,7 @@ function toggleLoop() {
 }
 
 function initApp(refreshSec) {
+  REFRESH_INTERVAL_SEC = Math.max(0, Number(refreshSec) || 0);
   if (!(DATA.combined_equity_curve && DATA.combined_equity_curve.length >= 2)) HOME_CHART_MODE = "asset";
   setHomeChartMode(HOME_CHART_MODE);
   renderAll();
@@ -1795,7 +2190,13 @@ function initApp(refreshSec) {
     else if (ev.key === "Escape") closeSpot();
   });
   window.addEventListener("resize", () => redrawActiveCharts());
-  if (refreshSec > 0) POLL_TIMER = setInterval(() => refreshState(), Math.max(5, refreshSec) * 1000);
+  if (REFRESH_INTERVAL_SEC > 0) {
+    refreshState();
+    POLL_TIMER = setInterval(() => refreshState(), Math.max(5, REFRESH_INTERVAL_SEC) * 1000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refreshState();
+    });
+  }
 }
 """
 
@@ -1821,13 +2222,19 @@ _HTML_TEMPLATE = """<!doctype html>
       <div class="logo-mark">__PMMB_SVG__</div>
       <div>
         <div class="brand-title">PMMB Command Center</div>
-        <div class="brand-sub"><span id="hdr-dot" class="status-dot"></span><span id="hdr-status-text">טוען מצב מערכת...</span></div>
+        <div class="brand-sub">
+          <span id="hdr-dot" class="status-dot"></span>
+          <span id="hdr-status-text">טוען מצב מערכת...</span>
+          <span id="conn-pill" class="connection-pill degraded" role="status" aria-live="polite">ממתין לחיבור</span>
+          <span id="conn-last" class="dim">עדכון: —</span>
+        </div>
       </div>
     </div>
     <nav class="nav-pills">
       <button class="nav-tab active" data-tab="home" onclick="switchTab('home')">התיק והמסחר שלי</button>
       <button class="nav-tab" data-tab="markets" onclick="switchTab('markets')">שווקים, PERPS וחדשות</button>
       <button class="nav-tab" data-tab="settings" onclick="switchTab('settings')">מוכנות, סיכונים והגדרות</button>
+      <button class="nav-tab" data-tab="ops" onclick="switchTab('ops')">מרכז תפעול וניטור</button>
     </nav>
     <div class="header-actions">
       <button class="btn sm" onclick="openSpot()">חיפוש (⌘K)</button>
@@ -1847,6 +2254,7 @@ _HTML_TEMPLATE = """<!doctype html>
   <!-- TAB 1: Home / Essential Portfolio -->
   <section id="tab-home" class="tab-pane active">
     <div id="combined-hero" class="hero-grid"></div>
+    <section id="risk-desk" class="risk-desk" aria-label="שולחן סיכון מאוחד"></section>
 
     <div class="main-split">
       <div class="card">
@@ -2151,6 +2559,91 @@ _HTML_TEMPLATE = """<!doctype html>
       </div>
     </div>
   </section>
+
+  <!-- TAB 4: Unified operations and observability -->
+  <section id="tab-ops" class="tab-pane">
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-head">
+        <div>
+          <div class="card-title">מרכז תפעול — תמונת מצב מאוחדת</div>
+          <div class="card-sub">בריאות, נתוני שוק, פעילות מנועים וחשיפה בשתי זרועות המסחר</div>
+        </div>
+        <div id="ops-status" class="badge amber">בודק מצב מערכת…</div>
+      </div>
+      <div class="card-pad">
+        <div class="ops-actions">
+          <button class="btn sm" onclick="runAction('/api/news-refresh',{})">רענן חדשות ונתונים</button>
+          <button class="btn sm" onclick="runAction('/api/reconcile',{})">אמת שני חשבונות</button>
+          <button class="btn sm" onclick="runAction('/api/backup',{})">גיבוי מסד נתונים</button>
+          <button class="btn sm primary" data-ops-paper-only="poly" onclick="runAction('/api/paper-cycle',{})">סרוק Polymarket (Paper)</button>
+          <button class="btn sm primary" data-ops-paper-only="perps" onclick="runAction('/api/perps/cycle',{})">סרוק PERPS (Paper)</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ops-overview-grid" class="ops-grid"></div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">חשיפה וסיכון — שתי הזרועות</div>
+            <div class="card-sub">סיכום מדדים קיימים מה־DB; לא שער סיכון משותף</div>
+          </div>
+          <span id="ops-risk-mode" class="badge">Paper</span>
+        </div>
+        <div id="ops-risk-grid" class="ops-grid cols-2"></div>
+        <div class="ops-warning">החשיפה המצרפית מוצגת לצורכי ניטור בלבד. תקרת חשיפה/הפסד אחת שמחייבת את Polymarket ואת PERPS יחד עדיין אינה נאכפת דרך המסך הזה.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <div class="card-title">טריות מקורות ופעולות תחזוקה</div>
+            <div class="card-sub">הזמן האחרון שנרשם בכל צינור נתונים</div>
+          </div>
+        </div>
+        <div id="ops-freshness-grid" class="ops-grid cols-2"></div>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">טלמטריית נתונים</div>
+          <span class="badge blue">ספירות מצטברות במסד הנתונים</span>
+        </div>
+        <div id="ops-telemetry-grid" class="ops-grid cols-2"></div>
+      </div>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">שערי בטיחות ומוכנות</div>
+          <span id="ops-gates-summary" class="badge">—</span>
+        </div>
+        <div class="tbl-scroll">
+          <table class="clean-tbl">
+            <thead><tr><th>מצב</th><th>בדיקה</th><th>הערה</th></tr></thead>
+            <tbody id="ops-gates-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <div>
+          <div class="card-title">אירועי מערכת אחרונים</div>
+          <div class="card-sub">יומן אירועים שנשמר במסד הנתונים</div>
+        </div>
+      </div>
+      <div class="tbl-scroll">
+        <table class="clean-tbl">
+          <thead><tr><th>זמן</th><th>רמה</th><th>סוג</th><th>פרטים</th></tr></thead>
+          <tbody id="ops-event-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 </main>
 
 <div id="spot-overlay" class="spot-overlay" onclick="if(event.target===this)closeSpot()">
@@ -2173,9 +2666,138 @@ initApp(__PMMB_REFRESH__);
 </html>"""
 
 
+
+def _risk_number(value: object) -> float | None:
+    """המרה בטוחה למספר סופי; ערכים חסרים/לא מספריים אינם מוצגים כאפס."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _risk_utilization(used: float | None, limit: float | None) -> tuple[float | None, str]:
+    if used is None or limit is None or limit <= 0:
+        return None, "unknown"
+    pct = used / limit * 100.0
+    if pct >= 100.0:
+        state = "over"
+    elif pct >= 80.0:
+        state = "warning"
+    else:
+        state = "healthy"
+    return round(pct, 1), state
+
+
+def build_risk_desk_metrics(data: dict) -> dict:
+    """מחשב מדדי ניטור לשולחן הסיכון; אינו מאשר או חוסם פקודות מסחר."""
+    bankroll = data.get("bankroll") or {}
+    perps = data.get("perps") or {}
+    combined = data.get("combined") or {}
+    config = data.get("config") or {}
+    risk_cfg = config.get("risk") or {}
+    perps_guards = perps.get("guards") or {}
+
+    poly_equity = _risk_number(bankroll.get("equity"))
+    poly_exposure = _risk_number(bankroll.get("exposure"))
+    perps_enabled = bool(perps.get("enabled", True))
+    perps_notional = _risk_number(perps.get("notional"))
+    perps_margin = _risk_number(perps.get("margin_used"))
+    perps_positions = perps.get("positions") or []
+    perps_has_risk = bool(perps_positions) or (perps_notional is not None and perps_notional > 0) or (perps_margin is not None and perps_margin > 0)
+    perps_equity = _risk_number(perps.get("equity")) if (perps_enabled or perps_has_risk) else 0.0
+    total_equity = _risk_number(combined.get("equity"))
+
+    poly_cap_pct = _risk_number(risk_cfg.get("max_total_exposure_pct"))
+    poly_limit = poly_equity * poly_cap_pct if poly_equity is not None and poly_cap_pct is not None and poly_cap_pct > 0 else None
+    perps_cap_pct = _risk_number(perps_guards.get("max_margin_pct"))
+    perps_limit = perps_equity * perps_cap_pct / 100.0 if perps_equity is not None and perps_cap_pct is not None and perps_cap_pct > 0 else None
+    poly_util, poly_status = _risk_utilization(poly_exposure, poly_limit)
+    if not perps_enabled and not perps_has_risk:
+        perps_util, perps_status = None, "disabled"
+    else:
+        perps_util, perps_status = _risk_utilization(perps_margin, perps_limit)
+
+    gross_known = poly_exposure is not None and perps_notional is not None
+    gross = poly_exposure + perps_notional if gross_known else None
+    gross_pct = round(gross / total_equity * 100.0, 1) if gross is not None and total_equity is not None and total_equity > 0 else None
+    perps_notional_pct = round(perps_notional / total_equity * 100.0, 1) if perps_notional is not None and total_equity is not None and total_equity > 0 else None
+    open_positions = _risk_number(combined.get("open_positions"))
+    if open_positions is None:
+        open_positions = len(data.get("positions") or []) + len(perps_positions)
+
+    unified = data.get("unified_risk") or {}
+    shared_limit_configured = bool(config.get("portfolio_risk")) or bool(unified.get("enabled"))
+    shared_snapshot_available = any(
+        key in unified
+        for key in ("committed_capital", "combined_risk_pnl", "marks_fresh", "halted")
+    )
+    shared_committed = _risk_number(unified.get("committed_capital"))
+    shared_capital_limit = _risk_number(unified.get("capital_limit"))
+    shared_utilization_pct = _risk_number(unified.get("utilization_pct"))
+    shared_positions = _risk_number(unified.get("open_positions"))
+    shared_max_positions = _risk_number(unified.get("max_open_positions"))
+    combined_risk_pnl = _risk_number(unified.get("combined_risk_pnl"))
+    daily_loss_limit = _risk_number(unified.get("daily_loss_limit"))
+    marks_fresh = unified.get("marks_fresh") if "marks_fresh" in unified else None
+    halted = bool(unified.get("halted"))
+    halt_reason = str(unified.get("halt_reason") or "")
+    mark_failures = unified.get("mark_failures") or []
+
+    if halted or (combined_risk_pnl is not None and daily_loss_limit is not None and combined_risk_pnl <= -daily_loss_limit):
+        overall = "breach"
+    elif (not shared_snapshot_available or marks_fresh is not True or
+          poly_status == "unknown" or (perps_enabled and perps_status == "unknown") or
+          poly_status == "warning" or perps_status == "warning" or
+          poly_status == "over" or perps_status == "over"):
+        overall = "warning" if not (poly_status == "over" or perps_status == "over") else "breach"
+    else:
+        overall = "healthy"
+
+    return {
+        "gross_notional": round(gross, 2) if gross is not None else None,
+        "gross_exposure_pct": gross_pct,
+        "poly_exposure": round(poly_exposure, 2) if poly_exposure is not None else None,
+        "poly_limit": round(poly_limit, 2) if poly_limit is not None else None,
+        "poly_utilization_pct": poly_util, "poly_status": poly_status,
+        "perps_notional": round(perps_notional, 2) if perps_notional is not None else None,
+        "perps_notional_pct": perps_notional_pct,
+        "perps_margin": round(perps_margin, 2) if perps_margin is not None else None,
+        "perps_margin_limit": round(perps_limit, 2) if perps_limit is not None else None,
+        "perps_margin_utilization_pct": perps_util, "perps_status": perps_status,
+        "perps_avg_leverage": _risk_number(perps.get("avg_leverage")) if (perps_enabled or perps_has_risk) else None,
+        "open_positions": int(open_positions),
+        "shared_limit_configured": shared_limit_configured,
+        "shared_snapshot_available": shared_snapshot_available,
+        "shared_committed_capital": shared_committed,
+        "shared_capital_limit": shared_capital_limit,
+        "shared_utilization_pct": shared_utilization_pct,
+        "shared_open_positions": shared_positions,
+        "shared_max_positions": shared_max_positions,
+        "combined_risk_pnl": combined_risk_pnl,
+        "daily_loss_limit": daily_loss_limit,
+        "marks_fresh": marks_fresh,
+        "mark_failures": mark_failures,
+        "halted": halted,
+        "halt_reason": halt_reason,
+        "shared_mode": str(unified.get("mode") or "—"),
+        "shared_paper_only": bool(unified.get("paper_only")) if "paper_only" in unified else None,
+        "overall_status": overall,
+        "notice": (
+            "הנתונים משקפים את שער הסיכון המשותף וה־Ledger." if shared_snapshot_available
+            else "אין עדיין תמונת מצב מאומתת משער הסיכון המשותף דרך API המצב. "
+                 "המדדים הקיימים הם לניטור בלבד ואינם הוכחת אכיפה."
+        ) + " חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול.",
+    }
+
+
 def command_center_html(data: dict, *, refresh_sec: int = 30, interactive: bool = True) -> str:
     """מייצר ממשק אינטראקטיבי עצמאי, הייטקי ופשוט של PMMB Command Center."""
-    payload = json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+    payload_data = dict(data)
+    payload_data["risk_desk"] = build_risk_desk_metrics(payload_data)
+    payload = json.dumps(payload_data, ensure_ascii=False).replace("</", "<\\/")
     refresh_val = int(refresh_sec) if (interactive and refresh_sec > 0) else 0
     return (
         _HTML_TEMPLATE
