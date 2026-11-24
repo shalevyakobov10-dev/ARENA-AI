@@ -4,6 +4,8 @@ The browser command center is served by the existing PMMB server. Open the local
 
 ## Operations tab
 
+The home screen also includes a Portfolio Risk Desk with combined gross-notional exposure, Polymarket exposure against its configured arm cap, PERPS margin against its configured margin cap, and average PERPS leverage. It recalculates from each refreshed state payload. It is a monitoring surface, not an order-admission controller.
+
 The **מרכז תפעול וניטור** tab adds a consolidated read-only view of:
 
 - process heartbeat, emergency halt state, and trader-loop status;
@@ -13,7 +15,7 @@ The **מרכז תפעול וניטור** tab adds a consolidated read-only view 
 - gross exposure indicators, PERPS margin usage, and nearest liquidation distance;
 - readiness gates and recent persisted system events.
 
-The header reports backend connectivity and the timestamp of the last successful state refresh; failed refreshes are surfaced instead of silently leaving stale data on screen. Returning to the browser tab triggers an immediate refresh. The combined exposure figures are monitoring indicators, not an enforced cross-venue risk budget. The current engines retain their own risk rules. A shared portfolio risk gate is a separate engineering task and must be implemented and tested in the execution path before the dashboard may describe it as enforced.
+The header reports backend connectivity and the timestamp of the last successful state refresh; failed refreshes are surfaced instead of silently leaving stale data on screen. Returning to the browser tab triggers an immediate refresh. The Risk Desk shows per-arm limits and combined gross-notional telemetry, but does not show the shared gate's remaining budget or claim that gross notional is maximum loss. The shared entry gate is implemented separately in the engine changes tracked by PR #9; the status API does not yet expose its configured limits or admission-decision state, so those values remain deliberately unknown in this UI.
 
 ## Safe use
 
