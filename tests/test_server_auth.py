@@ -69,6 +69,7 @@ def test_dashboard_source_forwards_token_to_api_and_csv_links():
     assert 'window.history.replaceState' in ui_source
     assert '"X-Token": STATUS_TOKEN' in ui_source
     assert 'function downloadTradesCsv()' in ui_source
+    assert ui_source.count('onclick="downloadTradesCsv()"') == 3
     assert 'authUrl("/api/export/trades.csv")' not in ui_source
 
 

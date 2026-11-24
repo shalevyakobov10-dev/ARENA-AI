@@ -69,7 +69,7 @@ def token_ok(given: str, token: str) -> bool:
 
 def _redact_token_from_log(message: str) -> str:
     """Redact query-string dashboard tokens before HTTP request lines reach logs."""
-    return re.sub(r"(?i)([?&]token=)[^&\\s]*", r"\\1[REDACTED]", str(message))
+    return re.sub(r"(?i)([?&]token=)[^&\s]*", r"\1[REDACTED]", str(message))
 
 
 class _TraderManager:
