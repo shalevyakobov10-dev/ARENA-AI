@@ -40,9 +40,9 @@ def _seed_perp_position(store: Store, symbol: str, *, margin: float) -> None:
             """INSERT INTO perp_positions
                (symbol, exchange, mode, side, size, entry_price, notional, leverage,
                 margin_used, liquidation_price, stop_price, target_price,
-                highest_price, lowest_price, opened_at)
+                highest_price, lowest_price, fees_paid, opened_at)
                VALUES (?, 'okx', 'paper', 'LONG', 0.01, 100.0, ?, 10.0,
-                       ?, 90.0, 95.0, 110.0, 100.0, 100.0, ?)""",
+                       ?, 90.0, 95.0, 110.0, 100.0, 100.0, 0, ?)""",
             (symbol, margin * 10.0, margin, int(time.time())),
         )
 
@@ -171,3 +171,114 @@ def test_portfolio_risk_limits_reject_unsafe_values(cfg):
     cfg.portfolio_risk.max_capital_utilization_pct = 1.0
     with pytest.raises(ConfigError):
         cfg.portfolio_risk.validate()
+
+
+def test_disabled_perps_arm_still_counts_existing_paper_positions(shared_store, cfg):
+    cfg.perps.enabled = False
+    _seed_perp_position(shared_store, "BTC", margin=200.0)
+
+    snapshot = build_unified_portfolio_snapshot(shared_store, cfg)
+
+    assert snapshot.starting_capital == pytest.approx(2000.0)
+    assert snapshot.perps_margin_used == pytest.approx(200.0)
+    assert snapshot.open_positions == 1
+
+    cfg.portfolio_risk.max_open_positions = 1
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0
+    )
+    assert not decision.approved
+    assert "תקרת פוזיציות משותפת" in decision.reason
+
+
+def test_daily_realized_snapshot_includes_unbooked_poly_and_open_perps_entry_fees(
+    shared_store, cfg
+):
+    now = datetime.now(tz=timezone.utc)
+    ts = int(now.timestamp())
+    with shared_store.tx() as conn:
+        conn.execute(
+            """INSERT INTO fills
+               (ts, mode, token_id, condition_id, side, price, size, fee, realized)
+               VALUES (?, 'paper', 'poly-buy', 'poly-condition', 'BUY', 0.5, 10, 2.0, 0)""",
+            (ts,),
+        )
+        conn.execute(
+            """INSERT INTO perp_positions
+               (symbol, exchange, mode, side, size, entry_price, notional, leverage,
+                margin_used, liquidation_price, stop_price, target_price,
+                highest_price, lowest_price, fees_paid, opened_at)
+               VALUES ('ETH', 'okx', 'paper', 'LONG', 1, 100, 1000, 10,
+                       100, 90, 95, 110, 100, 100, 3.0, ?)""",
+            (ts,),
+        )
+        conn.execute(
+            """INSERT INTO perp_fills
+               (ts, mode, symbol, exchange, side, action, price, size, notional,
+                leverage, margin_delta, fee, funding, realized)
+               VALUES (?, 'paper', 'ETH', 'okx', 'LONG', 'OPEN', 100, 1,
+                       1000, 10, -100, 3.0, 0, 0)""",
+            (ts,),
+        )
+
+    snapshot = build_unified_portfolio_snapshot(shared_store, cfg, now=now)
+
+    assert snapshot.polymarket_realized_today == pytest.approx(-2.0)
+    assert snapshot.perps_realized_today == pytest.approx(-3.0)
+    assert snapshot.realized_today == pytest.approx(-5.0)
+
+
+def test_corrupt_global_halt_file_fails_closed(shared_store, cfg, tmp_path, monkeypatch):
+    import os
+
+    state_dir = tmp_path / "state-corrupt"
+    state_dir.mkdir()
+    (state_dir / "halt.json").write_text("{not-json", encoding="utf-8")
+    monkeypatch.setenv("PMMB_STATE_DIR", str(state_dir))
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0
+    )
+
+    assert not decision.approved
+    assert "קובץ עצירת החירום" in decision.reason
+
+
+def test_invalid_capital_value_fails_closed(shared_store, cfg):
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital="not-a-number"
+    )
+    assert not decision.approved
+    assert "סכום הקצאת הון לא תקין" in decision.reason
+
+
+def _process_lock_worker(state_dir, entered, release):
+    import os
+    os.environ["PMMB_STATE_DIR"] = str(state_dir)
+    with unified_entry_lock(Config()):
+        entered.set()
+        release.wait(5.0)
+
+
+def test_shared_entry_lock_serializes_separate_processes(cfg, tmp_path, monkeypatch):
+    import multiprocessing
+
+    state_dir = tmp_path / "state-process"
+    monkeypatch.setenv("PMMB_STATE_DIR", str(state_dir))
+    ctx = multiprocessing.get_context("fork")
+    child_entered = ctx.Event()
+    release_child = ctx.Event()
+
+    with unified_entry_lock(cfg):
+        child = ctx.Process(
+            target=_process_lock_worker,
+            args=(str(state_dir), child_entered, release_child),
+        )
+        child.start()
+        time.sleep(0.15)
+        assert not child_entered.is_set()
+
+    assert child_entered.wait(2.0)
+    release_child.set()
+    child.join(timeout=2.0)
+    assert child.exitcode == 0
