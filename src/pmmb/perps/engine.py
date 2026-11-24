@@ -201,6 +201,8 @@ class PerpEngine:
             return stats
         if not self.positions:
             return stats
+        with unified_entry_lock(self.cfg):
+            ensure_unified_day_baseline(self.store, self.cfg)
         self._load_news()
         try:
             uni = self.exchange.scan()
@@ -219,7 +221,8 @@ class PerpEngine:
             mark = (bk.mid if bk and bk.mid else inst.mark_price)
             self._last_marks[sym] = mark
             try:
-                self._process_position(pos, inst, None, bk, mark, stats)
+                with unified_entry_lock(self.cfg):
+                    self._process_position(pos, inst, None, bk, mark, stats)
             except PerpsExecutionUncertain as exc:
                 self._mark_execution_uncertain(str(exc))
                 stats.errors += 1
@@ -634,6 +637,7 @@ class PerpEngine:
         row: dict[str, Any],
         stats: PerpCycleStats,
     ) -> None:
+        ensure_unified_day_baseline(self.store, self.cfg)
         dec = self.risk.evaluate_entry(
             sig, inst, equity=self._equity(), free_cash=self.cash, open_positions=list(self.positions.values())
         )
@@ -826,6 +830,7 @@ class PerpEngine:
     ) -> dict[str, Any]:
         if self.pcfg.mode != "paper":
             raise PermissionError("פקודה ידנית מהממשק מותרת במצב paper בלבד")
+        ensure_unified_day_baseline(self.store, self.cfg)
         sym = symbol.strip().upper()
         dir_u = side.strip().upper()
         if dir_u not in ("LONG", "SHORT"):
