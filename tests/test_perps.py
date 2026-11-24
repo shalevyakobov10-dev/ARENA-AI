@@ -740,3 +740,31 @@ def test_autonomous_housekeeping_and_evolve(tmp_path, monkeypatch):
 
 
 
+
+def test_perps_engine_denies_automatic_and_manual_entries_when_shared_gate_rejects(
+    monkeypatch, cfg, tmp_path
+):
+    from types import SimpleNamespace
+
+    cfg.data.db_path = str(tmp_path / "perps-shared-guard.db")
+    cfg.perps.mode = "paper"
+    calls = []
+
+    def _deny(_store, _cfg, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(approved=False, reason="blocked by test shared budget")
+
+    monkeypatch.setattr("pmmb.perps.engine.evaluate_unified_entry", _deny)
+    ex = _FakePerpExchange(_mk_candles(140, base=100.0, mode="mr_long"))
+    eng = PerpEngine(cfg, exchange=ex)
+    try:
+        stats = eng.run_once()
+        assert stats.entries == 0
+        assert "BTC" not in eng.positions
+        assert calls and calls[0]["arm"] == "perps"
+
+        with pytest.raises(PermissionError, match="שער תיק מאוחד"):
+            eng.open_manual_order("BTC", "LONG", 20.0, 5.0)
+        assert len(calls) >= 2
+    finally:
+        eng.close()

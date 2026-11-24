@@ -318,3 +318,25 @@ def test_server_manager_throttles_rss_refresh_on_stream_ticks(cfg, tmp_path, mon
     assert len(calls) == 1
 
 
+
+def test_engine_denies_entry_when_shared_portfolio_gate_rejects(monkeypatch, cfg, store):
+    from types import SimpleNamespace
+
+    cfg.signal.min_score = 0.5
+    cfg.signal.min_edge = 0.02
+    cfg.news.enabled = False
+    calls = []
+
+    def _deny(_store, _cfg, **kwargs):
+        calls.append(kwargs)
+        return SimpleNamespace(approved=False, reason="blocked by test shared budget")
+
+    monkeypatch.setattr("pmmb.engine.evaluate_unified_entry", _deny)
+    clob = FakeClob(trending_series(0.30, 0.80, n=140))
+    eng = _engine(cfg, store, clob)
+    stats = eng.run_once()
+
+    assert calls and calls[0]["arm"] == "polymarket"
+    assert stats.entries == 0
+    assert not eng.portfolio.positions
+    assert any("תיק מאוחד" in reason or "shared" in reason.lower() for reason in stats.skipped)

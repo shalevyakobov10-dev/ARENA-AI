@@ -569,8 +569,14 @@ class Engine:
             log.debug("⛔ %s | %s", mk.question[:60], decision.reason)
             return ("CANDIDATE", f"נדחה בסיכון: {decision.reason}")
 
+        # Hold a small pre-trade buffer for slippage before capital is committed.
+        slippage_buffer = max(
+            self.cfg.risk.max_price_impact_pct,
+            self.cfg.execution.max_slippage_bps / 10_000.0,
+        )
         shared = evaluate_unified_entry(
-            self.store, self.cfg, arm="polymarket", proposed_capital=decision.notional
+            self.store, self.cfg, arm="polymarket",
+            proposed_capital=decision.notional * (1.0 + slippage_buffer),
         )
         if not shared.approved:
             stats.skip(f"סיכון תיק מאוחד: {shared.reason}")

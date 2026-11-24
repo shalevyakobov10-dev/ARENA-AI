@@ -30,6 +30,7 @@ With the configured $1,000 Polymarket and $1,000 PERPS starting balances, 50% ca
 
 ## Deliberate limitations
 
+- The guard has no configuration bypass and is hard-coded to Paper mode. Non-Paper execution on either enabled arm is denied.
 - The daily stop uses realized PnL in the two ledgers; it does not yet calculate a synchronized combined intraday mark-to-market drawdown.
 - Capital utilization is an allocation limit, not a measure of maximum loss.
 - Existing open positions are not liquidated by this guard. It denies new entries and persists a global halt after the combined realized daily-loss threshold is crossed.

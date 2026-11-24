@@ -294,8 +294,6 @@ class PerpsConfig:
 class PortfolioRiskConfig:
     """מגבלת הקצאת הון ומספר פוזיציות משותפת לשתי זרועות המסחר."""
 
-    enabled: bool = True
-    paper_only: bool = True
     max_capital_utilization_pct: float = 0.50
     max_open_positions: int = 8
     max_daily_loss_pct: float = 0.05

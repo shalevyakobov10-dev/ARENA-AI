@@ -446,8 +446,11 @@ class PerpEngine:
             row["reason"] = f"נדחה בסיכון: {dec.reason}"
             return
 
+        # Reserve for entry slippage and taker fees before the fill is persisted.
+        margin_buffer = (self.pcfg.slippage_bps + self.pcfg.taker_fee_bps) / 10_000.0
         shared = evaluate_unified_entry(
-            self.store, self.cfg, arm="perps", proposed_capital=dec.margin
+            self.store, self.cfg, arm="perps",
+            proposed_capital=dec.margin * (1.0 + margin_buffer),
         )
         if not shared.approved:
             stats.skip(f"סיכון תיק מאוחד: {shared.reason}")
@@ -698,8 +701,10 @@ class PerpEngine:
         notional = round(margin * lev, 2)
         size = round(notional / px, 6)
 
+        margin_buffer = (self.pcfg.slippage_bps + self.pcfg.taker_fee_bps) / 10_000.0
         shared = evaluate_unified_entry(
-            self.store, self.cfg, arm="perps", proposed_capital=margin
+            self.store, self.cfg, arm="perps",
+            proposed_capital=margin * (1.0 + margin_buffer),
         )
         if not shared.approved:
             raise PermissionError(f"שער תיק מאוחד חסם פקודה ידנית: {shared.reason}")

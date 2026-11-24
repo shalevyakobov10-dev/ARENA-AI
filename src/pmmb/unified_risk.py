@@ -66,9 +66,6 @@ def unified_entry_lock(cfg: Config) -> Iterator[None]:
     process holding the lock dies, the OS releases it automatically.
     """
     limits = cfg.portfolio_risk
-    if not limits.enabled:
-        yield
-        return
 
     state_dir = default_state_dir()
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -145,8 +142,6 @@ def evaluate_unified_entry(
 ) -> UnifiedRiskDecision:
     """Fail-closed cross-arm admission check; call while holding unified_entry_lock."""
     limits = cfg.portfolio_risk
-    if not limits.enabled:
-        return UnifiedRiskDecision(True, "שער התיק המאוחד מושבת")
 
     normalized_arm = str(arm).strip().lower()
     if normalized_arm not in {"polymarket", "perps"}:
@@ -158,11 +153,10 @@ def evaluate_unified_entry(
 
     # The unified guard is intentionally paper-only until live-mode controls,
     # venue-specific settlement and failure recovery have separate validation.
-    if limits.paper_only:
-        if cfg.execution.mode != "paper":
-            return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; Polymarket אינו במצב Paper")
-        if cfg.perps.enabled and cfg.perps.mode != "paper":
-            return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; PERPS אינו במצב Paper")
+    if cfg.execution.mode != "paper":
+        return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; Polymarket אינו במצב Paper")
+    if cfg.perps.enabled and cfg.perps.mode != "paper":
+        return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; PERPS אינו במצב Paper")
 
     existing_halt = read_halt()
     if existing_halt is not None:

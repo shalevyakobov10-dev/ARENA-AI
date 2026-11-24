@@ -12,6 +12,8 @@ on:
       - src/pmmb/perps/engine.py
       - config/config.yaml
       - tests/test_unified_risk.py
+      - tests/test_engine.py
+      - tests/test_perps.py
       - .github/workflows/unified-portfolio-risk.yml
 
 permissions:

@@ -164,3 +164,10 @@ def test_shared_entry_lock_serializes_threads(cfg, tmp_path, monkeypatch):
     second.join(timeout=1.0)
     assert not first.is_alive()
     assert not second.is_alive()
+
+def test_portfolio_risk_limits_reject_unsafe_values(cfg):
+    from pmmb.config import ConfigError
+
+    cfg.portfolio_risk.max_capital_utilization_pct = 1.0
+    with pytest.raises(ConfigError):
+        cfg.portfolio_risk.validate()
