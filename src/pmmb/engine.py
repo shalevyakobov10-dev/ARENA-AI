@@ -503,6 +503,7 @@ class Engine:
             return self._handle_entry_locked(mk, signal, yes_book, stats)
 
     def _handle_entry_locked(self, mk: Market, signal: Signal, yes_book: Book, stats: CycleStats) -> tuple[str, str]:
+        ensure_unified_day_baseline(self.store, self.cfg)
         if any(p.condition_id == mk.condition_id for p in self.portfolio.positions.values()):
             stats.skip("כבר בפוזיציה")
             return ("OPEN", "פוזיציה פתוחה במעקב")
