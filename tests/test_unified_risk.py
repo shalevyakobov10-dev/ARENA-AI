@@ -15,6 +15,7 @@ from pmmb.unified_risk import (
     build_unified_portfolio_snapshot,
     ensure_unified_day_baseline,
     evaluate_unified_entry,
+    build_unified_risk_status,
     unified_entry_lock,
 )
 
@@ -447,7 +448,7 @@ def _seed_poly_position_at(
 
 
 def test_utc_day_baseline_is_immutable_and_idempotent_across_store_reopen(shared_store, cfg):
-    now = datetime(2026, 3, 5, 0, 0, 20, tzinfo=timezone.utc)
+    now = datetime(2027, 3, 5, 0, 0, 20, tzinfo=timezone.utc)
     _clear_utc_day_baseline(shared_store, now)
 
     first = ensure_unified_day_baseline(shared_store, cfg, now=now)
@@ -472,7 +473,7 @@ def test_utc_day_baseline_is_immutable_and_idempotent_across_store_reopen(shared
 
 
 def test_utc_day_baseline_expires_and_cannot_be_backfilled_late(shared_store, cfg):
-    now = datetime(2026, 3, 6, 0, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2027, 3, 6, 0, 0, 0, tzinfo=timezone.utc)
     day_start = _clear_utc_day_baseline(shared_store, now)
     late = datetime.fromtimestamp(
         day_start + UNIFIED_BASELINE_CAPTURE_WINDOW_SEC + 1,
@@ -496,7 +497,7 @@ def test_utc_day_baseline_expires_and_cannot_be_backfilled_late(shared_store, cf
 
 
 def test_utc_day_baseline_retries_a_stale_midnight_mark_within_capture_window(shared_store, cfg):
-    now = datetime(2026, 3, 7, 0, 0, 20, tzinfo=timezone.utc)
+    now = datetime(2027, 3, 7, 0, 0, 20, tzinfo=timezone.utc)
     day_start = _clear_utc_day_baseline(shared_store, now)
     _seed_poly_position_at(
         shared_store, "retry-mark", ts=day_start - 130, size=100.0,
@@ -521,10 +522,10 @@ def test_utc_day_baseline_retries_a_stale_midnight_mark_within_capture_window(sh
 
 
 def test_utc_day_baseline_rejects_excess_cross_venue_mark_skew(shared_store, cfg):
-    now = datetime(2026, 3, 8, 0, 3, 20, tzinfo=timezone.utc)
+    now = datetime(2027, 3, 8, 0, 3, 20, tzinfo=timezone.utc)
     day_start = _clear_utc_day_baseline(shared_store, now)
     _seed_poly_position_at(
-        shared_store, "skew-mark", ts=day_start + 10, size=100.0,
+        shared_store, "skew-mark", ts=day_start + 50, size=100.0,
         avg_price=0.5, mark=0.5,
     )
     _seed_perp_position(shared_store, "BTC", margin=100.0)
@@ -535,12 +536,12 @@ def test_utc_day_baseline_rejects_excess_cross_venue_mark_skew(shared_store, cfg
         )
         conn.execute(
             "UPDATE perp_intel SET updated_at=? WHERE symbol='BTC'",
-            (day_start + 200,),
+            (day_start + 190,),
         )
 
-    pending = ensure_unified_day_baseline(shared_store, cfg, now=now)
+    pending = ensure_unified_day_baseline(shared_store, cfg, now=now.replace(second=20))
     assert pending["status"] == "pending"
-    assert pending["mark_skew_sec"] == pytest.approx(190.0)
+    assert pending["mark_skew_sec"] == pytest.approx(140.0)
     assert any("skew" in item for item in pending["failures"])
 
     with shared_store.tx() as conn:
@@ -561,7 +562,7 @@ def test_utc_day_baseline_rejects_excess_cross_venue_mark_skew(shared_store, cfg
 
 
 def test_daily_risk_pnl_measures_change_since_utc_baseline(shared_store, cfg):
-    now = datetime(2026, 3, 9, 0, 0, 30, tzinfo=timezone.utc)
+    now = datetime(2027, 3, 9, 0, 0, 30, tzinfo=timezone.utc)
     day_start = _clear_utc_day_baseline(shared_store, now)
     _seed_poly_position_at(
         shared_store, "daily-delta", ts=day_start + 10, size=100.0,
@@ -602,7 +603,7 @@ def test_daily_risk_pnl_measures_change_since_utc_baseline(shared_store, cfg):
 
 
 def test_prior_day_perps_entry_fee_is_not_counted_again_on_today_partial_close(shared_store, cfg):
-    now = datetime(2026, 3, 10, 0, 0, 30, tzinfo=timezone.utc)
+    now = datetime(2027, 3, 10, 0, 0, 30, tzinfo=timezone.utc)
     day_start = _clear_utc_day_baseline(shared_store, now)
     _seed_perp_position(shared_store, "BTC", margin=100.0)
     with shared_store.tx() as conn:
@@ -620,6 +621,10 @@ def test_prior_day_perps_entry_fee_is_not_counted_again_on_today_partial_close(s
                VALUES (?, 'paper', 'BTC', 'okx', 'LONG', 'OPEN', 100, 0.01, 1,
                        10, -100, 5, 0, 0)""",
             (day_start - 86400,),
+        )
+        conn.execute(
+            "UPDATE perp_intel SET updated_at=? WHERE symbol='BTC'",
+            (day_start + 10,),
         )
         conn.execute(
             """INSERT INTO perp_fills
@@ -641,6 +646,6 @@ def test_prior_day_perps_entry_fee_is_not_counted_again_on_today_partial_close(s
     )
     assert snapshot.perps_realized_today == pytest.approx(0.0)
     assert snapshot.unrealized_pnl == pytest.approx(0.0)
-    assert snapshot.daily_risk_pnl == pytest.approx(0.0)
+    assert snapshot.combined_risk_pnl == pytest.approx(0.0)
 
 
