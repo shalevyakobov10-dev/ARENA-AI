@@ -500,8 +500,20 @@ def build_unified_risk_status(
 ) -> UnifiedPortfolioSnapshot:
     """Return the same ledger, mark, and baseline snapshot used by admission."""
     current = now or datetime.now(tz=timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    else:
+        current = current.astimezone(timezone.utc)
     snapshot = build_unified_portfolio_snapshot(store, cfg, now=current)
-    baseline = ensure_unified_day_baseline(store, cfg, now=current)
+    baseline = store.get_unified_day_baseline(current.date().isoformat())
+    if baseline is None:
+        baseline = {
+            "status": "unavailable",
+            "baseline_ts": None,
+            "baseline_realized_pnl": None,
+            "baseline_unrealized_pnl": None,
+            "failures": ["no UTC day-start baseline has been captured"],
+        }
     return replace(
         snapshot,
         baseline_status=str(baseline.get("status") or "error"),
