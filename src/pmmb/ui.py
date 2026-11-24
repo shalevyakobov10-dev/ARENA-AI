@@ -2674,14 +2674,31 @@ def build_risk_desk_metrics(data: dict) -> dict:
     if open_positions is None:
         open_positions = len(data.get("positions") or []) + len(perps_positions)
 
-    # portfolio_risk isn't yet surfaced by the status API, so the UI cannot
-    # calculate remaining global budget or claim that it has verified it.
-    shared_limit_configured = bool(config.get("portfolio_risk"))
-    if poly_status == "over" or perps_status == "over":
+    unified = data.get("unified_risk") or {}
+    shared_limit_configured = bool(config.get("portfolio_risk")) or bool(unified.get("enabled"))
+    shared_snapshot_available = any(
+        key in unified
+        for key in ("committed_capital", "combined_risk_pnl", "marks_fresh", "halted")
+    )
+    shared_committed = _risk_number(unified.get("committed_capital"))
+    shared_capital_limit = _risk_number(unified.get("capital_limit"))
+    shared_utilization_pct = _risk_number(unified.get("utilization_pct"))
+    shared_positions = _risk_number(unified.get("open_positions"))
+    shared_max_positions = _risk_number(unified.get("max_open_positions"))
+    combined_risk_pnl = _risk_number(unified.get("combined_risk_pnl"))
+    daily_loss_limit = _risk_number(unified.get("daily_loss_limit"))
+    marks_fresh = unified.get("marks_fresh") if "marks_fresh" in unified else None
+    halted = bool(unified.get("halted"))
+    halt_reason = str(unified.get("halt_reason") or "")
+    mark_failures = unified.get("mark_failures") or []
+
+    if halted or (combined_risk_pnl is not None and daily_loss_limit is not None and combined_risk_pnl <= -daily_loss_limit):
         overall = "breach"
-    elif (not shared_limit_configured or poly_status == "unknown" or
-          (perps_enabled and perps_status == "unknown") or poly_status == "warning" or perps_status == "warning"):
-        overall = "warning"
+    elif (not shared_snapshot_available or marks_fresh is not True or
+          poly_status == "unknown" or (perps_enabled and perps_status == "unknown") or
+          poly_status == "warning" or perps_status == "warning" or
+          poly_status == "over" or perps_status == "over"):
+        overall = "warning" if not (poly_status == "over" or perps_status == "over") else "breach"
     else:
         overall = "healthy"
 
@@ -2697,11 +2714,28 @@ def build_risk_desk_metrics(data: dict) -> dict:
         "perps_margin_limit": round(perps_limit, 2) if perps_limit is not None else None,
         "perps_margin_utilization_pct": perps_util, "perps_status": perps_status,
         "perps_avg_leverage": _risk_number(perps.get("avg_leverage")) if (perps_enabled or perps_has_risk) else None,
-        "open_positions": int(open_positions), "shared_limit_configured": shared_limit_configured,
+        "open_positions": int(open_positions),
+        "shared_limit_configured": shared_limit_configured,
+        "shared_snapshot_available": shared_snapshot_available,
+        "shared_committed_capital": shared_committed,
+        "shared_capital_limit": shared_capital_limit,
+        "shared_utilization_pct": shared_utilization_pct,
+        "shared_open_positions": shared_positions,
+        "shared_max_open_positions": shared_max_positions,
+        "combined_risk_pnl": combined_risk_pnl,
+        "daily_loss_limit": daily_loss_limit,
+        "marks_fresh": marks_fresh,
+        "mark_failures": mark_failures,
+        "halted": halted,
+        "halt_reason": halt_reason,
+        "shared_mode": str(unified.get("mode") or "—"),
+        "shared_paper_only": bool(unified.get("paper_only")) if "paper_only" in unified else None,
         "overall_status": overall,
-        "notice": ("המדדים במסך הם לניטור בלבד. שער הכניסה המשותף נאכף בנפרד במנועים, "
-                   "אך הגדרותיו והיתרה הגלובלית הזמינה עדיין אינן מוצגות דרך API המצב. "
-                   "חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול."),
+        "notice": (
+            "הנתונים משקפים את שער הסיכון המשותף וה־Ledger." if shared_snapshot_available
+            else "אין עדיין תמונת מצב מאומתת משער הסיכון המשותף דרך API המצב. "
+                 "המדדים הקיימים הם לניטור בלבד ואינם הוכחת אכיפה."
+        ) + " חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול.",
     }
 
 
