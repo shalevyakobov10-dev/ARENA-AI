@@ -11,6 +11,8 @@ if ! [[ "$RESTART_DELAY" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
   exit 2
 fi
 
+LOG_DIR="logs"
+LOG="$LOG_DIR/paper.log"
 CHILD_PID=""
 STOPPING=0
 
@@ -25,7 +27,6 @@ shutdown() {
 }
 trap 'shutdown; exit 0' INT TERM
 
-LOG_DIR="logs"
 mkdir -p "$LOG_DIR" reports backups pmmb.db.dir 2>/dev/null || true
 
 rotate() {
