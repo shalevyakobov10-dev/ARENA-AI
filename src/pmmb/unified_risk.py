@@ -6,7 +6,11 @@ ledger persistence in each engine, preventing cross-process over-allocation.
 """
 from __future__ import annotations
 
-import fcntl
+import json
+try:  # POSIX advisory locks
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None
 import logging
 import math
 import os
@@ -17,7 +21,7 @@ from typing import Iterator
 
 from .config import Config
 from .data.store import Store
-from .runtime import default_state_dir, halt_path, read_halt, write_halt
+from .runtime import default_state_dir, halt_path, write_halt
 
 log = logging.getLogger(__name__)
 
@@ -65,13 +69,31 @@ def unified_entry_lock(cfg: Config) -> Iterator[None]:
     This is deliberately a blocking, cross-process advisory lock. If the
     process holding the lock dies, the OS releases it automatically.
     """
-    limits = cfg.portfolio_risk
-
     state_dir = default_state_dir()
     state_dir.mkdir(parents=True, exist_ok=True)
     lock_path = state_dir / "unified-portfolio-entry.lock"
     with lock_path.open("a+", encoding="utf-8") as lock_file:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            def unlock():
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        else:  # Windows: lock byte zero using the standard library msvcrt API.
+            import msvcrt
+            import time
+            lock_file.seek(0, os.SEEK_END)
+            if lock_file.tell() == 0:
+                lock_file.write("\\0")
+                lock_file.flush()
+            lock_file.seek(0)
+            while True:
+                try:
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError:
+                    time.sleep(0.05)
+            def unlock():
+                lock_file.seek(0)
+                msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
         try:
             lock_file.seek(0)
             lock_file.truncate()
@@ -79,21 +101,25 @@ def unified_entry_lock(cfg: Config) -> Iterator[None]:
             lock_file.flush()
             yield
         finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+            unlock()
 
 
 def _global_halt_reason() -> str | None:
     """Treat a present but unreadable/corrupt halt flag as a hard stop."""
     path = halt_path()
     try:
-        flag = read_halt()
-        if flag is not None:
-            return f"עצירת חירום פעילה: {flag.reason}"
-        if path.exists():
-            return "קובץ עצירת החירום קיים אך אינו קריא או תקין — נחסמה כניסה"
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
     except OSError as exc:
         return f"לא ניתן לאמת את קובץ עצירת החירום ({type(exc).__name__})"
-    return None
+    try:
+        payload = json.loads(raw)
+    except (TypeError, ValueError):
+        return "קובץ עצירת החירום פגום — נחסמה כניסה"
+    if not isinstance(payload, dict) or not isinstance(payload.get("reason"), str):
+        return "קובץ עצירת החירום אינו תקין — נחסמה כניסה"
+    return f"עצירת חירום פעילה: {payload['reason'] or 'עצירה ידנית'}"
 
 
 def build_unified_portfolio_snapshot(
@@ -188,12 +214,14 @@ def evaluate_unified_entry(
     # venue-specific settlement and failure recovery have separate validation.
     if cfg.execution.mode != "paper":
         return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; Polymarket אינו במצב Paper")
-    if cfg.perps.enabled and cfg.perps.mode != "paper":
+    if normalized_arm == "perps" and not cfg.perps.enabled:
+        return UnifiedRiskDecision(False, "זרוע PERPS מושבתת בקונפיגורציה — נחסמה כניסה")
+    if cfg.perps.mode != "paper":
         return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; PERPS אינו במצב Paper")
 
-    existing_halt = read_halt()
-    if existing_halt is not None:
-        return UnifiedRiskDecision(False, f"עצירת חירום פעילה: {existing_halt.reason}")
+    halt_reason = _global_halt_reason()
+    if halt_reason:
+        return UnifiedRiskDecision(False, halt_reason)
 
     try:
         snapshot = build_unified_portfolio_snapshot(store, cfg, now=now)
