@@ -342,7 +342,7 @@ def test_snapshot_marks_open_positions_across_both_arms(shared_store, cfg):
     assert snapshot.marks_fresh is True
     assert snapshot.mark_failures == ()
     assert snapshot.unrealized_pnl == pytest.approx(-10.1)
-    assert snapshot.risk_pnl_today == pytest.approx(-10.1)
+    assert snapshot.combined_risk_pnl == pytest.approx(-10.1)
 
 
 def test_combined_mark_to_market_loss_persists_global_halt(shared_store, cfg):
