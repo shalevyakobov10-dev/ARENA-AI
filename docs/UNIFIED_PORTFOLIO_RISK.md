@@ -13,14 +13,12 @@ The guard evaluates the same SQLite ledger used by both engines immediately befo
 
 ## Concurrency
 
-Both automatic entry paths and manual PERPS entries use the same OS-level advisory lock under `PMMB_STATE_DIR/unified-portfolio-entry.lock`. The lock spans the shared-ledger read, admission decision, broker call, and persistence of the resulting fill/position. This serializes cross-arm admissions when Polymarket and PERPS run in separate processes. The operating system releases the lock if a process exits unexpectedly.
+Both automatic entry paths and manual PERPS entries use the same OS-level advisory lock under `PMMB_STATE_DIR/unified-portfolio-entry.lock`. The lock spans the shared-ledger read, admission decision, broker call, and persistence of the resulting fill/position. This serializes cross-arm admissions when Polymarket and PERPS run in separate processes. The operating system releases the lock if a process exits unexpectedly. The production deployment target and CI validation for this PR are Linux. Windows validation is deferred until the existing ARENA-owned runtime module, which imports POSIX `fcntl` unconditionally, is made portable.
 
 ## Initial settings
 
 ```yaml
 portfolio_risk:
-  enabled: true
-  paper_only: true
   max_capital_utilization_pct: 0.50
   max_open_positions: 8
   max_daily_loss_pct: 0.05
@@ -34,4 +32,5 @@ With the configured $1,000 Polymarket and $1,000 PERPS starting balances, 50% ca
 - The daily stop uses realized PnL in the two ledgers; it does not yet calculate a synchronized combined intraday mark-to-market drawdown.
 - Capital utilization is an allocation limit, not a measure of maximum loss.
 - Existing open positions are not liquidated by this guard. It denies new entries and persists a global halt after the combined realized daily-loss threshold is crossed.
+- The CI gate targets Linux. Windows startup is not currently supported by the existing ARENA-owned runtime module, which imports POSIX `fcntl` unconditionally; this PR does not modify that claimed file.
 - The guard is Paper-only. Live trading remains blocked until exchange execution, settlement, recovery, fee accounting, and failure-injection testing are separately validated.
