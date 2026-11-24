@@ -174,6 +174,8 @@ def test_risk_desk_uses_backend_enforced_shared_gate_snapshot():
     assert "shared_snapshot_available" in html
     assert "combined_risk_pnl" in html
     assert "marks_fresh" in html
+    assert "Paper-only" in html
+    assert "כניסות Live חסומות" in html
 
 
 def test_risk_desk_warns_on_stale_marks_and_flags_global_halt():
