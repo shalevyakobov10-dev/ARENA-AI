@@ -4,10 +4,15 @@ from __future__ import annotations
 import math
 import time
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from pmmb.data.clob import Candle
 from pmmb.data.store import Store
-from pmmb.learning import evaluate_live_signals, run_self_learning_cycle
+from pmmb.learning import (
+    _parameters_stable_across_folds,
+    evaluate_live_signals,
+    run_self_learning_cycle,
+)
 from pmmb.models import Market, Signal
 
 
@@ -133,9 +138,16 @@ def test_self_learning_promotes_only_when_safe_and_never_auto_applies_live(tmp_p
         config_path=cfg_yaml, reports_dir=tmp_path / "rep_paper",
     )
     assert rep_paper.candidate_oos > rep_paper.baseline_oos
-    assert rep_paper.applied is True
-    assert cfg.signal.meanrev.z_entry < 4.9
-    assert (tmp_path / "config.yaml.bak").exists()
+    # Aggregate walk-forward PnL may only promote the exact same parameter
+    # set that every OOS fold evaluated. Unstable folds must leave YAML untouched.
+    if rep_paper.parameters_stable:
+        assert rep_paper.applied is True
+        assert cfg.signal.meanrev.z_entry < 4.9
+        assert (tmp_path / "config.yaml.bak").exists()
+    else:
+        assert rep_paper.applied is False
+        assert cfg.signal.meanrev.z_entry == 4.9
+        assert not (tmp_path / "config.yaml.bak").exists()
     store_paper.close()
 
 
@@ -181,3 +193,23 @@ def test_signal_outcome_stats_deduplicates_same_hour_repeats(tmp_path):
     store.close()
 
 
+
+
+
+def test_learning_promotion_requires_identical_parameters_in_every_oos_fold():
+    candidate = {"z_entry": 2.0, "lookback_candles": 24}
+    stable = [
+        SimpleNamespace(best_params=dict(candidate)),
+        SimpleNamespace(best_params=dict(candidate)),
+        SimpleNamespace(best_params=dict(candidate)),
+    ]
+    unstable = [
+        SimpleNamespace(best_params=dict(candidate)),
+        SimpleNamespace(best_params={"z_entry": 2.2, "lookback_candles": 24}),
+        SimpleNamespace(best_params=dict(candidate)),
+    ]
+
+    assert _parameters_stable_across_folds(stable, candidate) is True
+    assert _parameters_stable_across_folds(unstable, candidate) is False
+    assert _parameters_stable_across_folds([], candidate) is False
+    assert _parameters_stable_across_folds(stable, {}) is False
