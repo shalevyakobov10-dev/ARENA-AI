@@ -281,6 +281,8 @@ def test_perps_server_api_endpoints(tmp_path):
             d = json.loads(resp.read().decode())
             assert d["ok"] is True
             assert d["enabled"] is False
+        # Re-enable for the synthetic entry used to seed a position for the close-route test.
+        cfg.perps.enabled = True
         with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/perps/chart?symbol=BTC", timeout=5) as resp:
             ch = json.loads(resp.read().decode())
             assert ch["symbol"] == "BTC"
