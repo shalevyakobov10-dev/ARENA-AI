@@ -173,6 +173,60 @@ def _global_halt_reason() -> str | None:
     return f"עצירת חירום פעילה: {payload['reason'] or 'עצירה ידנית'}"
 
 
+def _prior_day_entry_fees_realized_today(store: Store, mode: str, day_start: int, now_ts: int) -> float:
+    """Return prior-UTC-day opening fees allocated into today's PERPS close PnL.
+
+    PERPS lifetime realized PnL allocates original entry fees to each partial
+    close. Those fees were paid on the opening date, so adding them back here
+    prevents a close today from counting yesterday's fee a second time as
+    today's loss.
+    """
+    rows = store._conn.execute(
+        """SELECT ts, symbol, action, size, fee
+           FROM perp_fills
+           WHERE mode=? AND ts<=? AND action IN ('OPEN','CLOSE','LIQUIDATION')
+           ORDER BY ts, id""",
+        (mode, int(now_ts)),
+    ).fetchall()
+    active: dict[str, dict[str, float | int]] = {}
+    adjustment = 0.0
+    for row in rows:
+        symbol = str(row["symbol"])
+        ts = int(row["ts"])
+        action = str(row["action"]).upper()
+        size = max(0.0, float(row["size"] or 0.0))
+        fee = max(0.0, float(row["fee"] or 0.0))
+        if action == "OPEN":
+            if size > 0:
+                # One active position per symbol is enforced by the engine.
+                active[symbol] = {
+                    "opened_at": ts,
+                    "original_size": size,
+                    "remaining_size": size,
+                    "entry_fee": fee,
+                }
+            continue
+
+        position = active.get(symbol)
+        if position is None or size <= 0:
+            continue
+        remaining = max(0.0, float(position["remaining_size"]))
+        original = max(0.0, float(position["original_size"]))
+        closed = min(size, remaining)
+        if (
+            ts >= day_start
+            and int(position["opened_at"]) < day_start
+            and original > 0
+        ):
+            adjustment += float(position["entry_fee"]) * (closed / original)
+        remaining -= closed
+        if remaining <= max(1e-9, original * 1e-6):
+            active.pop(symbol, None)
+        else:
+            position["remaining_size"] = remaining
+    return round(adjustment, 8)
+
+
 def build_unified_portfolio_snapshot(
     store: Store,
     cfg: Config,
@@ -260,11 +314,17 @@ def build_unified_portfolio_snapshot(
     perps_positions = list(perps_state["positions"])
     perps_margin = sum(max(0.0, float(p.margin_used)) for p in perps_positions)
     perps_realized_today = float(perps_state["realized_pnl_today"] or 0.0)
-    # Entry fees for positions opened today have not reached realized PnL yet.
+    # Opening fees for positions still open today are not in realized PnL yet.
     perps_realized_today -= sum(
         max(0.0, float(p.fees_paid or 0.0))
         for p in perps_positions
         if int(p.opened_at.timestamp()) >= day_start
+    )
+    # If a position opened before UTC midnight was closed/partially closed
+    # today, its close-fill realized amount includes allocated historical entry
+    # fees. Add those fees back: they were paid before this UTC risk day.
+    perps_realized_today += _prior_day_entry_fees_realized_today(
+        store, cfg.perps.mode, day_start, now_ts
     )
     perps_max_age = max(180, int(float(cfg.perps.interval_sec) * 4))
 
