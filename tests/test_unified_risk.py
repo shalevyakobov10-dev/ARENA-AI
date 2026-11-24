@@ -152,7 +152,7 @@ def test_combined_daily_realized_loss_persists_global_halt(shared_store, cfg):
     )
 
     assert not decision.approved
-    assert "הפסד ממומש משולב" in decision.reason
+    assert "הפסד יומי משולב" in decision.reason
     flag = read_halt()
     assert flag is not None
     assert flag.source == "unified-risk"
@@ -647,5 +647,37 @@ def test_prior_day_perps_entry_fee_is_not_counted_again_on_today_partial_close(s
     assert snapshot.perps_realized_today == pytest.approx(0.0)
     assert snapshot.unrealized_pnl == pytest.approx(0.0)
     assert snapshot.combined_risk_pnl == pytest.approx(0.0)
+
+
+
+
+def test_late_start_without_positions_or_fills_can_capture_safe_zero_baseline(shared_store, cfg):
+    now = datetime(2027, 3, 11, 0, 25, 0, tzinfo=timezone.utc)
+    _clear_utc_day_baseline(shared_store, now)
+
+    baseline = ensure_unified_day_baseline(shared_store, cfg, now=now)
+
+    assert baseline["status"] == "ready"
+    assert baseline["baseline_ts"] == int(now.timestamp())
+    assert baseline["open_positions"] == 0
+    assert baseline["baseline_realized_pnl"] == pytest.approx(0.0)
+    assert baseline["baseline_unrealized_pnl"] == pytest.approx(0.0)
+
+
+def test_late_start_with_intraday_fills_cannot_rebase_daily_loss(shared_store, cfg):
+    now = datetime(2027, 3, 12, 0, 25, 0, tzinfo=timezone.utc)
+    day_start = _clear_utc_day_baseline(shared_store, now)
+    with shared_store.tx() as conn:
+        conn.execute(
+            """INSERT INTO fills
+               (ts, mode, token_id, condition_id, side, price, size, fee, realized)
+               VALUES (?, 'paper', 'late-start', 'late-start', 'SELL', 0.5, 10, 0, 0)""",
+            (day_start + 60,),
+        )
+
+    baseline = ensure_unified_day_baseline(shared_store, cfg, now=now)
+
+    assert baseline["status"] == "expired"
+    assert baseline["baseline_ts"] is None
 
 
