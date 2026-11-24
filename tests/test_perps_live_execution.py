@@ -498,3 +498,43 @@ def test_engine_latches_uncertain_execution_when_halt_file_cannot_be_read_or_wri
         assert eng.positions["BTC"] is position
     finally:
         eng.close()
+
+
+def test_process_wide_uncertain_latch_blocks_fresh_engine_when_halt_write_fails(tmp_path, monkeypatch):
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "isolated-state"))
+    eng, position = _engine(tmp_path, _FixedBroker(None))
+    try:
+        def fail_halt_write(*_args, **_kwargs):
+            raise OSError("simulated unavailable state directory")
+
+        monkeypatch.setattr("pmmb.perps.engine.write_halt", fail_halt_write)
+
+        def uncertain(*_args, **_kwargs):
+            raise PerpsExecutionUncertain("ambiguous execution acknowledgement")
+
+        monkeypatch.setattr(eng, "_process_position", uncertain)
+        first = eng.run_once()
+        assert first.errors == 1
+        assert eng._execution_uncertain is True
+        db_key = eng._execution_latch_key
+    finally:
+        eng.close()
+
+    # The service creates a new engine object on each PERPS cycle. A fresh
+    # object using the same ledger must inherit the process-wide latch.
+    second, second_position = _engine(tmp_path, _FixedBroker(None))
+    try:
+        assert second._execution_latch_key == db_key
+        assert second._execution_uncertain is True
+        monkeypatch.setattr(
+            second.exchange,
+            "scan",
+            lambda: pytest.fail("fresh engine must not scan after uncertain execution"),
+        )
+        next_cycle = second.run_once()
+        assert next_cycle.errors == 0
+        assert next_cycle.scanned == 0
+        assert second.positions["BTC"] is second_position
+        assert second.broker.calls == 0
+    finally:
+        second.close()
