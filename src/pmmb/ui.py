@@ -100,7 +100,11 @@ html, body {
   box-shadow: 0 0 24px rgba(56, 189, 248, 0.16);
 }
 .brand-title { font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
-.brand-sub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; }
+.brand-sub { font-size: 12px; color: var(--muted); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.connection-pill { display:inline-flex; align-items:center; border:1px solid var(--border); border-radius:999px; padding:2px 7px; font-size:10.5px; font-weight:700; white-space:nowrap; }
+.connection-pill.connected { color:#6ee7b7; border-color:rgba(16,185,129,.34); background:var(--green-soft); }
+.connection-pill.degraded { color:#fcd34d; border-color:rgba(245,158,11,.34); background:var(--amber-soft); }
+.connection-pill.offline { color:#fda4af; border-color:rgba(244,63,94,.4); background:var(--red-soft); }
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--green);
@@ -529,6 +533,10 @@ let PERP_SYM = null;
 let POLY_TID = null;
 let CHART_CACHE = { home: null, perps: null, poly: null };
 let POLL_TIMER = null;
+let REFRESH_INTERVAL_SEC = 30;
+let LAST_SUCCESS_TS = 0;
+let LAST_REFRESH_ERROR = "";
+let REFRESH_IN_FLIGHT = false;
 let PERPS_ONLY_SIGNALS = false;
 let QUICK_SIDE = "LONG";
 let BOOK_CACHE = {};
@@ -1779,8 +1787,16 @@ function renderOpsTab() {
     riskMode.textContent = isPaper ? "Paper" : "מצב Live מוגבל";
   }
   document.querySelectorAll("[data-ops-paper-only]").forEach((el) => {
-    el.disabled = !isPaper;
-    el.title = isPaper ? "פעולת סימולציה בלבד" : "סריקה יזומה זמינה רק במצב Paper";
+    const arm = el.getAttribute("data-ops-paper-only");
+    const perpsCfg = DATA.perps || {};
+    const perpsPaper = !!perpsCfg.enabled && String(perpsCfg.mode || "").toLowerCase() === "paper";
+    const enabled = arm === "perps" ? perpsPaper : isPaper;
+    el.disabled = !enabled;
+    el.title = enabled
+      ? "פעולת סימולציה בלבד"
+      : (arm === "perps"
+          ? "סריקת PERPS זמינה רק כאשר PERPS מופעל במצב Paper"
+          : "סריקת Polymarket זמינה רק במצב Paper");
   });
 
   const combined = DATA.combined || {};
@@ -1912,6 +1928,7 @@ function renderSpotList(q) {
 }
 
 function renderAll() {
+  renderConnectionState();
   syncSelectors();
   renderHeader();
   renderHero();
@@ -1923,11 +1940,59 @@ function renderAll() {
   redrawActiveCharts();
 }
 
+function renderConnectionState() {
+  const pill = $("conn-pill");
+  const stamp = $("conn-last");
+  if (!pill) return;
+
+  const ageMs = LAST_SUCCESS_TS ? Date.now() - LAST_SUCCESS_TS : Infinity;
+  const warnAfterMs = Math.max(REFRESH_INTERVAL_SEC * 2000, 30000);
+  const staleAfterMs = Math.max(REFRESH_INTERVAL_SEC * 4000, 60000);
+  let state = "degraded";
+  let label = "ממתין לחיבור";
+
+  if (LAST_REFRESH_ERROR) {
+    state = "offline";
+    label = "אין חיבור";
+  } else if (ageMs > staleAfterMs) {
+    state = "offline";
+    label = "נתונים לא זמינים";
+  } else if (ageMs > warnAfterMs) {
+    state = "degraded";
+    label = "נתונים מתיישנים";
+  } else if (LAST_SUCCESS_TS) {
+    state = "connected";
+    label = "מחובר · נתונים טריים";
+  }
+
+  pill.className = "connection-pill " + state;
+  pill.textContent = label;
+  pill.title = LAST_REFRESH_ERROR || (LAST_SUCCESS_TS ? "עודכן בהצלחה" : "ממתין לתשובת השרת");
+  if (stamp) {
+    stamp.textContent = LAST_SUCCESS_TS
+      ? "עדכון: " + new Date(LAST_SUCCESS_TS).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      : "עדכון: —";
+  }
+}
+
 async function refreshState() {
+  if (REFRESH_IN_FLIGHT) return;
+  REFRESH_IN_FLIGHT = true;
   try {
-    DATA = await apiGet("/api/state");
+    const next = await apiGet("/api/state");
+    if (!next || typeof next !== "object" || Array.isArray(next)) {
+      throw new Error("השרת החזיר מצב מערכת לא תקין");
+    }
+    DATA = next;
+    LAST_SUCCESS_TS = Date.now();
+    LAST_REFRESH_ERROR = "";
     renderAll();
-  } catch (_) {}
+  } catch (e) {
+    LAST_REFRESH_ERROR = String((e && e.message) || e || "שגיאת תקשורת").slice(0, 180);
+    renderConnectionState();
+  } finally {
+    REFRESH_IN_FLIGHT = false;
+  }
 }
 
 function toggleLoop() {
@@ -1937,6 +2002,7 @@ function toggleLoop() {
 }
 
 function initApp(refreshSec) {
+  REFRESH_INTERVAL_SEC = Math.max(0, Number(refreshSec) || 0);
   if (!(DATA.combined_equity_curve && DATA.combined_equity_curve.length >= 2)) HOME_CHART_MODE = "asset";
   setHomeChartMode(HOME_CHART_MODE);
   renderAll();
@@ -1959,7 +2025,13 @@ function initApp(refreshSec) {
     else if (ev.key === "Escape") closeSpot();
   });
   window.addEventListener("resize", () => redrawActiveCharts());
-  if (refreshSec > 0) POLL_TIMER = setInterval(() => refreshState(), Math.max(5, refreshSec) * 1000);
+  if (REFRESH_INTERVAL_SEC > 0) {
+    refreshState();
+    POLL_TIMER = setInterval(() => refreshState(), Math.max(5, REFRESH_INTERVAL_SEC) * 1000);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") refreshState();
+    });
+  }
 }
 """
 
@@ -1985,7 +2057,12 @@ _HTML_TEMPLATE = """<!doctype html>
       <div class="logo-mark">__PMMB_SVG__</div>
       <div>
         <div class="brand-title">PMMB Command Center</div>
-        <div class="brand-sub"><span id="hdr-dot" class="status-dot"></span><span id="hdr-status-text">טוען מצב מערכת...</span></div>
+        <div class="brand-sub">
+          <span id="hdr-dot" class="status-dot"></span>
+          <span id="hdr-status-text">טוען מצב מערכת...</span>
+          <span id="conn-pill" class="connection-pill degraded" role="status" aria-live="polite">ממתין לחיבור</span>
+          <span id="conn-last" class="dim">עדכון: —</span>
+        </div>
       </div>
     </div>
     <nav class="nav-pills">
@@ -2332,8 +2409,8 @@ _HTML_TEMPLATE = """<!doctype html>
           <button class="btn sm" onclick="runAction('/api/news-refresh',{})">רענן חדשות ונתונים</button>
           <button class="btn sm" onclick="runAction('/api/reconcile',{})">אמת שני חשבונות</button>
           <button class="btn sm" onclick="runAction('/api/backup',{})">גיבוי מסד נתונים</button>
-          <button class="btn sm primary" data-ops-paper-only onclick="runAction('/api/paper-cycle',{})">סרוק Polymarket (Paper)</button>
-          <button class="btn sm primary" data-ops-paper-only onclick="runAction('/api/perps/cycle',{})">סרוק PERPS (Paper)</button>
+          <button class="btn sm primary" data-ops-paper-only="poly" onclick="runAction('/api/paper-cycle',{})">סרוק Polymarket (Paper)</button>
+          <button class="btn sm primary" data-ops-paper-only="perps" onclick="runAction('/api/perps/cycle',{})">סרוק PERPS (Paper)</button>
         </div>
       </div>
     </div>
