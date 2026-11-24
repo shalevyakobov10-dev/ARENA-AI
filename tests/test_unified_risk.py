@@ -384,7 +384,7 @@ def test_combined_mark_to_market_loss_persists_global_halt(shared_store, cfg):
     )
 
     assert not decision.approved
-    assert "הפסד מסומן משולב" in decision.reason
+    assert "הפסד יומי משולב" in decision.reason
     flag = read_halt()
     assert flag is not None
     assert flag.source == "unified-risk"
@@ -475,6 +475,14 @@ def test_utc_day_baseline_is_immutable_and_idempotent_across_store_reopen(shared
 def test_utc_day_baseline_expires_and_cannot_be_backfilled_late(shared_store, cfg):
     now = datetime(2027, 3, 6, 0, 0, 0, tzinfo=timezone.utc)
     day_start = _clear_utc_day_baseline(shared_store, now)
+    # Even a zero-PnL fill proves the account was active before a late baseline.
+    with shared_store.tx() as conn:
+        conn.execute(
+            """INSERT INTO fills
+               (ts, mode, token_id, condition_id, side, price, size, fee, realized)
+               VALUES (?, 'paper', 'already-active', 'already-active', 'SELL', 0.5, 1, 0, 0)""",
+            (day_start + 60,),
+        )
     late = datetime.fromtimestamp(
         day_start + UNIFIED_BASELINE_CAPTURE_WINDOW_SEC + 1,
         tz=timezone.utc,
