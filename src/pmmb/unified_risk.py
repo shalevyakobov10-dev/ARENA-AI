@@ -212,7 +212,7 @@ def evaluate_unified_entry(
         return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; Polymarket אינו במצב Paper")
     if normalized_arm == "perps" and not cfg.perps.enabled:
         return UnifiedRiskDecision(False, "זרוע PERPS מושבתת בקונפיגורציה — נחסמה כניסה")
-    if cfg.perps.mode != "paper":
+    if cfg.perps.enabled and cfg.perps.mode != "paper":
         return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; PERPS אינו במצב Paper")
 
     halt_reason = _global_halt_reason()
