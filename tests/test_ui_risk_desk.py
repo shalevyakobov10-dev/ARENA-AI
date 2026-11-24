@@ -103,3 +103,90 @@ def test_command_center_includes_risk_desk_and_refresh_recalculation():
     assert "function riskDeskMetrics(data)" in html
     assert "const m = riskDeskMetrics(DATA);" in html
     assert "מדדי החשיפה כאן מיועדים לניטור בלבד" in html
+
+
+def _unified_snapshot(*, marks_fresh=True, halted=False):
+    return {
+        "enabled": True,
+        "mode": "paper",
+        "paper_only": True,
+        "starting_capital": 2000.0,
+        "committed_capital": 200.0,
+        "capital_limit": 1000.0,
+        "utilization_pct": 10.0,
+        "open_positions": 2,
+        "max_open_positions": 8,
+        "combined_risk_pnl": -25.0,
+        "daily_loss_limit": 100.0,
+        "marks_fresh": marks_fresh,
+        "mark_failures": [] if marks_fresh else ["perps:BTC:stale-or-invalid"],
+        "halted": halted,
+        "halt_reason": "daily loss threshold" if halted else "",
+    }
+
+
+def _risk_desk_payload(unified_risk):
+    return {
+        "mode": "paper",
+        "combined": {"equity": 2000.0, "open_positions": 2},
+        "bankroll": {"equity": 1000.0, "exposure": 100.0},
+        "perps": {
+            "enabled": True,
+            "equity": 1000.0,
+            "notional": 300.0,
+            "margin_used": 100.0,
+            "avg_leverage": 3.0,
+            "guards": {"max_margin_pct": 50.0},
+            "positions": [{}, {}],
+        },
+        "config": {
+            "risk": {"max_total_exposure_pct": 0.5},
+            "portfolio_risk": {
+                "max_capital_utilization_pct": 0.5,
+                "max_open_positions": 8,
+                "max_daily_loss_pct": 0.05,
+            },
+        },
+        "unified_risk": unified_risk,
+    }
+
+
+def test_risk_desk_uses_backend_enforced_shared_gate_snapshot():
+    data = _risk_desk_payload(_unified_snapshot())
+    metrics = build_risk_desk_metrics(data)
+
+    assert metrics["shared_limit_configured"] is True
+    assert metrics["shared_snapshot_available"] is True
+    assert metrics["shared_committed_capital"] == 200.0
+    assert metrics["shared_capital_limit"] == 1000.0
+    assert metrics["shared_utilization_pct"] == 10.0
+    assert metrics["shared_open_positions"] == 2
+    assert metrics["shared_max_positions"] == 8
+    assert metrics["combined_risk_pnl"] == -25.0
+    assert metrics["daily_loss_limit"] == 100.0
+    assert metrics["marks_fresh"] is True
+    assert metrics["halted"] is False
+    assert metrics["shared_paper_only"] is True
+    assert metrics["overall_status"] == "healthy"
+
+    html = command_center_html(data)
+    assert "שער סיכון משותף" in html
+    assert "shared_snapshot_available" in html
+    assert "combined_risk_pnl" in html
+    assert "marks_fresh" in html
+
+
+def test_risk_desk_warns_on_stale_marks_and_flags_global_halt():
+    stale = build_risk_desk_metrics(_risk_desk_payload(_unified_snapshot(marks_fresh=False)))
+    assert stale["shared_snapshot_available"] is True
+    assert stale["marks_fresh"] is False
+    assert stale["mark_failures"] == ["perps:BTC:stale-or-invalid"]
+    assert stale["overall_status"] == "warning"
+
+    halted = build_risk_desk_metrics(_risk_desk_payload(_unified_snapshot(halted=True)))
+    assert halted["halted"] is True
+    assert halted["halt_reason"] == "daily loss threshold"
+    assert halted["overall_status"] == "breach"
+
+    html = command_center_html(_risk_desk_payload(_unified_snapshot(halted=True)))
+    assert "daily loss threshold" in html
