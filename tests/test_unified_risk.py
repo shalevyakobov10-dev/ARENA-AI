@@ -11,7 +11,9 @@ from pmmb.config import Config
 from pmmb.data.store import Store
 from pmmb.runtime import clear_halt, read_halt
 from pmmb.unified_risk import (
+    UNIFIED_BASELINE_CAPTURE_WINDOW_SEC,
     build_unified_portfolio_snapshot,
+    ensure_unified_day_baseline,
     evaluate_unified_entry,
     unified_entry_lock,
 )
@@ -25,6 +27,20 @@ def shared_store(tmp_path, cfg, monkeypatch):
     state_dir = tmp_path / "runtime-state"
     monkeypatch.setenv("PMMB_STATE_DIR", str(state_dir))
     store = Store(cfg.data.db_path)
+    now = datetime.now(tz=timezone.utc)
+    day_start = int(now.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+    store.save_unified_day_baseline(
+        utc_day=now.date().isoformat(),
+        status="ready",
+        recorded_at=day_start,
+        baseline_ts=day_start,
+        baseline_realized_pnl=0.0,
+        baseline_unrealized_pnl=0.0,
+        open_positions=0,
+        mark_ts_min=None,
+        mark_ts_max=None,
+        mark_skew_sec=0.0,
+    )
     yield store
     store.close()
 
