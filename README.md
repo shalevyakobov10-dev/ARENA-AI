@@ -235,6 +235,9 @@ pmmb notify-test                # בדיקת התראות Telegram
 
 ## הרצה ארוכת-טווח
 
+בדיקת עמידות מבודדת (מחזורי paper סינתטיים + בדיקת restart אחרי SIGKILL, ללא רשת וללא פקודות live):
+`./scripts/run_soak_harness.sh 500` — פרטים ב-`docs/SOAK_HARNESS.md`.
+
 ```bash
 ./scripts/paper_forever.sh 60        # watchdog + לוגים מתגלגלים
 pmmb daily                            # דוח יומי (reports/daily-YYYYMMDD.md)
