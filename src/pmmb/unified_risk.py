@@ -241,10 +241,17 @@ def build_unified_portfolio_snapshot(
                WHERE mode=? AND symbol=? AND action='OPEN' AND ts>=?""",
             (cfg.perps.mode, position.symbol, day_start),
         ).fetchone()
+        # If the position predates today, today's added entry fees belong in
+        # its floating component. For positions opened today they were already
+        # included in perps_realized_today above.
+        fee_to_charge = (
+            0.0 if int(position.opened_at.timestamp()) >= day_start
+            else max(0.0, float(entry_fee_today["fees"] or 0.0))
+        )
         unrealized_pnl += (
             position.unrealized_pnl(mark)
             + float(position.accumulated_funding or 0.0)
-            - max(0.0, float(entry_fee_today["fees"] or 0.0))
+            - fee_to_charge
         )
 
     # Both configured balances belong to the combined account even while
@@ -293,7 +300,7 @@ def evaluate_unified_entry(
         return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; Polymarket אינו במצב Paper")
     if normalized_arm == "perps" and not cfg.perps.enabled:
         return UnifiedRiskDecision(False, "זרוע PERPS מושבתת בקונפיגורציה — נחסמה כניסה")
-    if cfg.perps.mode != "paper":
+    if cfg.perps.enabled and cfg.perps.mode != "paper":
         return UnifiedRiskDecision(False, "שער התיק המאוחד מוגבל ל-Paper; PERPS אינו במצב Paper")
 
     halt_reason = _global_halt_reason()
@@ -330,6 +337,9 @@ def evaluate_unified_entry(
         )
 
     capital_limit = snapshot.starting_capital * float(limits.max_capital_utilization_pct)
+    projected = snapshot.committed_capital + amount
+    utilization = projected / snapshot.starting_capital * 100.0
+
     if snapshot.open_positions and not snapshot.marks_fresh:
         failures = ", ".join(snapshot.mark_failures[:3])
         return UnifiedRiskDecision(
@@ -342,7 +352,7 @@ def evaluate_unified_entry(
 
     if snapshot.combined_risk_pnl <= -daily_limit:
         reason = (
-            f"הפסד מסומן משולב {snapshot.risk_pnl_today:.2f} עבר את תקרת היום "
+            f"הפסד מסומן משולב {snapshot.combined_risk_pnl:.2f} עבר את תקרת ההפסד "
             f"({-daily_limit:.2f}); עצירת חירום הופעלה"
         )
         try:
@@ -351,8 +361,6 @@ def evaluate_unified_entry(
             log.exception("Could not persist unified mark-to-market halt")
         return UnifiedRiskDecision(False, reason, snapshot, amount, utilization)
 
-    projected = snapshot.committed_capital + amount
-    utilization = projected / snapshot.starting_capital * 100.0
     if projected > capital_limit + 1e-8:
         return UnifiedRiskDecision(
             False,
