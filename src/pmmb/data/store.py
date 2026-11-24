@@ -68,6 +68,20 @@ CREATE TABLE IF NOT EXISTS positions (
     realized_pnl  REAL
 );
 
+CREATE TABLE IF NOT EXISTS unified_day_baselines (
+    utc_day                 TEXT PRIMARY KEY,
+    status                  TEXT NOT NULL,
+    recorded_at             INTEGER NOT NULL,
+    baseline_ts             INTEGER,
+    baseline_realized_pnl   REAL,
+    baseline_unrealized_pnl REAL,
+    open_positions          INTEGER NOT NULL DEFAULT 0,
+    mark_ts_min             INTEGER,
+    mark_ts_max             INTEGER,
+    mark_skew_sec           REAL,
+    failures_json           TEXT NOT NULL DEFAULT '[]'
+);
+
 CREATE TABLE IF NOT EXISTS equity (
     ts        INTEGER NOT NULL,
     equity    REAL NOT NULL,
@@ -578,6 +592,79 @@ class Store:
                 (int(snap.ts.timestamp()), snap.equity, snap.cash, snap.exposure,
                  snap.open_positions, mode),
             )
+
+    def get_unified_day_baseline(self, utc_day: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM unified_day_baselines WHERE utc_day=?",
+            (utc_day,),
+        ).fetchone()
+        if row is None:
+            return None
+        item = dict(row)
+        try:
+            item["failures"] = json.loads(item.pop("failures_json") or "[]")
+        except (TypeError, ValueError):
+            item["failures"] = ["baseline failure metadata is corrupt"]
+        return item
+
+    def latest_unified_day_baseline(self) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT * FROM unified_day_baselines ORDER BY utc_day DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        item = dict(row)
+        try:
+            item["failures"] = json.loads(item.pop("failures_json") or "[]")
+        except (TypeError, ValueError):
+            item["failures"] = ["baseline failure metadata is corrupt"]
+        return item
+
+    def save_unified_day_baseline(
+        self,
+        *,
+        utc_day: str,
+        status: str,
+        recorded_at: int,
+        baseline_ts: int | None,
+        baseline_realized_pnl: float | None,
+        baseline_unrealized_pnl: float | None,
+        open_positions: int,
+        mark_ts_min: int | None,
+        mark_ts_max: int | None,
+        mark_skew_sec: float | None,
+        failures: list[str] | tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        """Insert once per UTC date; concurrent processes read back the winning row."""
+        if status not in {"ready", "expired"}:
+            raise ValueError(f"invalid unified day baseline status: {status}")
+        if status == "ready" and (
+            baseline_ts is None or baseline_realized_pnl is None or baseline_unrealized_pnl is None
+        ):
+            raise ValueError("ready unified day baseline requires a complete PnL snapshot")
+        with self.tx() as c:
+            c.execute(
+                """INSERT OR IGNORE INTO unified_day_baselines
+                   (utc_day, status, recorded_at, baseline_ts, baseline_realized_pnl,
+                    baseline_unrealized_pnl, open_positions, mark_ts_min, mark_ts_max,
+                    mark_skew_sec, failures_json)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    utc_day, status, int(recorded_at),
+                    int(baseline_ts) if baseline_ts is not None else None,
+                    float(baseline_realized_pnl) if baseline_realized_pnl is not None else None,
+                    float(baseline_unrealized_pnl) if baseline_unrealized_pnl is not None else None,
+                    int(open_positions),
+                    int(mark_ts_min) if mark_ts_min is not None else None,
+                    int(mark_ts_max) if mark_ts_max is not None else None,
+                    float(mark_skew_sec) if mark_skew_sec is not None else None,
+                    json.dumps(list(failures), ensure_ascii=False),
+                ),
+            )
+        saved = self.get_unified_day_baseline(utc_day)
+        if saved is None:  # pragma: no cover - protects against an unexpected SQLite anomaly
+            raise RuntimeError("unified day baseline insert did not persist")
+        return saved
 
     def event(self, kind: str, msg: str, level: str = "INFO", data: dict[str, Any] | None = None) -> None:
         with self.tx() as c:
