@@ -8,8 +8,8 @@ The guard evaluates the same SQLite ledger used by both engines immediately befo
 
 - Combined capital allocation: Polymarket open-position cost basis plus PERPS isolated margin in use, capped at `portfolio_risk.max_capital_utilization_pct` of the combined configured starting capital.
 - Combined open-position count across both arms.
-- Combined current-UTC-day net PnL from both ledgers. Polymarket BUY fees are counted before the position is closed; PERPS entry fees on still-open positions are also counted, while closed-trade realized PnL already includes its lifecycle fees/funding. Crossing the daily threshold writes the persistent global `halt.json` flag with source `unified-risk`.
-- Fail-closed admission: if a ledger snapshot cannot be read, the proposed allocation is invalid, the global halt is set or its file is corrupt/unreadable, or either configured venue is not in Paper mode, new entries are denied. Existing PERPS paper positions remain included in the budget and position count even when the PERPS engine is disabled.
+- Combined current-UTC-day realized PnL plus the current floating PnL of every open Polymarket and PERPS position. Open-position PnL uses the latest persisted executable-side Polymarket bid / mark and PERPS mark-price data; today's open-entry fees and accumulated PERPS funding are included. Closed-trade realized PnL already includes its exit/lifecycle fees. Crossing the combined loss threshold writes the persistent global `halt.json` flag with source `unified-risk`.
+- Fail-closed admission: if a ledger snapshot cannot be read, the proposed allocation is invalid, a halt is set or its file is corrupt/unreadable, either configured venue is not in Paper mode, or any open position lacks a fresh and valid mark, new entries are denied. Existing PERPS paper positions remain included in the budget, mark-to-market loss and position count even when the PERPS engine is disabled. Missing/stale marks deny new entries without automatically writing an emergency halt.
 
 ## Concurrency
 
@@ -29,7 +29,7 @@ With the configured $1,000 Polymarket and $1,000 PERPS starting balances, 50% ca
 ## Deliberate limitations
 
 - The guard has no configuration bypass and is hard-coded to Paper mode. Non-Paper execution on either enabled arm is denied.
-- The daily stop uses realized PnL in the two ledgers; it does not yet calculate a synchronized combined intraday mark-to-market drawdown.
+- The loss stop combines today's realized PnL with the full current floating PnL of open positions. For positions opened before UTC midnight, this is deliberately conservative and is not an exact change-in-unrealized-PnL measurement from midnight; a synchronized start-of-day equity baseline is still a separate improvement.
 - Capital utilization is an allocation limit, not a measure of maximum loss.
 - Existing open positions are not liquidated by this guard. It denies new entries and persists a global halt after the combined realized daily-loss threshold is crossed.
 - The CI gate targets Linux. Windows startup is not currently supported by the existing ARENA-owned runtime module, which imports POSIX `fcntl` unconditionally; this PR does not modify that claimed file.
