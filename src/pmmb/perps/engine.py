@@ -387,6 +387,7 @@ class PerpEngine:
 
         # בדיקת Kill Switch גלובלי ועצירת חירום (halt.json) לפני כניסות חדשות
         self.risk.check_global_kill(self._equity(), self.realized_pnl_today)
+        halted = read_halt()
         if self._execution_blocked():
             stats.skip("תוצאת ביצוע לא ודאית — נדרש Reconcile")
         elif halted:
