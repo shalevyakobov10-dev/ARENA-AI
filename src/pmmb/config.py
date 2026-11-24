@@ -291,6 +291,21 @@ class PerpsConfig:
 
 
 @dataclass
+class SharedRiskConfig:
+    """Shared capital-allocation limits for the Polymarket and PERPS arms."""
+
+    enabled: bool = True
+    max_allocation_pct: float = 0.50
+    max_open_positions: int = 8
+
+    def validate(self) -> None:
+        if not 0.05 <= self.max_allocation_pct <= 1.0:
+            raise ConfigError("shared_risk.max_allocation_pct must be between 0.05 and 1.0")
+        if self.max_open_positions < 1:
+            raise ConfigError("shared_risk.max_open_positions must be at least 1")
+
+
+@dataclass
 class Config:
     execution: ExecutionConfig = field(default_factory=ExecutionConfig)
     universe: UniverseConfig = field(default_factory=UniverseConfig)
@@ -302,6 +317,7 @@ class Config:
     learning: LearningConfig = field(default_factory=LearningConfig)
     autopilot: AutopilotConfig = field(default_factory=AutopilotConfig)
     perps: PerpsConfig = field(default_factory=PerpsConfig)
+    shared_risk: SharedRiskConfig = field(default_factory=SharedRiskConfig)
 
     # ---- טעינה ----
     @classmethod
@@ -341,6 +357,7 @@ class Config:
         self.signal.validate()
         self.risk.validate()
         self.perps.validate()
+        self.shared_risk.validate()
 
 
 # --------------------------------------------------------------------------

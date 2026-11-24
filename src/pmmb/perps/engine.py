@@ -26,6 +26,7 @@ from .broker import PaperPerpBroker
 from .exchange import MultiPerpExchange
 from .models import PerpBook, PerpCandle, PerpFill, PerpInstrument, PerpOrder, PerpPosition, PerpSignal, utcnow
 from .risk import PerpRiskManager, calc_liquidation_price
+from ..shared_risk import SharedPortfolioRisk
 from .signals import ProMultiRegimeEngine, assess_perps_news
 
 log = logging.getLogger(__name__)
@@ -62,6 +63,7 @@ class PerpEngine:
         self.exchange = exchange or MultiPerpExchange(self.pcfg.exchange)
         self.signals = ProMultiRegimeEngine(self.pcfg)
         self.risk = PerpRiskManager(self.pcfg)
+        self.shared_risk = SharedPortfolioRisk(cfg.data.db_path)
         self.broker = broker or PaperPerpBroker(self.pcfg)
         self.notifier = notifier
 
@@ -418,12 +420,8 @@ class PerpEngine:
         self.store.event("perp_exit", msg, data={"symbol": pos.symbol, "realized": net_pnl, "leverage": pos.leverage})
 
     def _handle_entry(
-        self,
-        inst: PerpInstrument,
-        sig: PerpSignal,
-        book: PerpBook | None,
-        row: dict[str, Any],
-        stats: PerpCycleStats,
+        self, inst: PerpInstrument, sig: PerpSignal, book: PerpBook | None,
+        row: dict[str, Any], stats: PerpCycleStats,
     ) -> None:
         dec = self.risk.evaluate_entry(
             sig, inst, equity=self._equity(), free_cash=self.cash, open_positions=list(self.positions.values())
@@ -433,48 +431,75 @@ class PerpEngine:
             row["reason"] = f"נדחה בסיכון: {dec.reason}"
             return
 
-        order = PerpOrder(
-            symbol=inst.symbol, exchange=inst.exchange, side=sig.direction,  # type: ignore[arg-type]
-            action="OPEN", price=sig.price, size=dec.size, leverage=dec.leverage,
-            reduce_only=False, reason=f"{sig.tier} {sig.strategy} | {sig.reason}",
+        shared = self.shared_risk.reserve(
+            mode=self.pcfg.mode, venue="perps", amount=dec.margin,
+            poly_mode=self.cfg.execution.mode, perps_mode=self.pcfg.mode,
+            poly_starting_cash=self.cfg.execution.starting_cash,
+            perps_starting_cash=self.pcfg.risk.starting_cash,
+            perps_enabled=self.pcfg.enabled, enabled=self.cfg.shared_risk.enabled,
+            max_allocation_pct=self.cfg.shared_risk.max_allocation_pct,
+            max_open_positions=self.cfg.shared_risk.max_open_positions,
         )
-        fill = self.broker.execute(
-            order, book=book, taker_fee_bps=inst.taker_fee_bps,
-            ct_val=inst.contract_val, lot_size=inst.lot_size, tick_size=inst.tick_size,
-        )
-        if fill is None:
-            stats.skip("מילוי Perps נכשל")
+        if not shared.approved:
+            stats.skip(f"סיכון משותף: {shared.reason}")
+            row["reason"] = f"נדחה בתקציב המשותף: {shared.reason}"
             return
 
-        margin_used = round(fill.notional / dec.leverage, 4)
-        fill.margin_delta = -margin_used
-        self.cash -= margin_used + fill.fee
+        fill = None
+        position_persisted = False
+        try:
+            order = PerpOrder(
+                symbol=inst.symbol, exchange=inst.exchange, side=sig.direction,  # type: ignore[arg-type]
+                action="OPEN", price=sig.price, size=dec.size, leverage=dec.leverage,
+                reduce_only=False, reason=f"{sig.tier} {sig.strategy} | {sig.reason}",
+            )
+            fill = self.broker.execute(
+                order, book=book, taker_fee_bps=inst.taker_fee_bps,
+                ct_val=inst.contract_val, lot_size=inst.lot_size, tick_size=inst.tick_size,
+            )
+            if fill is None:
+                stats.skip("מילוי Perps נכשל")
+                return
 
-        liq_px = calc_liquidation_price(sig.direction, fill.price, dec.leverage, inst.mmr or self.pcfg.risk.default_mmr)
-        pos = PerpPosition(
-            symbol=inst.symbol, exchange=inst.exchange, side=sig.direction,  # type: ignore[arg-type]
-            size=fill.size, entry_price=fill.price, notional=fill.notional,
-            leverage=dec.leverage, margin_used=margin_used, liquidation_price=round(liq_px, 6),
-            stop_price=dec.stop_price, target_price=dec.target_price,
-            highest_price=fill.price, lowest_price=fill.price, atr=sig.atr,
-            strategy=sig.strategy, regime=sig.regime, entry_score=sig.score,
-            fees_paid=fill.fee, opened_at=fill.ts, last_funding_ts=int(fill.ts.timestamp()),
-        )
-        self.positions[inst.symbol] = pos
-        self.store.record_perp_fill(fill, self.pcfg.mode)
-        self.store.upsert_perp_position(pos, self.pcfg.mode)
-        row["status"] = "OPEN"
-        row["reason"] = f"כניסה {sig.direction} ×{dec.leverage:.0f} ({sig.tier}) @ {fill.price:.4f}"
-        stats.entries += 1
+            margin_used = round(fill.notional / dec.leverage, 4)
+            fill.margin_delta = -margin_used
+            self.cash -= margin_used + fill.fee
+            liq_px = calc_liquidation_price(
+                sig.direction, fill.price, dec.leverage, inst.mmr or self.pcfg.risk.default_mmr
+            )
+            pos = PerpPosition(
+                symbol=inst.symbol, exchange=inst.exchange, side=sig.direction,  # type: ignore[arg-type]
+                size=fill.size, entry_price=fill.price, notional=fill.notional,
+                leverage=dec.leverage, margin_used=margin_used, liquidation_price=round(liq_px, 6),
+                stop_price=dec.stop_price, target_price=dec.target_price,
+                highest_price=fill.price, lowest_price=fill.price, atr=sig.atr,
+                strategy=sig.strategy, regime=sig.regime, entry_score=sig.score,
+                fees_paid=fill.fee, opened_at=fill.ts, last_funding_ts=int(fill.ts.timestamp()),
+            )
+            self.positions[inst.symbol] = pos
+            self.store.record_perp_fill(fill, self.pcfg.mode)
+            self.store.upsert_perp_position(pos, self.pcfg.mode)
+            position_persisted = True
+            row["status"] = "OPEN"
+            row["reason"] = f"כניסה {sig.direction} ×{dec.leverage:.0f} ({sig.tier}) @ {fill.price:.4f}"
+            stats.entries += 1
 
-        msg = (
-            f"🚀 כניסה PERPS {inst.symbol} {sig.direction} ×{dec.leverage:.0f} [{sig.tier}] "
-            f"@ {fill.price:.4f} | מרג'ין {margin_used:.2f}$ | נומינלי {fill.notional:.0f}$ | "
-            f"SL={dec.stop_price:.4f} TP={dec.target_price:.4f} LIQ={pos.liquidation_price:.4f}"
-        )
-        log.info(msg)
-        self._notify(msg)
-        self.store.event("perp_entry", msg, data={"symbol": inst.symbol, "leverage": dec.leverage, "margin": margin_used})
+            msg = (
+                f"🚀 כניסה PERPS {inst.symbol} {sig.direction} ×{dec.leverage:.0f} [{sig.tier}] "
+                f"@ {fill.price:.4f} | מרג'ין {margin_used:.2f}$ | נומינלי {fill.notional:.0f}$ | "
+                f"SL={dec.stop_price:.4f} TP={dec.target_price:.4f} LIQ={pos.liquidation_price:.4f}"
+            )
+            log.info(msg)
+            self._notify(msg)
+            self.store.event(
+                "perp_entry", msg,
+                data={"symbol": inst.symbol, "leverage": dec.leverage, "margin": margin_used,
+                      "shared_allocation": margin_used},
+            )
+        finally:
+            # A crash after fill but before durable persistence retains the reservation.
+            if fill is None or position_persisted:
+                self.shared_risk.release(shared.reservation_id)
 
     def close_position_by_symbol(self, symbol: str, reason: str = "סגירה ידנית מהטרמינל") -> dict[str, Any]:
         """סוגר פוזיציית PERPS פתוחה לפי סמל נכס במחיר שוק חי (reduce_only=True)."""

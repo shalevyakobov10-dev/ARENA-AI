@@ -24,6 +24,7 @@ from .execution.paper import PaperBroker
 from .models import Fill, Market, Order, Position, Signal, utcnow
 from .risk.manager import RiskManager
 from .risk.sizing import stop_and_target
+from .shared_risk import SharedPortfolioRisk
 from .notify import Notifier, fmt_entry, fmt_exit, fmt_halt
 from .runtime import Heartbeat, read_halt, write_heartbeat
 from .signals import build_signal_engine
@@ -106,6 +107,7 @@ class Engine:
         self.universe = MarketUniverse(self.gamma, cfg.universe)
         self.signals = engine_signals or build_signal_engine(cfg.signal)
         self.risk = RiskManager(cfg)
+        self.shared_risk = SharedPortfolioRisk(cfg.data.db_path)
         self.broker = broker or PaperBroker(cfg.execution, self.clob)
         self.state_dir = state_dir
         self._news_client = news_client
@@ -590,23 +592,37 @@ class Engine:
                     stats.skip("יתרת USDC בבורסה אינה מספיקה")
                     return ("CANDIDATE", f"יתרת USDC נמוכה ({live_usdc:.2f} < {decision.notional:.2f})")
 
-        order = Order(
-            token_id=token_id,
-            side="BUY",
-            price=price,
-            size=decision.size,
-            fee_rate=mk.taker_fee_rate,
-            condition_id=mk.condition_id,
-            reason=f"כניסה {signal.direction} | {signal.reason} | {decision.reason}",
+        shared = self.shared_risk.reserve(
+            mode=self.cfg.execution.mode, venue="polymarket", amount=decision.notional,
+            poly_mode=self.cfg.execution.mode, perps_mode=self.cfg.perps.mode,
+            poly_starting_cash=self.cfg.execution.starting_cash,
+            perps_starting_cash=self.cfg.perps.risk.starting_cash,
+            perps_enabled=self.cfg.perps.enabled, enabled=self.cfg.shared_risk.enabled,
+            max_allocation_pct=self.cfg.shared_risk.max_allocation_pct,
+            max_open_positions=self.cfg.shared_risk.max_open_positions,
         )
-        fill = self.broker.execute(order, book=book)
-        if fill is None:
-            stats.skip("מילוי נכשל")
-            return ("CANDIDATE", "מילוי נכשל")
+        if not shared.approved:
+            stats.skip(f"סיכון משותף: {shared.reason}")
+            return ("CANDIDATE", f"נדחה בתקציב המשותף: {shared.reason}")
 
-        self.portfolio.apply_fill(fill)
-        pos = self.portfolio.position_for(token_id)
-        if pos is not None:
+        fill = None
+        position_persisted = False
+        try:
+            order = Order(
+                token_id=token_id, side="BUY", price=price, size=decision.size,
+                fee_rate=mk.taker_fee_rate, condition_id=mk.condition_id,
+                reason=f"כניסה {signal.direction} | {signal.reason} | {decision.reason}",
+            )
+            fill = self.broker.execute(order, book=book)
+            if fill is None:
+                stats.skip("מילוי נכשל")
+                return ("CANDIDATE", "מילוי נכשל")
+
+            self.portfolio.apply_fill(fill)
+            pos = self.portfolio.position_for(token_id)
+            if pos is None:
+                stats.errors += 1
+                return ("ERROR", "מילוי התקבל אך הפוזיציה לא נוצרה; שריון הסיכון נשמר לבדיקה")
             pos.condition_id = mk.condition_id
             pos.direction = signal.direction
             pos.entry_score = signal.score
@@ -618,17 +634,23 @@ class Engine:
                 book.tick_size or mk.tick_size, mode=ex.stop_mode,
             )
             self.store.upsert_position(pos, self.cfg.execution.mode)
+            position_persisted = True
 
-        stats.entries += 1
-        self._notify(fmt_entry(self.cfg.execution.mode, mk.question, fill.price,
-                               fill.size, signal.score, signal.edge))
-        self.store.event(
-            "entry", f"{signal.direction} {mk.slug}", data={
-                "price": fill.price, "size": fill.size, "edge": signal.edge,
-                "score": signal.score, "reason": order.reason,
-            },
-        )
-        return ("BUY", f"בוצעה כניסה @ {fill.price:.3f}")
+            stats.entries += 1
+            self._notify(fmt_entry(self.cfg.execution.mode, mk.question, fill.price,
+                                   fill.size, signal.score, signal.edge))
+            self.store.event(
+                "entry", f"{signal.direction} {mk.slug}", data={
+                    "price": fill.price, "size": fill.size, "edge": signal.edge,
+                    "score": signal.score, "reason": order.reason,
+                    "shared_allocation": decision.notional,
+                },
+            )
+            return ("BUY", f"בוצעה כניסה @ {fill.price:.3f}")
+        finally:
+            # If a fill happened but persistence failed, retain the reservation (fail-closed).
+            if fill is None or position_persisted:
+                self.shared_risk.release(shared.reservation_id)
 
     def _effective_sell_size(self, token_id: str, size: float) -> float:
         """במצב live מאמת יתרת טוקנים אמיתית כדי למנוע דחיית מכירה על פער עיגול של 0.01."""
