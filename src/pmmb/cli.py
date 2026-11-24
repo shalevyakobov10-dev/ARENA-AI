@@ -1091,11 +1091,11 @@ def build_parser() -> argparse.ArgumentParser:
     stt.add_argument("--max-age", type=float, default=300, help="גיל דופק מקסימלי (שניות)")
 
     srv = sub.add_parser("serve", help="תוכנת בקרה ודשבורד חיים בדפדפן")
-    srv.add_argument("--host", default="0.0.0.0")
+    srv.add_argument("--host", default="127.0.0.1")
     srv.add_argument("--port", type=int, default=8787)
     srv.add_argument("--max-age", type=float, default=300)
     srv.add_argument("--refresh", type=int, default=30, help="רענון אוטומטי בעמוד (0=כבוי)")
-    srv.add_argument("--token", default=None, help="אם מוגדר — נדרש ?token= בקריאה")
+    srv.add_argument("--token", default=None, help="טוקן נדרש כשמקשיבים מחוץ ל-loopback; אפשר להגדיר PMMB_STATUS_TOKEN")
     srv.add_argument("--autostart", action="store_true", help="הפעל לולאת מסחר/חדשות/למידה רציפה (paper בלבד)")
     srv.add_argument("--interval", type=float, default=180.0, help="מרווח שניות בין מחזורי מסחר ב-autostart")
 

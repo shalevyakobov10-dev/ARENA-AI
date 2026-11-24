@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -47,11 +48,24 @@ from .ui import command_center_html
 log = logging.getLogger(__name__)
 
 
-def token_ok(given: str, token: str) -> bool:
-    """השוואה בזמן קבוע. token ריק ⇒ אין הגנה (מקומי)."""
-    if not token:
+def _is_loopback_address(address: str) -> bool:
+    """Return True only for an explicit loopback address; unknown hostnames fail closed."""
+    candidate = str(address or "").strip()
+    if candidate.lower() in {"localhost", "localhost."}:
         return True
-    return hmac.compare_digest(str(given or ""), token)
+    if "%" in candidate:  # IPv6 zone identifier
+        candidate = candidate.split("%", 1)[0]
+    try:
+        parsed = ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    mapped = getattr(parsed, "ipv4_mapped", None)
+    return mapped.is_loopback if mapped is not None else parsed.is_loopback
+
+
+def token_ok(given: str, token: str) -> bool:
+    """Constant-time token comparison; an empty configured token never authorizes."""
+    return bool(token) and hmac.compare_digest(str(given or ""), str(token))
 
 
 class _TraderManager:
@@ -827,7 +841,7 @@ def _build_chart_payload(cfg, token_id: str, *, live: bool = False) -> dict:
 
 def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None,
                  trader: _TraderManager | None = None):
-    token = token if token is not None else os.environ.get("PMMB_STATUS_TOKEN", "")
+    token = str(token or os.environ.get("PMMB_STATUS_TOKEN", "")).strip()
     trader = trader or _TraderManager(cfg)
 
     class Handler(BaseHTTPRequestHandler):
@@ -838,7 +852,8 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
 
         def _authorized(self, query: dict) -> bool:
             if not token:
-                return True
+                # No configured secret is acceptable only for loopback clients.
+                return _is_loopback_address(self.client_address[0])
             given = (query.get("token", [""])[0]
                      or self.headers.get("X-Token", "")
                      or self.headers.get("Authorization", "").removeprefix("Bearer "))
@@ -1143,16 +1158,22 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
     return Handler
 
 
-def serve(cfg, *, host: str = "0.0.0.0", port: int = 8787,
+def serve(cfg, *, host: str = "127.0.0.1", port: int = 8787,
           max_age_sec: float = 300, refresh_sec: int = 30,
           token: str | None = None, autostart: bool = False,
           interval_sec: float = 180.0) -> ThreadingHTTPServer:
-    """מרים את השרת (חוסם). אם autostart=True ובמצב paper — מפעיל לולאת מסחר+חדשות+למידה רציפה."""
+    """Run the dashboard. Non-loopback binds require PMMB_STATUS_TOKEN."""
+    effective_token = str(token or os.environ.get("PMMB_STATUS_TOKEN", "")).strip()
+    if not effective_token and not _is_loopback_address(host):
+        raise ValueError(
+            "Refusing non-loopback dashboard bind without authentication. "
+            "Set PMMB_STATUS_TOKEN or bind to 127.0.0.1."
+        )
     trader = _TraderManager(cfg)
     if autostart and cfg.execution.mode == "paper":
         trader.start(interval_sec=interval_sec)
     handler = make_handler(cfg, max_age_sec=max_age_sec, refresh_sec=refresh_sec,
-                           token=token, trader=trader)
+                           token=effective_token, trader=trader)
     httpd = ThreadingHTTPServer((host, port), handler)
     httpd._trader_manager = trader  # type: ignore[attr-defined]
     log.info("שרת התוכנה והמצב מאזין על http://%s:%d (autostart=%s)", host, port, autostart)

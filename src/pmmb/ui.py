@@ -546,8 +546,15 @@ function toast(msg, isErr = false) {
   window.__toastTimer = setTimeout(() => { el.className = "toast"; }, 4200);
 }
 
+const STATUS_TOKEN = new URLSearchParams(window.location.search).get("token") || "";
+function authUrl(url) {
+  if (!STATUS_TOKEN) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return url + separator + "token=" + encodeURIComponent(STATUS_TOKEN);
+}
 async function apiGet(url) {
-  const r = await fetch(url, { cache: "no-store" });
+  const headers = STATUS_TOKEN ? { "X-Token": STATUS_TOKEN } : {};
+  const r = await fetch(url, { cache: "no-store", headers });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
   return j;
@@ -555,7 +562,10 @@ async function apiGet(url) {
 async function apiPost(url, body = {}) {
   const r = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(STATUS_TOKEN ? { "X-Token": STATUS_TOKEN } : {}),
+    },
     body: JSON.stringify(body),
   });
   const j = await r.json().catch(() => ({}));
@@ -775,7 +785,7 @@ function renderHero() {
     <div class="hero-card">
       <div class="hero-label">
         <span>נזילות ושליטה</span>
-        <a class="btn sm" href="/api/export/trades.csv">ייצוא CSV</a>
+        <a class="btn sm" href="${authUrl("/api/export/trades.csv")}">ייצוא CSV</a>
       </div>
       <div class="hero-value num">$${fmt(freeCash)}</div>
       <div class="hero-sub">
@@ -1886,7 +1896,7 @@ _HTML_TEMPLATE = """<!doctype html>
       <div class="card">
         <div class="card-head">
           <div class="card-title">עסקאות אחרונות שנסגרו</div>
-          <a class="btn sm" href="/api/export/trades.csv">הורד CSV</a>
+          <a class="btn sm" href="${authUrl("/api/export/trades.csv")}">הורד CSV</a>
         </div>
         <div class="tbl-scroll">
           <table class="clean-tbl">
@@ -2124,7 +2134,7 @@ _HTML_TEMPLATE = """<!doctype html>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn sm primary" onclick="runAction('/api/reconcile')">אמת חשבונות (Reconcile)</button>
           <button class="btn sm" onclick="runAction('/api/backup')">שמור גיבוי עכשיו</button>
-          <a class="btn sm" href="/api/export/trades.csv">הורד היסטוריית עסקאות (CSV)</a>
+          <a class="btn sm" href="${authUrl("/api/export/trades.csv")}">הורד היסטוריית עסקאות (CSV)</a>
           <button class="btn sm" onclick="runAction('/api/perps/learn',{apply:true})">כייל PERPS</button>
         </div>
       </div>

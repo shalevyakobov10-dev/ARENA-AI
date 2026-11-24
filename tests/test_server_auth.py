@@ -1,0 +1,60 @@
+"""Security regression tests for the HTTP dashboard bind and API authentication."""
+from __future__ import annotations
+
+import pytest
+
+from pmmb.server import _is_loopback_address, make_handler, serve, token_ok
+
+
+@pytest.mark.parametrize("address", ["127.0.0.1", "::1", "localhost", "localhost."])
+def test_loopback_addresses_are_local(address):
+    assert _is_loopback_address(address)
+
+
+@pytest.mark.parametrize("address", ["0.0.0.0", "::", "192.0.2.10", "dashboard.example"])
+def test_non_loopback_and_unknown_addresses_are_not_local(address):
+    assert not _is_loopback_address(address)
+
+
+def test_empty_token_never_authenticates():
+    assert token_ok("anything", "") is False
+    assert token_ok("", "secret") is False
+    assert token_ok("wrong", "secret") is False
+    assert token_ok("secret", "secret") is True
+
+
+def test_missing_token_only_authorizes_loopback_clients(cfg):
+    handler_type = make_handler(
+        cfg, max_age_sec=60, refresh_sec=30, token="", trader=object()
+    )
+    local = object.__new__(handler_type)
+    local.client_address = ("127.0.0.1", 12345)
+    remote = object.__new__(handler_type)
+    remote.client_address = ("198.51.100.12", 12345)
+
+    assert local._authorized({})
+    assert not remote._authorized({})
+
+
+def test_public_bind_is_rejected_without_token(monkeypatch, cfg):
+    monkeypatch.setenv("PMMB_STATUS_TOKEN", "")
+    with pytest.raises(ValueError, match="PMMB_STATUS_TOKEN"):
+        serve(cfg, host="0.0.0.0", port=0)
+
+
+def test_loopback_bind_works_without_token(monkeypatch, cfg):
+    monkeypatch.setenv("PMMB_STATUS_TOKEN", "")
+    httpd = serve(cfg, host="127.0.0.1", port=0)
+    try:
+        assert httpd.server_address[1] > 0
+    finally:
+        httpd.server_close()
+
+
+def test_public_bind_works_with_environment_token(monkeypatch, cfg):
+    monkeypatch.setenv("PMMB_STATUS_TOKEN", "test-token-that-is-not-a-real-secret")
+    httpd = serve(cfg, host="0.0.0.0", port=0)
+    try:
+        assert httpd.server_address[1] > 0
+    finally:
+        httpd.server_close()

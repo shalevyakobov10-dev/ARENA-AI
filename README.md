@@ -145,7 +145,7 @@ make paper                  # סימולציה מול ספר הפקודות הא
 | `pmmb fees` | כלכלת העמלות לכל סקטור: עלות סבב, תנועה נדרשת, פסק דין |
 | `pmmb readiness` | **שער המעבר ל-live** — צ'קליסט שנבדק ע"י מכונה, exit 0/2 |
 | `pmmb status` | בריאות · הון · פוזיציות · היום (exit 0 בריא / 3 לא) |
-| `pmmb serve` | דשבורד לטלפון על :8787 (קריאה בלבד, `/status.json`, `/healthz`) |
+| `pmmb serve` | דשבורד ו־API; ברירת מחדל מקומית בלבד. גישה מהרשת מחייבת `PMMB_STATUS_TOKEN` |
 | `pmmb notify-test` | בדיקת התראות Telegram |
 | `pmmb reconcile` | סנכרון DB מול ספר החשבונות / הבורסה (`--fix` לתיקון) |
 | `pmmb backup` | גיבוי חם ומאומת של מסד הנתונים (`backups/`) |
@@ -220,7 +220,7 @@ CLOB API  ──► data/clob.py  (book / midpoint / prices-history + chunking)
 ```bash
 pmmb paper --interval 60        # הלופ
 pmmb status                     # 🟢 בריאות · הון · פוזיציות · היום (exit 0/3)
-pmmb serve                      # דשבורד לטלפון על :8787 (קריאה בלבד)
+pmmb serve                      # דשבורד מקומי על 127.0.0.1:8787
 pmmb notify-test                # בדיקת התראות Telegram
 ```
 
@@ -228,10 +228,12 @@ pmmb notify-test                # בדיקת התראות Telegram
 |---|---|
 | `state/heartbeat.json` | נכתב **כל מחזור** בכתיבה אטומית. גיל > 10 דק' ⇒ הבוט תקוע |
 | `scripts/watchdog.sh` | בודק דופק, מפעיל מחדש (systemd/launchd), מתריע בטלגרם |
-| `pmmb serve` | עמוד RTL לטלפון + `/status.json` + `/healthz`. אפס תלויות, בלי JS |
+| `pmmb serve` | עמוד RTL ו־API; bind מקומי כברירת מחדל, וטוקן חובה ב־bind חיצוני |
 | `notify.py` | התראות על כניסה/יציאה/עצירה. נכשל בשקט, לא מפיל את הבוט |
 
 פריסה מלאה (systemd / launchd / Docker / Tailscale): [`deploy/README.md`](deploy/README.md).
+
+**אבטחת הדשבורד:** `pmmb serve` מאזין כברירת מחדל רק על `127.0.0.1`. כדי להאזין ברשת יש להגדיר סוד אקראי וחזק ב־`PMMB_STATUS_TOKEN` ולהשתמש במפורש ב־`--host 0.0.0.0`; השרת מסרב ל־bind חיצוני ללא טוקן. אין לשים סוד ב־Git או לשתף URL שמכיל אותו.
 
 ## הרצה ארוכת-טווח
 
