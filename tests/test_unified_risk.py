@@ -392,3 +392,15 @@ def test_stale_open_position_mark_fails_closed_without_setting_halt(
     assert not decision.approved
     assert "Mark-to-Market" in decision.reason
     assert read_halt() is None
+
+ 
+ 
+def test_disabled_nonpaper_perps_arm_does_not_block_polymarket_paper(shared_store, cfg):
+    cfg.perps.enabled = False
+    cfg.perps.mode = "live"
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0
+    )
+
+    assert decision.approved
