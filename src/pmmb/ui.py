@@ -547,10 +547,14 @@ function toast(msg, isErr = false) {
 }
 
 const STATUS_TOKEN = new URLSearchParams(window.location.search).get("token") || "";
-function authUrl(url) {
-  if (!STATUS_TOKEN) return url;
-  const separator = url.includes("?") ? "&" : "?";
-  return url + separator + "token=" + encodeURIComponent(STATUS_TOKEN);
+if (STATUS_TOKEN && window.history && typeof window.history.replaceState === "function") {
+  const safeQuery = new URLSearchParams(window.location.search);
+  safeQuery.delete("token");
+  const suffix = safeQuery.toString();
+  window.history.replaceState(
+    null, "",
+    window.location.pathname + (suffix ? "?" + suffix : "") + window.location.hash
+  );
 }
 async function apiGet(url) {
   const headers = STATUS_TOKEN ? { "X-Token": STATUS_TOKEN } : {};
@@ -571,6 +575,27 @@ async function apiPost(url, body = {}) {
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
   return j;
+}
+async function downloadTradesCsv() {
+  try {
+    const headers = STATUS_TOKEN ? { "X-Token": STATUS_TOKEN } : {};
+    const response = await fetch("/api/export/trades.csv", { cache: "no-store", headers });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.error || ("HTTP " + response.status));
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = "pmmb_trades.csv";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  } catch (error) {
+    toast(error.message || String(error), true);
+  }
 }
 
 async function runAction(url, body = {}, confirmMsg = "") {
@@ -785,7 +810,7 @@ function renderHero() {
     <div class="hero-card">
       <div class="hero-label">
         <span>נזילות ושליטה</span>
-        <a class="btn sm" href="${authUrl("/api/export/trades.csv")}">ייצוא CSV</a>
+        <button type="button" class="btn sm" onclick="downloadTradesCsv()">ייצוא CSV</button>
       </div>
       <div class="hero-value num">$${fmt(freeCash)}</div>
       <div class="hero-sub">
@@ -1896,7 +1921,7 @@ _HTML_TEMPLATE = """<!doctype html>
       <div class="card">
         <div class="card-head">
           <div class="card-title">עסקאות אחרונות שנסגרו</div>
-          <a class="btn sm" href="${authUrl("/api/export/trades.csv")}">הורד CSV</a>
+          <button type="button" class="btn sm" onclick="downloadTradesCsv()">הורד CSV</button>
         </div>
         <div class="tbl-scroll">
           <table class="clean-tbl">
@@ -2134,7 +2159,7 @@ _HTML_TEMPLATE = """<!doctype html>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn sm primary" onclick="runAction('/api/reconcile')">אמת חשבונות (Reconcile)</button>
           <button class="btn sm" onclick="runAction('/api/backup')">שמור גיבוי עכשיו</button>
-          <a class="btn sm" href="${authUrl("/api/export/trades.csv")}">הורד היסטוריית עסקאות (CSV)</a>
+          <button type="button" class="btn sm" onclick="downloadTradesCsv()">הורד היסטוריית עסקאות (CSV)</button>
           <button class="btn sm" onclick="runAction('/api/perps/learn',{apply:true})">כייל PERPS</button>
         </div>
       </div>

@@ -6,12 +6,12 @@ import pytest
 from pmmb.server import _is_loopback_address, make_handler, serve, token_ok
 
 
-@pytest.mark.parametrize("address", ["127.0.0.1", "::1", "localhost", "localhost."])
+@pytest.mark.parametrize("address", ["127.0.0.1", "::1", "127.0.0.2"])
 def test_loopback_addresses_are_local(address):
     assert _is_loopback_address(address)
 
 
-@pytest.mark.parametrize("address", ["0.0.0.0", "::", "192.0.2.10", "dashboard.example"])
+@pytest.mark.parametrize("address", ["0.0.0.0", "::", "192.0.2.10", "dashboard.example", "localhost"])
 def test_non_loopback_and_unknown_addresses_are_not_local(address):
     assert not _is_loopback_address(address)
 
@@ -66,5 +66,16 @@ def test_dashboard_source_forwards_token_to_api_and_csv_links():
 
     ui_source = (Path(__file__).resolve().parents[1] / "src" / "pmmb" / "ui.py").read_text(encoding="utf-8")
     assert 'const STATUS_TOKEN = new URLSearchParams(window.location.search).get("token")' in ui_source
+    assert 'window.history.replaceState' in ui_source
     assert '"X-Token": STATUS_TOKEN' in ui_source
-    assert 'authUrl("/api/export/trades.csv")' in ui_source
+    assert 'function downloadTradesCsv()' in ui_source
+    assert 'authUrl("/api/export/trades.csv")' not in ui_source
+
+
+def test_access_token_is_redacted_from_http_logs():
+    from pmmb.server import _redact_token_from_log
+
+    log_line = '"GET /?token=do-not-log-this HTTP/1.1" 200 -'
+    redacted = _redact_token_from_log(log_line)
+    assert "do-not-log-this" not in redacted
+    assert "token=[REDACTED]" in redacted

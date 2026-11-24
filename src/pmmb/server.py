@@ -12,6 +12,7 @@ import ipaddress
 import json
 import logging
 import os
+import re
 from pathlib import Path
 import threading
 import time
@@ -51,8 +52,6 @@ log = logging.getLogger(__name__)
 def _is_loopback_address(address: str) -> bool:
     """Return True only for an explicit loopback address; unknown hostnames fail closed."""
     candidate = str(address or "").strip()
-    if candidate.lower() in {"localhost", "localhost."}:
-        return True
     if "%" in candidate:  # IPv6 zone identifier
         candidate = candidate.split("%", 1)[0]
     try:
@@ -66,6 +65,11 @@ def _is_loopback_address(address: str) -> bool:
 def token_ok(given: str, token: str) -> bool:
     """Constant-time token comparison; an empty configured token never authorizes."""
     return bool(token) and hmac.compare_digest(str(given or ""), str(token))
+
+
+def _redact_token_from_log(message: str) -> str:
+    """Redact query-string dashboard tokens before HTTP request lines reach logs."""
+    return re.sub(r"(?i)([?&]token=)[^&\\s]*", r"\\1[REDACTED]", str(message))
 
 
 class _TraderManager:
@@ -848,7 +852,8 @@ def make_handler(cfg, *, max_age_sec: float, refresh_sec: int, token: str | None
         server_version = "pmmb-status/3"
 
         def log_message(self, fmt, *args):        # שקט — לא מציף את לוג הבוט
-            log.debug("%s - %s", self.address_string(), fmt % args)
+            message = _redact_token_from_log(fmt % args)
+            log.debug("%s - %s", self.address_string(), message)
 
         def _authorized(self, query: dict) -> bool:
             if not token:
