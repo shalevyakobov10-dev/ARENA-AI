@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import threading
 import time
-from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -687,5 +688,108 @@ def test_late_start_with_intraday_fills_cannot_rebase_daily_loss(shared_store, c
 
     assert baseline["status"] == "expired"
     assert baseline["baseline_ts"] is None
+
+
+
+
+def test_utc_day_baseline_capture_is_concurrent_and_idempotent_across_connections(shared_store, cfg):
+    now = datetime(2027, 3, 13, 0, 0, 30, tzinfo=timezone.utc)
+    _clear_utc_day_baseline(shared_store, now)
+    barrier = threading.Barrier(2)
+
+    def capture():
+        separate = Store(cfg.data.db_path)
+        try:
+            barrier.wait(timeout=5)
+            return ensure_unified_day_baseline(separate, cfg, now=now)
+        finally:
+            separate.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = list(pool.map(lambda _n: capture(), range(2)))
+
+    assert first["status"] == second["status"] == "ready"
+    assert first["baseline_ts"] == second["baseline_ts"] == int(now.timestamp())
+    row_count = shared_store._conn.execute(
+        "SELECT COUNT(*) AS n FROM unified_day_baselines WHERE utc_day=?",
+        (now.date().isoformat(),),
+    ).fetchone()["n"]
+    assert int(row_count) == 1
+
+
+def test_utc_day_baseline_normalizes_offset_times_across_dst_boundary(shared_store, cfg):
+    # A local +02:00 wall time immediately after the seasonal clock jump is
+    # normalized to the same UTC date and epoch used by both trading engines.
+    local_after_shift = datetime(
+        2027, 3, 28, 2, 30, 0, tzinfo=timezone(timedelta(hours=2))
+    )
+    expected_utc = local_after_shift.astimezone(timezone.utc)
+    _clear_utc_day_baseline(shared_store, expected_utc)
+
+    baseline = ensure_unified_day_baseline(shared_store, cfg, now=local_after_shift)
+
+    assert baseline["status"] == "ready"
+    assert baseline["utc_day"] == expected_utc.date().isoformat()
+    assert baseline["baseline_ts"] == int(expected_utc.timestamp())
+
+
+def test_utc_clock_rollback_behind_latest_baseline_fails_closed(shared_store, cfg):
+    later = datetime(2027, 3, 31, 0, 0, 20, tzinfo=timezone.utc)
+    earlier = datetime(2027, 3, 30, 0, 0, 20, tzinfo=timezone.utc)
+    _clear_utc_day_baseline(shared_store, later)
+    shared_store.save_unified_day_baseline(
+        utc_day=later.date().isoformat(), status="ready",
+        recorded_at=int(later.timestamp()), baseline_ts=int(later.timestamp()),
+        baseline_realized_pnl=0.0, baseline_unrealized_pnl=0.0,
+        open_positions=0, mark_ts_min=None, mark_ts_max=None, mark_skew_sec=0.0,
+    )
+
+    result = ensure_unified_day_baseline(shared_store, cfg, now=earlier)
+
+    assert result["status"] == "clock_skew"
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0, now=earlier
+    )
+    assert not decision.approved
+    assert "שעון UTC" in decision.reason
+
+
+def test_status_read_does_not_create_or_rebase_a_missing_day_baseline(shared_store, cfg):
+    now = datetime(2027, 4, 1, 0, 0, 20, tzinfo=timezone.utc)
+    _clear_utc_day_baseline(shared_store, now)
+
+    status = build_unified_risk_status(shared_store, cfg, now=now)
+
+    assert status.baseline_status == "unavailable"
+    count = shared_store._conn.execute(
+        "SELECT COUNT(*) AS n FROM unified_day_baselines WHERE utc_day=?",
+        (now.date().isoformat(),),
+    ).fetchone()["n"]
+    assert int(count) == 0
+
+
+def test_corrupt_ready_utc_baseline_metadata_fails_closed(shared_store, cfg):
+    now = datetime(2027, 4, 2, 0, 0, 20, tzinfo=timezone.utc)
+    _clear_utc_day_baseline(shared_store, now)
+    shared_store.save_unified_day_baseline(
+        utc_day=now.date().isoformat(), status="ready",
+        recorded_at=int(now.timestamp()), baseline_ts=int(now.timestamp()),
+        baseline_realized_pnl=0.0, baseline_unrealized_pnl=0.0,
+        open_positions=0, mark_ts_min=None, mark_ts_max=None, mark_skew_sec=0.0,
+    )
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE unified_day_baselines SET failures_json='{' WHERE utc_day=?",
+            (now.date().isoformat(),),
+        )
+
+    status = build_unified_risk_status(shared_store, cfg, now=now)
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0, now=now
+    )
+
+    assert status.baseline_status == "error"
+    assert not decision.approved
+    assert "baseline" in decision.reason.lower()
 
 
