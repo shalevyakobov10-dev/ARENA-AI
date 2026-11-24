@@ -661,12 +661,17 @@ def cmd_portfolio_risk(args, cfg: Config) -> int:
     if snapshot.open_positions >= cfg.portfolio_risk.max_open_positions:
         blockers.append("combined open-position limit has been reached")
 
+    snapshot_payload = (
+        snapshot.as_dict()
+        if numeric_valid
+        else {"error": "invalid numeric values; raw snapshot withheld"}
+    )
     report = {
         "shared_gate_clear": not blockers,
         "scope": "shared portfolio admission gates only; not per-market signal approval",
         "mode": cfg.execution.mode,
         "perps_mode": cfg.perps.mode,
-        "snapshot": snapshot.as_dict(),
+        "snapshot": snapshot_payload,
         "limits": {
             "capital_limit": round(capital_limit, 2) if math.isfinite(capital_limit) else None,
             "max_capital_utilization_pct": cfg.portfolio_risk.max_capital_utilization_pct,

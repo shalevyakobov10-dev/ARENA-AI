@@ -18,6 +18,8 @@ def _snapshot(**overrides):
     values = dict(
         starting_capital=2000.0,
         committed_capital=400.0,
+        polymarket_committed=200.0,
+        perps_margin_used=200.0,
         open_positions=2,
         marks_fresh=True,
         baseline_status="ready",
