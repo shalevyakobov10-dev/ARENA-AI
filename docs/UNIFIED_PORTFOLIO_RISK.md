@@ -8,8 +8,8 @@ The guard evaluates the same SQLite ledger used by both engines immediately befo
 
 - Combined capital allocation: Polymarket open-position cost basis plus PERPS isolated margin in use, capped at `portfolio_risk.max_capital_utilization_pct` of the combined configured starting capital.
 - Combined open-position count across both arms.
-- Combined realized PnL for the current UTC day, summing the Polymarket fills ledger and PERPS fills ledger. Crossing the daily threshold writes the persistent global `halt.json` flag with source `unified-risk`.
-- Fail-closed admission: if a ledger snapshot cannot be read, the proposed allocation is invalid, the global halt is set, or an enabled arm is not in Paper mode, new entries are denied.
+- Combined current-UTC-day net PnL from both ledgers. Polymarket BUY fees are counted before the position is closed; PERPS entry fees on still-open positions are also counted, while closed-trade realized PnL already includes its lifecycle fees/funding. Crossing the daily threshold writes the persistent global `halt.json` flag with source `unified-risk`.
+- Fail-closed admission: if a ledger snapshot cannot be read, the proposed allocation is invalid, the global halt is set or its file is corrupt/unreadable, or either configured venue is not in Paper mode, new entries are denied. Existing PERPS paper positions remain included in the budget and position count even when the PERPS engine is disabled.
 
 ## Concurrency
 
