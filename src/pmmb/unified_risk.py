@@ -489,7 +489,7 @@ def evaluate_unified_entry(
         return UnifiedRiskDecision(False, halt_reason)
 
     try:
-        snapshot = build_unified_portfolio_snapshot(store, cfg, now=now)
+        snapshot = build_unified_risk_status(store, cfg, now=now)
     except Exception as exc:  # noqa: BLE001 — admission must fail closed
         log.exception("Unified portfolio snapshot failed; denying %s entry", normalized_arm)
         return UnifiedRiskDecision(False, f"לא ניתן לאמת תיק מאוחד ({type(exc).__name__})")
@@ -497,16 +497,39 @@ def evaluate_unified_entry(
     if snapshot.starting_capital <= 0:
         return UnifiedRiskDecision(False, "הון התחלתי משותף אינו חיובי", snapshot, amount)
 
+    if snapshot.baseline_status != "ready":
+        failures = ", ".join(snapshot.baseline_failures[:2])
+        if snapshot.baseline_status == "expired":
+            reason = f"לא נשמר baseline סיכון מאוחד בתחילת יום UTC — הכניסות חסומות להיום ({failures})"
+        elif snapshot.baseline_status == "clock_skew":
+            reason = "זוהתה נסיגה בשעון UTC ביחס ל-baseline קודם — הכניסות חסומות"
+        else:
+            reason = f"baseline סיכון מאוחד ממתין לנתוני מחיר מסונכרנים ({failures})"
+        return UnifiedRiskDecision(False, reason, snapshot, amount)
+
     daily_limit = snapshot.starting_capital * float(limits.max_daily_loss_pct)
-    if snapshot.realized_today <= -daily_limit:
+    daily_pnl = snapshot.daily_risk_pnl
+    if daily_pnl is None:
+        return UnifiedRiskDecision(False, "PnL יומי מאומת אינו זמין — נחסמה כניסה", snapshot, amount)
+
+    if snapshot.open_positions and not snapshot.marks_fresh:
+        failures = ", ".join(snapshot.mark_failures[:3])
+        return UnifiedRiskDecision(
+            False,
+            f"לא ניתן לאמת Mark-to-Market של כל הפוזיציות ({failures}) — נחסמה כניסה",
+            snapshot,
+            amount,
+        )
+
+    if daily_pnl <= -daily_limit:
         reason = (
-            f"הפסד ממומש משולב {snapshot.realized_today:.2f} עבר את תקרת היום "
-            f"({-daily_limit:.2f})"
+            f"הפסד יומי משולב מאז baseline UTC {daily_pnl:.2f} עבר את תקרת ההפסד "
+            f"({-daily_limit:.2f}); עצירת חירום הופעלה"
         )
         try:
             write_halt(reason, source="unified-risk")
         except Exception:  # noqa: BLE001
-            log.exception("Could not persist unified daily-loss halt")
+            log.exception("Could not persist unified UTC daily-loss halt")
         return UnifiedRiskDecision(False, reason, snapshot, amount)
 
     if snapshot.open_positions >= int(limits.max_open_positions):
@@ -520,27 +543,6 @@ def evaluate_unified_entry(
     capital_limit = snapshot.starting_capital * float(limits.max_capital_utilization_pct)
     projected = snapshot.committed_capital + amount
     utilization = projected / snapshot.starting_capital * 100.0
-
-    if snapshot.open_positions and not snapshot.marks_fresh:
-        failures = ", ".join(snapshot.mark_failures[:3])
-        return UnifiedRiskDecision(
-            False,
-            f"לא ניתן לאמת Mark-to-Market של כל הפוזיציות ({failures}) — נחסמה כניסה",
-            snapshot,
-            amount,
-            utilization,
-        )
-
-    if snapshot.combined_risk_pnl <= -daily_limit:
-        reason = (
-            f"הפסד מסומן משולב {snapshot.combined_risk_pnl:.2f} עבר את תקרת ההפסד "
-            f"({-daily_limit:.2f}); עצירת חירום הופעלה"
-        )
-        try:
-            write_halt(reason, source="unified-risk")
-        except Exception:  # noqa: BLE001
-            log.exception("Could not persist unified mark-to-market halt")
-        return UnifiedRiskDecision(False, reason, snapshot, amount, utilization)
 
     if projected > capital_limit + 1e-8:
         return UnifiedRiskDecision(
