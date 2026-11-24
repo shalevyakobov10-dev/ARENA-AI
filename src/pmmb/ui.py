@@ -954,7 +954,7 @@ function renderRiskDesk() {
     ? `<div class="risk-tile">
         <div class="risk-tile-k">שער סיכון משותף · ${esc(m.shared_mode || "—")}</div>
         <div class="risk-tile-sub">${paperGateBadge}</div>
-        <div class="risk-tile-v">${esc(sharedBudget)}</div>`;
+        <div class="risk-tile-v">${esc(sharedBudget)}</div>
         <div class="risk-tile-sub">${m.shared_utilization_pct == null ? "ניצולת —" : esc(fmt(m.shared_utilization_pct, 1) + "% ניצולת")} · ${m.shared_open_positions == null ? "—" : fmt(m.shared_open_positions, 0)} / ${m.shared_max_positions == null ? "—" : fmt(m.shared_max_positions, 0)} פוזיציות</div>
         <div class="risk-tile-sub"><span class="badge ${marksTone}">${marksBadge}</span> · PnL מסומן: <b>${esc(markedPnl)}</b> / הפסד יומי מרבי: ${m.daily_loss_limit == null ? "—" : "$" + fmt(m.daily_loss_limit)}</div>
         ${m.halted ? '<div class="risk-tile-sub neg">' + esc(m.halt_reason || "עצירת חירום פעילה") + '</div>' : ""}
