@@ -2294,9 +2294,11 @@ def build_risk_desk_metrics(data: dict) -> dict:
     if open_positions is None:
         open_positions = len(data.get("positions") or []) + len(perps.get("positions") or [])
 
+    shared_limit_configured = False  # עד להוספת שער אכיפה משותף בליבת הסיכון
     if poly_status == "over" or perps_status == "over":
         overall_status = "breach"
-    elif (not False) or poly_status == "unknown" or (perps_enabled and perps_status == "unknown") or poly_status == "warning" or perps_status == "warning":
+    elif (not shared_limit_configured or poly_status == "unknown" or
+          (perps_enabled and perps_status == "unknown") or poly_status == "warning" or perps_status == "warning"):
         overall_status = "warning"
     else:
         overall_status = "healthy"
@@ -2313,7 +2315,7 @@ def build_risk_desk_metrics(data: dict) -> dict:
         "perps_margin_limit": round(perps_margin_limit, 2) if perps_margin_limit is not None else None,
         "perps_margin_utilization_pct": perps_util, "perps_status": perps_status,
         "perps_avg_leverage": _risk_number(perps.get("avg_leverage")) if perps_enabled else None,
-        "open_positions": int(open_positions), "shared_limit_configured": False,
+        "open_positions": int(open_positions), "shared_limit_configured": shared_limit_configured,
         "overall_status": overall_status,
         "notice": ("זוהי שכבת תצוגה בלבד: כרגע התקרות נאכפות ברמת כל זרוע בנפרד. "
                    "אין עדיין תקציב חשיפה גלובלי אחד שמונע משתי הזרועות לחרוג יחד. "
