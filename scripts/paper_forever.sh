@@ -5,7 +5,28 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 INTERVAL="${1:-60}"
+RESTART_DELAY="${PMMB_RESTART_DELAY_SEC:-30}"
+if ! [[ "$RESTART_DELAY" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "PMMB_RESTART_DELAY_SEC must be a non-negative number" >&2
+  exit 2
+fi
+
 LOG_DIR="logs"
+LOG="$LOG_DIR/paper.log"
+CHILD_PID=""
+STOPPING=0
+
+shutdown() {
+  STOPPING=1
+  if [[ -n "$CHILD_PID" ]] && kill -0 "$CHILD_PID" 2>/dev/null; then
+    echo "[$(date -Is)] שולח TERM לתהליך paper (pid=$CHILD_PID)" | tee -a "$LOG"
+    kill -TERM "$CHILD_PID" 2>/dev/null || true
+    wait "$CHILD_PID" 2>/dev/null || true
+  fi
+  CHILD_PID=""
+}
+trap 'shutdown; exit 0' INT TERM
+
 mkdir -p "$LOG_DIR" reports backups pmmb.db.dir 2>/dev/null || true
 
 rotate() {
@@ -18,8 +39,14 @@ rotate() {
 echo "[$(date -Is)] מתחיל paper ארוך-טווח (interval=${INTERVAL}s, engine=${PMMB_ENGINE:-config})"
 while true; do
   rotate "$LOG_DIR/paper.log"
-  pmmb paper --interval "$INTERVAL" >> "$LOG_DIR/paper.log" 2>&1
+  pmmb paper --interval "$INTERVAL" >> "$LOG_DIR/paper.log" 2>&1 &
+  CHILD_PID=$!
+  wait "$CHILD_PID"
   code=$?
-  echo "[$(date -Is)] הבוט יצא בקוד $code — מפעיל מחדש בעוד 30s"
-  sleep 30
+  CHILD_PID=""
+  if (( STOPPING )); then
+    break
+  fi
+  echo "[$(date -Is)] הבוט יצא בקוד $code — מפעיל מחדש בעוד ${RESTART_DELAY}s"
+  sleep "$RESTART_DELAY"
 done
