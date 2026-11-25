@@ -29,7 +29,8 @@ log = logging.getLogger(__name__)
 # anchor. If it is missed, or marks are not synchronized, entries stay blocked
 # for the rest of that UTC day rather than silently resetting the loss budget.
 UNIFIED_BASELINE_CAPTURE_WINDOW_SEC = 300
-UNIFIED_BASELINE_MAX_MARK_SKEW_SEC = 120
+UNIFIED_MAX_MARK_SKEW_SEC = 120
+UNIFIED_BASELINE_MAX_MARK_SKEW_SEC = UNIFIED_MAX_MARK_SKEW_SEC
 UNIFIED_BASELINE_MARK_LOOKBACK_SEC = 120
 
 
@@ -726,6 +727,21 @@ def evaluate_unified_entry(
         return UnifiedRiskDecision(
             False,
             f"לא ניתן לאמת Mark-to-Market של כל הפוזיציות ({failures}) — נחסמה כניסה",
+            snapshot,
+            amount,
+        )
+
+    if (
+        snapshot.open_positions
+        and snapshot.mark_skew_sec > UNIFIED_MAX_MARK_SKEW_SEC
+    ):
+        return UnifiedRiskDecision(
+            False,
+            (
+                f"פער זמנים בין מחירי Polymarket ו-PERPS "
+                f"({snapshot.mark_skew_sec:.1f}s > {UNIFIED_MAX_MARK_SKEW_SEC}s) "
+                "— נחסמה כניסה עד לסנכרון הנתונים"
+            ),
             snapshot,
             amount,
         )
