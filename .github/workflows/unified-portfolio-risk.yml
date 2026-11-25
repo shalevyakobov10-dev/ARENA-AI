@@ -5,6 +5,7 @@ on:
     branches:
       - agent/chatgpt/shared-portfolio-risk-guard
       - agent/chatgpt/utc-day-start-baseline
+      - agent/chatgpt/unified-risk-dashboard-status
   pull_request:
     paths:
       - src/pmmb/config.py
