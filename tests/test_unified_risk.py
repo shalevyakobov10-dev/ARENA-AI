@@ -792,4 +792,36 @@ def test_corrupt_ready_utc_baseline_metadata_fails_closed(shared_store, cfg):
     assert not decision.approved
     assert "baseline" in decision.reason.lower()
 
+def test_current_cross_venue_mark_skew_blocks_entries_even_when_each_mark_is_fresh(
+    shared_store, cfg
+):
+    now_ts = int(time.time())
+    # Both marks remain individually fresh (< 240 seconds), but they describe
+    # different market moments by more than the 120-second synchronization limit.
+    _seed_poly_position(shared_store, "poly-skew", size=100.0, avg_price=0.5)
+    _seed_perp_position(shared_store, "BTC", margin=100.0)
+    poly_mark_ts = now_ts - 150
+    perps_mark_ts = now_ts - 5
+    with shared_store.tx() as conn:
+        conn.execute(
+            "UPDATE books SET ts=?, mid=0.5, best_bid=0.5 WHERE token_id='poly-skew'",
+            (poly_mark_ts,),
+        )
+        conn.execute(
+            "UPDATE perp_intel SET updated_at=?, price=100.0, mark_price=100.0 WHERE symbol='BTC'",
+            (perps_mark_ts,),
+        )
+
+    current = datetime.fromtimestamp(now_ts, tz=timezone.utc)
+    snapshot = build_unified_portfolio_snapshot(shared_store, cfg, now=current)
+    assert snapshot.marks_fresh is True
+    assert snapshot.mark_skew_sec == pytest.approx(145.0)
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0, now=current
+    )
+
+    assert not decision.approved
+    assert "פער זמנים" in decision.reason
+    assert "120s" in decision.reason
 
