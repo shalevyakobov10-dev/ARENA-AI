@@ -7,6 +7,7 @@ on:
       - agent/chatgpt/unified-risk-desk-live-metrics
     paths:
       - "src/pmmb/ui.py"
+      - "src/pmmb/risk_desk.py"
       - "tests/test_ui_risk_desk.py"
       - ".github/workflows/command-center-risk-desk.yml"
   pull_request:
