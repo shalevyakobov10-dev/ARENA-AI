@@ -833,10 +833,18 @@ function renderRiskDesk() {
   const total = m.gross_notional == null ? "—" : "$" + fmt(m.gross_notional);
   const ratio = m.gross_exposure_pct == null ? "—" : fmt(m.gross_exposure_pct, 1) + "%";
   const globalClass = m.overall_status === "breach" ? "red" : (m.overall_status === "healthy" ? "green" : "amber");
-  const globalLabel = m.overall_status === "breach" ? "חריגה מזוהה" : (m.overall_status === "healthy" ? "ללא חריגות בתקרות הזרועות" : "נדרשת תשומת לב");
+  const globalLabel = m.overall_status === "breach" ? "חריגה מזוהה" : (m.overall_status === "healthy" ? "שער Paper · בדיקות בסיס תקינות" : "נדרשת תשומת לב");
+  const preflightClass = m.unified_halted ? "red" : (m.unified_preflight_status === "clear" ? "green" : "amber");
+  const preflightLabel = m.unified_halted ? "עצירת חירום פעילה" : (m.unified_preflight_status === "clear" ? "בדיקות בסיס עברו" : (m.unified_preflight_status === "blocked" ? "כניסות חסומות בבדיקת בסיס" : "מצב שער לא ידוע"));
+  const capValue = m.unified_committed_capital == null || m.unified_capital_limit == null
+    ? "—" : "$" + fmt(m.unified_committed_capital) + " / $" + fmt(m.unified_capital_limit);
+  const dailyValue = m.unified_daily_risk_pnl == null || m.unified_daily_loss_limit == null
+    ? "—" : (m.unified_daily_risk_pnl >= 0 ? "+" : "") + "$" + fmt(m.unified_daily_risk_pnl) + " / -$" + fmt(m.unified_daily_loss_limit);
+  const positionValue = m.unified_max_open_positions == null
+    ? "—" : String(m.open_positions) + " / " + String(m.unified_max_open_positions);
   root.innerHTML = `
     <div class="risk-desk-head">
-      <div><div class="risk-desk-title">שולחן סיכון — תיק מאוחד</div><div class="risk-desk-caption">ניטור החשיפה והמרג׳ין בשתי הזרועות על בסיס נתוני החשבון האחרונים</div></div>
+      <div><div class="risk-desk-title">שולחן סיכון — תיק מאוחד</div><div class="risk-desk-caption">נתוני תיק משתי הזרועות ושער הכניסה המשותף של Paper</div></div>
       <span class="badge ${globalClass}">${globalLabel}</span>
     </div>
     <div class="risk-desk-grid">
@@ -844,8 +852,11 @@ function renderRiskDesk() {
       ${riskUtilTile("Polymarket · חשיפה / תקרה", m.poly_exposure, m.poly_limit, m.poly_utilization_pct, m.poly_status)}
       ${riskUtilTile("PERPS · מרג׳ין / תקרה", m.perps_margin, m.perps_margin_limit, m.perps_margin_utilization_pct, m.perps_status)}
       <div class="risk-tile"><div class="risk-tile-k">PERPS · נומינלי ומינוף</div><div class="risk-tile-v">${m.perps_notional == null ? "—" : "$" + fmt(m.perps_notional)}</div><div class="risk-tile-sub">מינוף ממוצע פתוח: ${m.perps_avg_leverage == null ? "—" : "×" + fmt(m.perps_avg_leverage, 1)}</div><div class="risk-track"><div class="risk-fill" style="width:${m.perps_notional_pct == null ? 0 : Math.max(0,Math.min(100,Number(m.perps_notional_pct)))}%"></div></div></div>
+      <div class="risk-tile"><div class="risk-tile-k">תקציב ההון המשותף · התחייבות / תקרה</div><div class="risk-tile-v">${capValue}</div><div class="risk-tile-sub">${m.unified_capital_utilization_pct == null ? "ניצול לא זמין" : fmt(m.unified_capital_utilization_pct, 1) + "% מההון ההתחלתי"}</div></div>
+      <div class="risk-tile"><div class="risk-tile-k">הפסד יומי משולב · שינוי מול baseline</div><div class="risk-tile-v">${dailyValue}</div><div class="risk-tile-sub">Baseline UTC: ${esc(m.unified_baseline_status || "לא ידוע")}</div></div>
+      <div class="risk-tile"><div class="risk-tile-k">שער כניסה משותף · בדיקות בסיס</div><div class="risk-tile-v"><span class="badge ${preflightClass}">${preflightLabel}</span></div><div class="risk-tile-sub">פוזיציות: ${positionValue} · החלטת פקודה נבדקת מחדש במנוע</div></div>
     </div>
-    <div class="risk-desk-note"><strong>חשוב:</strong> ${esc(m.notice || "הנתונים הם לניטור בלבד ואינם תחליף למנגנון אכיפת סיכון.")}</div>
+    <div class="risk-desk-note"><strong>חשוב:</strong> ${esc(m.notice || "נתוני השער המאוחד אינם זמינים; יש להתייחס למצב הסיכון הגלובלי כלא ידוע.")}</div>
   `;
 }
 
@@ -2267,16 +2278,20 @@ def build_risk_desk_metrics(data: dict) -> dict:
     config = data.get("config") or {}
     risk_cfg = config.get("risk") or {}
     perps_guards = perps.get("guards") or {}
+    unified = data.get("unified_risk") or {}
+    unified_guard = unified.get("guard") or {}
 
     poly_equity = _risk_number(bankroll.get("equity"))
     perps_enabled = bool(perps.get("enabled", True))
     total_equity = _risk_number(combined.get("equity"))
     poly_exposure = _risk_number(bankroll.get("exposure"))
-    # A paused arm may still hold open positions. Never hide residual exposure.
     perps_notional = _risk_number(perps.get("notional"))
     perps_margin = _risk_number(perps.get("margin_used"))
     perps_positions = perps.get("positions") or []
-    perps_has_risk = bool(perps_positions) or (perps_notional is not None and perps_notional > 0) or (perps_margin is not None and perps_margin > 0)
+    perps_has_risk = bool(perps_positions) or (
+        (perps_notional is not None and perps_notional > 0)
+        or (perps_margin is not None and perps_margin > 0)
+    )
     perps_equity = _risk_number(perps.get("equity")) if (perps_enabled or perps_has_risk) else 0.0
 
     poly_cap_pct = _risk_number(risk_cfg.get("max_total_exposure_pct"))
@@ -2297,34 +2312,73 @@ def build_risk_desk_metrics(data: dict) -> dict:
     if open_positions is None:
         open_positions = len(data.get("positions") or []) + len(perps.get("positions") or [])
 
-    shared_limit_configured = False  # עד להוספת שער אכיפה משותף בליבת הסיכון
-    if poly_status == "over" or perps_status == "over":
+    unified_capital_limit = _risk_number(unified_guard.get("capital_limit"))
+    unified_committed = _risk_number(unified.get("committed_capital"))
+    unified_utilization = _risk_number(unified_guard.get("capital_utilization_pct"))
+    unified_daily_pnl = _risk_number(unified.get("daily_risk_pnl"))
+    unified_daily_limit = _risk_number(unified_guard.get("daily_loss_limit"))
+    unified_max_positions = _risk_number(unified_guard.get("max_open_positions"))
+    unified_preflight = str(unified_guard.get("preflight_status") or "unknown").lower()
+    unified_baseline = str(unified.get("baseline_status") or "unknown").lower()
+    unified_halted = bool(unified_guard.get("halted"))
+    shared_limit_configured = bool(unified_guard.get("enabled")) and unified.get("status") == "ok" and unified_capital_limit is not None and unified_capital_limit > 0
+    unified_daily_breach = unified_daily_pnl is not None and unified_daily_limit is not None and unified_daily_pnl <= -unified_daily_limit
+
+    if poly_status == "over" or perps_status == "over" or unified_halted or unified_daily_breach:
         overall_status = "breach"
-    elif (not shared_limit_configured or poly_status == "unknown" or
-          (perps_enabled and perps_status == "unknown") or poly_status == "warning" or perps_status == "warning"):
+    elif (
+        not shared_limit_configured
+        or unified_preflight != "clear"
+        or poly_status in {"unknown", "warning"}
+        or (perps_enabled and perps_status in {"unknown", "warning"})
+    ):
         overall_status = "warning"
     else:
         overall_status = "healthy"
+
+    if shared_limit_configured:
+        notice = (
+            "קיים שער הקצאת הון משותף שנאכף במנוע הכניסה במצב Paper: "
+            "הוא מגביל את ההון המוקצה ומספר הפוזיציות ובודק הפסד יומי משולב מול UTC baseline. "
+            "הנתונים כאן הם תמונת מצב לקריאה בלבד; אישור כל פקודה מחושב מחדש במנוע. "
+            "חשיפה נומינלית ברוטו אינה הפסד מקסימלי ואינה מדד לסיכון חיסול."
+        )
+    else:
+        notice = (
+            "סטטוס שער הסיכון המאוחד אינו זמין בתשובת השרת הזו; אין להסיק מכך שהמנגנון אינו קיים. "
+            "עד לקבלת נתוני שער מאומתים, מצב הסיכון הגלובלי מוצג כלא ידוע. "
+            "חשיפה נומינלית ברוטו אינה הפסד מקסימלי ואינה מדד לסיכון חיסול."
+        )
 
     return {
         "gross_notional": round(gross_notional, 2) if gross_notional is not None else None,
         "gross_exposure_pct": gross_pct,
         "poly_exposure": round(poly_exposure, 2) if poly_exposure is not None else None,
         "poly_limit": round(poly_limit, 2) if poly_limit is not None else None,
-        "poly_utilization_pct": poly_util, "poly_status": poly_status,
+        "poly_utilization_pct": poly_util,
+        "poly_status": poly_status,
         "perps_notional": round(perps_notional, 2) if perps_notional is not None else None,
         "perps_notional_pct": perps_notional_pct,
         "perps_margin": round(perps_margin, 2) if perps_margin is not None else None,
         "perps_margin_limit": round(perps_margin_limit, 2) if perps_margin_limit is not None else None,
-        "perps_margin_utilization_pct": perps_util, "perps_status": perps_status,
+        "perps_margin_utilization_pct": perps_util,
+        "perps_status": perps_status,
         "perps_avg_leverage": _risk_number(perps.get("avg_leverage")) if (perps_enabled or perps_has_risk) else None,
-        "open_positions": int(open_positions), "shared_limit_configured": shared_limit_configured,
+        "open_positions": int(open_positions),
+        "shared_limit_configured": shared_limit_configured,
+        "unified_capital_limit": round(unified_capital_limit, 2) if unified_capital_limit is not None else None,
+        "unified_committed_capital": round(unified_committed, 2) if unified_committed is not None else None,
+        "unified_capital_utilization_pct": unified_utilization,
+        "unified_daily_risk_pnl": round(unified_daily_pnl, 2) if unified_daily_pnl is not None else None,
+        "unified_daily_loss_limit": round(unified_daily_limit, 2) if unified_daily_limit is not None else None,
+        "unified_max_open_positions": int(unified_max_positions) if unified_max_positions is not None else None,
+        "unified_preflight_status": unified_preflight,
+        "unified_baseline_status": unified_baseline,
+        "unified_halted": unified_halted,
+        "unified_blockers": list(unified_guard.get("preflight_blockers") or []),
         "overall_status": overall_status,
-        "notice": ("זוהי שכבת תצוגה בלבד: כרגע התקרות נאכפות ברמת כל זרוע בנפרד. "
-                   "אין עדיין תקציב חשיפה גלובלי אחד שמונע משתי הזרועות לחרוג יחד. "
-                   "חשיפה נומינלית ברוטו אינה הפסד מקסימלי ואינה מדד לסיכון חיסול."),
+        "notice": notice,
     }
-
 
 def command_center_html(data: dict, *, refresh_sec: int = 30, interactive: bool = True) -> str:
     """מייצר ממשק אינטראקטיבי עצמאי, הייטקי ופשוט של PMMB Command Center."""
