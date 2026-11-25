@@ -565,6 +565,36 @@ def build_command_center_data(
                 if risk_snapshot.starting_capital <= 0:
                     blockers.append("ההון ההתחלתי המשותף אינו תקין")
 
+                preflight_status = "blocked" if blockers else "clear"
+                utilization_pct = (
+                    round(
+                        risk_snapshot.committed_capital
+                        / risk_snapshot.starting_capital * 100.0,
+                        2,
+                    )
+                    if risk_snapshot.starting_capital > 0 else None
+                )
+
+                # Backward-compatible flat aliases are consumed by the
+                # integrated Command Center UI and remain sourced from this
+                # same immutable Paper snapshot.
+                risk_payload.update({
+                    "enabled": True,
+                    "mode": "paper",
+                    "paper_only": True,
+                    "capital_limit": round(capital_limit, 2),
+                    "utilization_pct": utilization_pct,
+                    "max_open_positions": int(risk_limits.max_open_positions),
+                    "combined_risk_pnl": (
+                        round(risk_snapshot.daily_risk_pnl, 2)
+                        if risk_snapshot.daily_risk_pnl is not None else None
+                    ),
+                    "daily_loss_limit": round(daily_loss_limit, 2),
+                    "halted": halt_reason is not None,
+                    "halt_reason": halt_reason or "",
+                    "preflight_status": preflight_status,
+                    "preflight_blockers": blockers,
+                })
                 risk_payload["status"] = "ok"
                 risk_payload["guard"] = {
                     "mode": "paper-only",
@@ -588,7 +618,7 @@ def build_command_center_data(
                     "mark_skew_limit_sec": UNIFIED_MAX_MARK_SKEW_SEC,
                     "halted": halt_reason is not None,
                     "halt_reason": halt_reason or "",
-                    "preflight_status": "blocked" if blockers else "clear",
+                    "preflight_status": preflight_status,
                     "preflight_blockers": blockers,
                     "scope_note": (
                         "בדיקת תצוגה לקריאות בלבד: החלטת הכניסה הסופית בודקת שוב "

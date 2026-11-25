@@ -360,6 +360,17 @@ def test_command_center_unified_risk_status_is_read_only(tmp_path, cfg, monkeypa
     assert risk["guard"]["max_daily_loss_pct"] == 5.0
     assert risk["guard"]["preflight_status"] == "blocked"
     assert any("נקודת הבסיס" in reason for reason in risk["guard"]["preflight_blockers"])
+    # Stable flat contract consumed by the integrated Risk Desk UI.
+    assert risk["enabled"] is True
+    assert risk["mode"] == "paper"
+    assert risk["paper_only"] is True
+    assert risk["capital_limit"] == 1000.0
+    assert risk["utilization_pct"] == 0.0
+    assert risk["max_open_positions"] == 8
+    assert risk["combined_risk_pnl"] is None
+    assert risk["daily_loss_limit"] == 100.0
+    assert risk["halted"] is False
+    assert risk["preflight_status"] == "blocked"
     assert "risk_desk" in data
     assert data["risk_desk"]["shared_limit_configured"] is True
     assert data["risk_desk"]["unified_preflight_status"] == "blocked"
