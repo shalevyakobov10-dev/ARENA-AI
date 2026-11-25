@@ -831,19 +831,59 @@ class PerpEngine:
         if self.pcfg.mode != "paper":
             raise PermissionError("פקודה ידנית מהממשק מותרת במצב paper בלבד")
         ensure_unified_day_baseline(self.store, self.cfg)
+        if self._execution_blocked():
+            raise PerpsExecutionUncertain(
+                "PERPS execution is latched as uncertain; reconcile the venue before manual entry"
+            )
+
         sym = symbol.strip().upper()
         dir_u = side.strip().upper()
         if dir_u not in ("LONG", "SHORT"):
             raise ValueError("כיוון חייב להיות LONG או SHORT")
         if sym in self.positions:
             raise ValueError(f"כבר קיימת פוזיציה פתוחה עבור {sym} — סגור אותה קודם")
+
+        # Manual Quick Trade must enforce the same PERPS account-level risk
+        # limits as signal-driven entries, not only the cross-venue budget.
+        equity = self._equity()
+        if self.risk.check_global_kill(equity, self.realized_pnl_today) or self.risk.halted:
+            raise PermissionError(
+                f"PERPS risk kill switch חסם פקודה ידנית: {self.risk.halt_reason or 'global risk limit'}"
+            )
+        rk = self.pcfg.risk
+        if len(self.positions) >= rk.max_open_positions:
+            raise PermissionError(
+                f"PERPS position cap reached ({len(self.positions)}/{rk.max_open_positions})"
+            )
+        same_direction = sum(1 for pos in self.positions.values() if pos.side == dir_u)
+        if same_direction >= rk.max_positions_per_direction:
+            raise PermissionError(
+                f"PERPS direction cap reached ({same_direction}/{rk.max_positions_per_direction} {dir_u})"
+            )
+
         margin = float(margin_usd)
-        if margin < 5.0:
+        if not math.isfinite(margin) or margin < 5.0:
             raise ValueError("מרג'ין מינימלי לעסקה הוא 5 USDC")
         if margin > self.cash * 0.96:
             raise ValueError(f"אין מספיק מזומן פנוי ב-PERPS ({self.cash:.2f} USDC)")
 
-        req_lev = max(2.0, min(float(self.pcfg.risk.max_leverage), float(leverage)))
+        used_margin = sum(max(0.0, float(pos.margin_used)) for pos in self.positions.values())
+        max_position_margin = equity * rk.max_margin_per_position_pct
+        remaining_portfolio_margin = equity * rk.max_total_margin_pct - used_margin
+        if margin > max_position_margin + 1e-9:
+            raise PermissionError(
+                f"PERPS per-position margin cap ({margin:.2f} > {max_position_margin:.2f} USDC)"
+            )
+        if margin > remaining_portfolio_margin + 1e-9:
+            raise PermissionError(
+                f"PERPS total margin cap ({used_margin + margin:.2f} > "
+                f"{equity * rk.max_total_margin_pct:.2f} USDC)"
+            )
+
+        requested_leverage = float(leverage)
+        if not math.isfinite(requested_leverage):
+            raise ValueError("מינוף לא תקין")
+        req_lev = max(2.0, min(float(rk.max_leverage), requested_leverage))
         inst = next((x for x in self.exchange.scan() if x.symbol == sym), None)
         if inst is None:
             intel = {r["symbol"]: r for r in self.store.recent_perp_intel(limit=40)}
@@ -883,10 +923,35 @@ class PerpEngine:
 
         # הגנה קשיחה: SL חייב להישאר לפני נקודת הליקווידציה (כפוף ל-liquidation_buffer_mult)
         mmr = inst.mmr or rk.default_mmr
+        if (
+            not math.isfinite(float(stop_px))
+            or not math.isfinite(float(tp_px))
+            or (
+                dir_u == "LONG"
+                and not (0.0 < stop_px < px < tp_px)
+            )
+            or (
+                dir_u == "SHORT"
+                and not (0.0 < tp_px < px < stop_px)
+            )
+        ):
+            raise ValueError("Stop-Loss ו-Take-Profit חייבים להיות בצד הנכון של מחיר הכניסה")
+
         stop_dist_pct = abs(px - stop_px) / px
+        if stop_dist_pct <= 0:
+            raise ValueError("מרחק Stop-Loss לא תקין")
         rt_cost = 2.0 * (self.pcfg.taker_fee_bps + self.pcfg.slippage_bps) / 10_000.0
-        safe_lev_cap = max(2.0, (1.0 - mmr) / max(1e-4, stop_dist_pct * 1.35 + rt_cost))
-        lev = round(min(req_lev, inst.max_leverage, safe_lev_cap), 1)
+        safe_lev_cap = (1.0 - mmr) / max(
+            1e-4, stop_dist_pct * rk.liquidation_buffer_mult + rt_cost
+        )
+        if not math.isfinite(safe_lev_cap) or safe_lev_cap < 2.0:
+            raise PermissionError(
+                "פקודה ידנית נדחתה: אין מינוף מינימלי בטוח שמכבד את liquidation_buffer_mult"
+            )
+        lev_cap = min(req_lev, float(inst.max_leverage), safe_lev_cap)
+        lev = math.floor(lev_cap * 10.0 + 1e-9) / 10.0
+        if lev < 2.0:
+            raise PermissionError("המינוף הבטוח הזמין נמוך מהמינימום המותר (2x)")
         notional = round(margin * lev, 2)
         size = round(notional / px, 6)
 
@@ -910,14 +975,15 @@ class PerpEngine:
         if fill is None:
             raise RuntimeError("ביצוע הפקודה הידנית נדחה")
 
-        margin_used = round(fill.notional / lev, 4)
+        actual_leverage = float(fill.leverage or lev)
+        margin_used = round(fill.notional / actual_leverage, 4)
         fill.margin_delta = -margin_used
         self.cash -= margin_used + fill.fee
-        liq_px = calc_liquidation_price(dir_u, fill.price, lev, mmr)
+        liq_px = calc_liquidation_price(dir_u, fill.price, actual_leverage, mmr)
         pos = PerpPosition(
             symbol=sym, exchange=inst.exchange, side=dir_u,  # type: ignore[arg-type]
             size=fill.size, entry_price=fill.price, notional=fill.notional,
-            leverage=lev, margin_used=margin_used, liquidation_price=round(liq_px, 6),
+            leverage=actual_leverage, margin_used=margin_used, liquidation_price=round(liq_px, 6),
             stop_price=stop_px, target_price=tp_px,
             highest_price=fill.price, lowest_price=fill.price, atr=atr,
             strategy="manual", regime="MANUAL", entry_score=1.0,
@@ -933,11 +999,11 @@ class PerpEngine:
         tot_not = sum(p.notional for p in self.positions.values())
         avg_l = (tot_not / used_m) if used_m > 0 else 0.0
         self.store.snapshot_perp_equity(self.pcfg.mode, eq, self.cash, used_m, tot_not, len(self.positions), avg_l)
-        msg = f"🎯 פקודה ידנית PERPS {sym} {dir_u} ×{lev:.1f} @ {fill.price:.4f} | מרג'ין {margin_used:.2f}$"
+        msg = f"🎯 פקודה ידנית PERPS {sym} {dir_u} ×{actual_leverage:.1f} @ {fill.price:.4f} | מרג'ין {margin_used:.2f}$"
         log.info(msg)
         self.store.event("perp_entry", msg, data={"symbol": sym, "manual": True, "leverage": lev})
         return {
-            "symbol": sym, "side": dir_u, "leverage": lev, "price": round(fill.price, 6),
+            "symbol": sym, "side": dir_u, "leverage": actual_leverage, "price": round(fill.price, 6),
             "margin": round(margin_used, 2), "notional": round(fill.notional, 2),
             "stop_price": stop_px, "target_price": tp_px, "liquidation_price": round(liq_px, 6),
         }

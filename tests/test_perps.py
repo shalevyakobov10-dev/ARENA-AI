@@ -774,3 +774,152 @@ def test_perps_engine_denies_automatic_and_manual_entries_when_shared_gate_rejec
         assert len(calls) >= 2
     finally:
         eng.close()
+
+def test_manual_perps_order_enforces_per_position_and_total_margin_caps(cfg, tmp_path):
+    from types import SimpleNamespace
+
+    cfg.data.db_path = str(tmp_path / "manual-margin-guard.db")
+    cfg.perps.mode = "paper"
+    cfg.perps.risk.max_margin_per_position_pct = 0.10
+    cfg.perps.risk.max_total_margin_pct = 0.80
+    calls = []
+
+    class _Broker:
+        def execute(self, *args, **kwargs):
+            calls.append((args, kwargs))
+            return None
+
+    class _StubEx:
+        def scan(self):
+            return [PerpInstrument(
+                symbol="BTC", exchange="okx", exchange_symbol="BTC-USDT-SWAP",
+                max_leverage=50.0, mark_price=50000.0,
+            )]
+        def get_candles(self, inst, interval="1h", lookback=160):
+            return _mk_candles(60, base=50000.0, mode="trend_up")
+        def get_book(self, inst, levels=8):
+            return PerpBook(
+                symbol="BTC", exchange="okx", best_bid=49999.0, best_ask=50001.0,
+                bids=[(49999.0, 10.0)], asks=[(50001.0, 10.0)],
+            )
+
+    eng = PerpEngine(cfg, exchange=_StubEx(), broker=_Broker())
+    try:
+        with pytest.raises(PermissionError, match="per-position margin cap"):
+            eng.open_manual_order("BTC", "LONG", 101.0, 5.0)
+        assert calls == []
+
+        cfg.perps.risk.max_margin_per_position_pct = 0.50
+        cfg.perps.risk.max_total_margin_pct = 0.20
+        with pytest.raises(PermissionError, match="total margin cap"):
+            eng.open_manual_order("BTC", "LONG", 201.0, 5.0)
+        assert calls == []
+    finally:
+        eng.close()
+
+
+def test_manual_perps_order_enforces_position_count_and_direction_caps(cfg, tmp_path):
+    from pmmb.perps.models import PerpPosition
+
+    cfg.data.db_path = str(tmp_path / "manual-position-guard.db")
+    cfg.perps.mode = "paper"
+    cfg.perps.risk.max_open_positions = 1
+    cfg.perps.risk.max_positions_per_direction = 1
+    cfg.perps.risk.max_margin_per_position_pct = 0.50
+    cfg.perps.risk.max_total_margin_pct = 0.80
+
+    class _StubEx:
+        def scan(self):
+            return [PerpInstrument(
+                symbol="BTC", exchange="okx", exchange_symbol="BTC-USDT-SWAP",
+                max_leverage=50.0, mark_price=50000.0,
+            )]
+        def get_candles(self, inst, interval="1h", lookback=160):
+            return _mk_candles(60, base=50000.0, mode="trend_up")
+        def get_book(self, inst, levels=8):
+            return PerpBook(
+                symbol="BTC", exchange="okx", best_bid=49999.0, best_ask=50001.0,
+                bids=[(49999.0, 10.0)], asks=[(50001.0, 10.0)],
+            )
+
+    eng = PerpEngine(cfg, exchange=_StubEx())
+    try:
+        eng.positions["ETH"] = PerpPosition(
+            symbol="ETH", exchange="okx", side="LONG",
+            size=1.0, entry_price=3000.0, notional=3000.0,
+            leverage=5.0, margin_used=100.0,
+            liquidation_price=2400.0, stop_price=2700.0,
+            target_price=3600.0, highest_price=3000.0, lowest_price=3000.0,
+        )
+        eng.cash = 900.0
+        with pytest.raises(PermissionError, match="position cap"):
+            eng.open_manual_order("BTC", "LONG", 30.0, 5.0)
+        cfg.perps.risk.max_open_positions = 4
+        with pytest.raises(PermissionError, match="direction cap"):
+            eng.open_manual_order("BTC", "LONG", 30.0, 5.0)
+    finally:
+        eng.close()
+
+
+def test_manual_perps_order_enforces_daily_loss_kill_switch(cfg, tmp_path):
+    cfg.data.db_path = str(tmp_path / "manual-daily-loss-guard.db")
+    cfg.perps.mode = "paper"
+    cfg.perps.risk.max_daily_loss_pct = 0.05
+
+    class _StubEx:
+        def scan(self):
+            return [PerpInstrument(
+                symbol="BTC", exchange="okx", exchange_symbol="BTC-USDT-SWAP",
+                max_leverage=50.0, mark_price=50000.0,
+            )]
+        def get_candles(self, inst, interval="1h", lookback=160):
+            return _mk_candles(60, base=50000.0, mode="trend_up")
+        def get_book(self, inst, levels=8):
+            return PerpBook(
+                symbol="BTC", exchange="okx", best_bid=49999.0, best_ask=50001.0,
+                bids=[(49999.0, 10.0)], asks=[(50001.0, 10.0)],
+            )
+
+    eng = PerpEngine(cfg, exchange=_StubEx())
+    try:
+        eng.realized_pnl_today = -60.0
+        with pytest.raises(PermissionError, match="risk kill switch"):
+            eng.open_manual_order("BTC", "LONG", 30.0, 5.0)
+        assert eng.risk.halted is True
+    finally:
+        eng.close()
+
+
+def test_manual_perps_order_uses_configured_liquidation_buffer_and_rejects_unsafe_stop(cfg, tmp_path):
+    cfg.data.db_path = str(tmp_path / "manual-liquidation-buffer.db")
+    cfg.perps.mode = "paper"
+    cfg.perps.risk.liquidation_buffer_mult = 2.2
+
+    class _StubEx:
+        def scan(self):
+            return [PerpInstrument(
+                symbol="BTC", exchange="okx", exchange_symbol="BTC-USDT-SWAP",
+                max_leverage=50.0, mark_price=50000.0,
+            )]
+        def get_candles(self, inst, interval="1h", lookback=160):
+            return _mk_candles(60, base=50000.0, mode="trend_up")
+        def get_book(self, inst, levels=8):
+            return PerpBook(
+                symbol="BTC", exchange="okx", best_bid=49999.0, best_ask=50001.0,
+                bids=[(49999.0, 10.0)], asks=[(50001.0, 10.0)],
+            )
+
+    class _Broker:
+        def execute(self, *args, **kwargs):
+            raise AssertionError("broker must not be called when safe leverage is below 2x")
+
+    eng = PerpEngine(cfg, exchange=_StubEx(), broker=_Broker())
+    try:
+        with pytest.raises(PermissionError, match="liquidation_buffer_mult"):
+            eng.open_manual_order(
+                "BTC", "LONG", 30.0, 15.0,
+                stop_price=25000.0, target_price=55000.0,
+            )
+    finally:
+        eng.close()
+
