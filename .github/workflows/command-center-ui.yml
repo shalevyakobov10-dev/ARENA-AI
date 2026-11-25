@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - agent/chatgpt/command-center-operations-ui
+      - agent/chatgpt/unified-risk-preflight-desk
   pull_request:
     paths:
       - src/pmmb/ui.py

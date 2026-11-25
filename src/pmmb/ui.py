@@ -899,10 +899,13 @@ function riskDeskMetrics(data) {
   const halted = !!unifiedRisk.halted;
   const haltReason = String(unifiedRisk.halt_reason || "");
   const markFailures = Array.isArray(unifiedRisk.mark_failures) ? unifiedRisk.mark_failures : [];
+  const preflightStatus = String(unifiedRisk.preflight_status || "unknown").toLowerCase();
+  const baselineStatus = String(unifiedRisk.baseline_status || "unknown").toLowerCase();
+  const preflightBlockers = Array.isArray(unifiedRisk.preflight_blockers) ? unifiedRisk.preflight_blockers : [];
   const sharedConfigured = !!sharedConfig || !!unifiedRisk.enabled;
   let overall = (polyUtil.status === "over" || perpsUtil.status === "over" || halted ||
     (combinedRiskPnl !== null && dailyLossLimit !== null && combinedRiskPnl <= -dailyLossLimit)) ? "breach" : "warning";
-  if (sharedSnapshotAvailable && marksFresh === true && !halted &&
+  if (sharedSnapshotAvailable && marksFresh === true && !halted && preflightStatus === "clear" &&
       polyUtil.status !== "unknown" && (!perpsEnabled || perpsUtil.status !== "unknown") &&
       polyUtil.status !== "warning" && perpsUtil.status !== "warning" &&
       polyUtil.status !== "over" && perpsUtil.status !== "over") overall = "healthy";
@@ -917,6 +920,7 @@ function riskDeskMetrics(data) {
     shared_open_positions: sharedOpenPositions, shared_max_positions: sharedMaxPositions,
     combined_risk_pnl: combinedRiskPnl, daily_loss_limit: dailyLossLimit, marks_fresh: marksFresh,
     mark_failures: markFailures, halted, halt_reason: haltReason,
+    preflight_status: preflightStatus, baseline_status: baselineStatus, preflight_blockers: preflightBlockers,
     shared_mode: String(unifiedRisk.mode || "—"), shared_paper_only: Object.prototype.hasOwnProperty.call(unifiedRisk, "paper_only") ? !!unifiedRisk.paper_only : null,
     notice: sharedSnapshotAvailable
       ? "הנתונים משקפים את שער הסיכון המשותף וה־Ledger. חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול."
@@ -947,6 +951,8 @@ function renderRiskDesk() {
   const markedPnl = m.combined_risk_pnl == null ? "—" : (m.combined_risk_pnl >= 0 ? "+" : "") + "$" + fmt(m.combined_risk_pnl);
   const marksBadge = m.marks_fresh === true ? "מחירים טריים" : (m.marks_fresh === false ? "מחיר חסר / מיושן" : "טריות לא נמסרה");
   const marksTone = m.marks_fresh === true ? "green" : (m.marks_fresh === false ? "red" : "amber");
+  const preflightTone = m.preflight_status === "clear" ? "green" : (m.preflight_status === "blocked" ? "red" : "amber");
+  const preflightLabel = m.preflight_status === "clear" ? "בדיקות כניסה בסיסיות עברו" : (m.preflight_status === "blocked" ? "כניסות חדשות חסומות" : "סטטוס שער לא ידוע");
   const paperGateBadge = m.shared_paper_only === true
     ? '<span class="badge blue">Paper-only · כניסות Live חסומות</span>'
     : '<span class="badge amber">אימות Paper-only לא זמין</span>';
@@ -957,8 +963,10 @@ function renderRiskDesk() {
         <div class="risk-tile-v">${esc(sharedBudget)}</div>
         <div class="risk-tile-sub">${m.shared_utilization_pct == null ? "ניצולת —" : esc(fmt(m.shared_utilization_pct, 1) + "% ניצולת")} · ${m.shared_open_positions == null ? "—" : fmt(m.shared_open_positions, 0)} / ${m.shared_max_positions == null ? "—" : fmt(m.shared_max_positions, 0)} פוזיציות</div>
         <div class="risk-tile-sub"><span class="badge ${marksTone}">${marksBadge}</span> · PnL מסומן: <b>${esc(markedPnl)}</b> / הפסד יומי מרבי: ${m.daily_loss_limit == null ? "—" : "$" + fmt(m.daily_loss_limit)}</div>
+        <div class="risk-tile-sub"><span class="badge ${preflightTone}">${preflightLabel}</span> · UTC baseline: ${esc(m.baseline_status || "unknown")}</div>
         ${m.halted ? '<div class="risk-tile-sub neg">' + esc(m.halt_reason || "עצירת חירום פעילה") + '</div>' : ""}
         ${m.mark_failures.length ? '<div class="risk-tile-sub warn">' + esc(m.mark_failures.slice(0, 3).join(", ")) + '</div>' : ""}
+        ${m.preflight_blockers.length ? '<div class="risk-tile-sub warn">' + esc(m.preflight_blockers.slice(0, 3).join(" · ")) + '</div>' : ""}
       </div>`
     : `<div class="risk-tile">
         <div class="risk-tile-k">שער סיכון משותף</div>
