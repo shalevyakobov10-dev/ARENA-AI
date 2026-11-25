@@ -360,6 +360,9 @@ def test_command_center_unified_risk_status_is_read_only(tmp_path, cfg, monkeypa
     assert risk["guard"]["max_daily_loss_pct"] == 5.0
     assert risk["guard"]["preflight_status"] == "blocked"
     assert any("נקודת הבסיס" in reason for reason in risk["guard"]["preflight_blockers"])
+    assert "risk_desk" in data
+    assert data["risk_desk"]["shared_limit_configured"] is True
+    assert data["risk_desk"]["unified_preflight_status"] == "blocked"
 
     # A status/dashboard read must not silently create or reset the UTC baseline.
     reopened = Store(cfg.data.db_path)

@@ -805,6 +805,22 @@ def build_command_center_data(
             "tp_atr_mult": cfg.perps.risk.tp_atr_mult,
         },
     }
+
+    # /api/state returns this builder's dictionary directly. Calculate the
+    # same pure Risk Desk metrics here so the initial HTML and every automatic
+    # state refresh carry identical risk fields (rather than HTML-only fields).
+    try:
+        from .ui import build_risk_desk_metrics
+
+        out["risk_desk"] = build_risk_desk_metrics(out)
+    except Exception as exc:  # noqa: BLE001 — missing UI metrics must remain visibly unknown.
+        log.exception("Risk Desk metrics unavailable for Command Center state")
+        out["risk_desk"] = {
+            "overall_status": "warning",
+            "shared_limit_configured": False,
+            "notice": f"מדדי Risk Desk אינם זמינים ({type(exc).__name__}); מצב הסיכון הגלובלי אינו ידוע.",
+        }
+
     return out
 
 
