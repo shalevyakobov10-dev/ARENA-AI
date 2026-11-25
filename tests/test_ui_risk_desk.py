@@ -105,7 +105,11 @@ def test_command_center_includes_risk_desk_and_refresh_recalculation():
     assert "מדדי החשיפה כאן מיועדים לניטור בלבד" in html
 
 
-def _unified_snapshot(*, marks_fresh=True, halted=False):
+def _unified_snapshot(*, marks_fresh=True, halted=False, preflight_status=None, blockers=None):
+    if preflight_status is None:
+        preflight_status = "blocked" if (not marks_fresh or halted) else "clear"
+    if blockers is None:
+        blockers = ["fresh synchronized marks required"] if not marks_fresh else []
     return {
         "enabled": True,
         "mode": "paper",
@@ -122,6 +126,9 @@ def _unified_snapshot(*, marks_fresh=True, halted=False):
         "mark_failures": [] if marks_fresh else ["perps:BTC:stale-or-invalid"],
         "halted": halted,
         "halt_reason": "daily loss threshold" if halted else "",
+        "preflight_status": preflight_status,
+        "preflight_blockers": blockers,
+        "baseline_status": "ready" if preflight_status == "clear" else "pending",
     }
 
 
@@ -167,6 +174,8 @@ def test_risk_desk_uses_backend_enforced_shared_gate_snapshot():
     assert metrics["marks_fresh"] is True
     assert metrics["halted"] is False
     assert metrics["shared_paper_only"] is True
+    assert metrics["preflight_status"] == "clear"
+    assert metrics["baseline_status"] == "ready"
     assert metrics["overall_status"] == "healthy"
 
     html = command_center_html(data)
@@ -192,3 +201,24 @@ def test_risk_desk_warns_on_stale_marks_and_flags_global_halt():
 
     html = command_center_html(_risk_desk_payload(_unified_snapshot(halted=True)))
     assert "daily loss threshold" in html
+
+
+def test_risk_desk_blocks_healthy_state_when_unified_preflight_is_blocked():
+    blocked = build_risk_desk_metrics(_risk_desk_payload(_unified_snapshot(
+        preflight_status="blocked",
+        blockers=["UTC baseline is pending", "cross-venue marks are not synchronized"],
+    )))
+    assert blocked["marks_fresh"] is True
+    assert blocked["preflight_status"] == "blocked"
+    assert blocked["preflight_blockers"][0] == "UTC baseline is pending"
+    assert blocked["overall_status"] == "warning"
+    assert blocked["preflight_status"] == "blocked"
+    assert blocked["baseline_status"] == "pending"
+
+    html = command_center_html(_risk_desk_payload(_unified_snapshot(
+        preflight_status="blocked",
+        blockers=["UTC baseline is pending"],
+    )))
+    assert "כניסות חדשות חסומות" in html
+    assert "UTC baseline is pending" in html
+    assert "UTC baseline:" in html

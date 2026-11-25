@@ -899,10 +899,13 @@ function riskDeskMetrics(data) {
   const halted = !!unifiedRisk.halted;
   const haltReason = String(unifiedRisk.halt_reason || "");
   const markFailures = Array.isArray(unifiedRisk.mark_failures) ? unifiedRisk.mark_failures : [];
+  const preflightStatus = String(unifiedRisk.preflight_status || "unknown").toLowerCase();
+  const baselineStatus = String(unifiedRisk.baseline_status || "unknown").toLowerCase();
+  const preflightBlockers = Array.isArray(unifiedRisk.preflight_blockers) ? unifiedRisk.preflight_blockers : [];
   const sharedConfigured = !!sharedConfig || !!unifiedRisk.enabled;
   let overall = (polyUtil.status === "over" || perpsUtil.status === "over" || halted ||
     (combinedRiskPnl !== null && dailyLossLimit !== null && combinedRiskPnl <= -dailyLossLimit)) ? "breach" : "warning";
-  if (sharedSnapshotAvailable && marksFresh === true && !halted &&
+  if (sharedSnapshotAvailable && marksFresh === true && !halted && preflightStatus === "clear" &&
       polyUtil.status !== "unknown" && (!perpsEnabled || perpsUtil.status !== "unknown") &&
       polyUtil.status !== "warning" && perpsUtil.status !== "warning" &&
       polyUtil.status !== "over" && perpsUtil.status !== "over") overall = "healthy";
@@ -917,6 +920,7 @@ function riskDeskMetrics(data) {
     shared_open_positions: sharedOpenPositions, shared_max_positions: sharedMaxPositions,
     combined_risk_pnl: combinedRiskPnl, daily_loss_limit: dailyLossLimit, marks_fresh: marksFresh,
     mark_failures: markFailures, halted, halt_reason: haltReason,
+    preflight_status: preflightStatus, baseline_status: baselineStatus, preflight_blockers: preflightBlockers,
     shared_mode: String(unifiedRisk.mode || "—"), shared_paper_only: Object.prototype.hasOwnProperty.call(unifiedRisk, "paper_only") ? !!unifiedRisk.paper_only : null,
     notice: sharedSnapshotAvailable
       ? "הנתונים משקפים את שער הסיכון המשותף וה־Ledger. חשיפה נומינלית ברוטו אינה הפסד מקסימלי או מדד לסיכון חיסול."
@@ -947,6 +951,8 @@ function renderRiskDesk() {
   const markedPnl = m.combined_risk_pnl == null ? "—" : (m.combined_risk_pnl >= 0 ? "+" : "") + "$" + fmt(m.combined_risk_pnl);
   const marksBadge = m.marks_fresh === true ? "מחירים טריים" : (m.marks_fresh === false ? "מחיר חסר / מיושן" : "טריות לא נמסרה");
   const marksTone = m.marks_fresh === true ? "green" : (m.marks_fresh === false ? "red" : "amber");
+  const preflightTone = m.preflight_status === "clear" ? "green" : (m.preflight_status === "blocked" ? "red" : "amber");
+  const preflightLabel = m.preflight_status === "clear" ? "בדיקות כניסה בסיסיות עברו" : (m.preflight_status === "blocked" ? "כניסות חדשות חסומות" : "סטטוס שער לא ידוע");
   const paperGateBadge = m.shared_paper_only === true
     ? '<span class="badge blue">Paper-only · כניסות Live חסומות</span>'
     : '<span class="badge amber">אימות Paper-only לא זמין</span>';
@@ -957,8 +963,10 @@ function renderRiskDesk() {
         <div class="risk-tile-v">${esc(sharedBudget)}</div>
         <div class="risk-tile-sub">${m.shared_utilization_pct == null ? "ניצולת —" : esc(fmt(m.shared_utilization_pct, 1) + "% ניצולת")} · ${m.shared_open_positions == null ? "—" : fmt(m.shared_open_positions, 0)} / ${m.shared_max_positions == null ? "—" : fmt(m.shared_max_positions, 0)} פוזיציות</div>
         <div class="risk-tile-sub"><span class="badge ${marksTone}">${marksBadge}</span> · PnL מסומן: <b>${esc(markedPnl)}</b> / הפסד יומי מרבי: ${m.daily_loss_limit == null ? "—" : "$" + fmt(m.daily_loss_limit)}</div>
+        <div class="risk-tile-sub"><span class="badge ${preflightTone}">${preflightLabel}</span> · UTC baseline: ${esc(m.baseline_status || "unknown")}</div>
         ${m.halted ? '<div class="risk-tile-sub neg">' + esc(m.halt_reason || "עצירת חירום פעילה") + '</div>' : ""}
         ${m.mark_failures.length ? '<div class="risk-tile-sub warn">' + esc(m.mark_failures.slice(0, 3).join(", ")) + '</div>' : ""}
+        ${m.preflight_blockers.length ? '<div class="risk-tile-sub warn">' + esc(m.preflight_blockers.slice(0, 3).join(" · ")) + '</div>' : ""}
       </div>`
     : `<div class="risk-tile">
         <div class="risk-tile-k">שער סיכון משותף</div>
@@ -2745,10 +2753,13 @@ def build_risk_desk_metrics(data: dict) -> dict:
     halted = bool(unified.get("halted"))
     halt_reason = str(unified.get("halt_reason") or "")
     mark_failures = unified.get("mark_failures") or []
+    preflight_status = str(unified.get("preflight_status") or "unknown").lower()
+    baseline_status = str(unified.get("baseline_status") or "unknown").lower()
+    preflight_blockers = unified.get("preflight_blockers") or []
 
     if halted or (combined_risk_pnl is not None and daily_loss_limit is not None and combined_risk_pnl <= -daily_loss_limit):
         overall = "breach"
-    elif (not shared_snapshot_available or marks_fresh is not True or
+    elif (not shared_snapshot_available or marks_fresh is not True or preflight_status != "clear" or
           poly_status == "unknown" or (perps_enabled and perps_status == "unknown") or
           poly_status == "warning" or perps_status == "warning" or
           poly_status == "over" or perps_status == "over"):
@@ -2784,6 +2795,9 @@ def build_risk_desk_metrics(data: dict) -> dict:
         "halt_reason": halt_reason,
         "shared_mode": str(unified.get("mode") or "—"),
         "shared_paper_only": bool(unified.get("paper_only")) if "paper_only" in unified else None,
+        "preflight_status": preflight_status,
+        "baseline_status": baseline_status,
+        "preflight_blockers": preflight_blockers,
         "overall_status": overall,
         "notice": (
             "הנתונים משקפים את שער הסיכון המשותף וה־Ledger." if shared_snapshot_available
