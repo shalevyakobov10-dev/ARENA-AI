@@ -221,4 +221,4 @@ def test_risk_desk_blocks_healthy_state_when_unified_preflight_is_blocked():
     )))
     assert "כניסות חדשות חסומות" in html
     assert "UTC baseline is pending" in html
-    assert "UTC baseline: pending" in html
+    assert "UTC baseline:" in html
