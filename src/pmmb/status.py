@@ -810,11 +810,10 @@ def build_command_center_data(
     # same pure Risk Desk metrics here so the initial HTML and every automatic
     # state refresh carry identical risk fields (rather than HTML-only fields).
     try:
-        from .ui import build_risk_desk_metrics
+        from .risk_desk import build_risk_desk_metrics
 
         out["risk_desk"] = build_risk_desk_metrics(out)
-    except Exception as exc:  # noqa: BLE001 — missing UI metrics must remain visibly unknown.
-        log.exception("Risk Desk metrics unavailable for Command Center state")
+    except Exception as exc:  # noqa: BLE001 — missing metrics must remain visibly unknown.
         out["risk_desk"] = {
             "overall_status": "warning",
             "shared_limit_configured": False,
