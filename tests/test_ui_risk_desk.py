@@ -174,6 +174,8 @@ def test_risk_desk_uses_backend_enforced_shared_gate_snapshot():
     assert metrics["marks_fresh"] is True
     assert metrics["halted"] is False
     assert metrics["shared_paper_only"] is True
+    assert metrics["preflight_status"] == "clear"
+    assert metrics["baseline_status"] == "ready"
     assert metrics["overall_status"] == "healthy"
 
     html = command_center_html(data)
@@ -210,6 +212,8 @@ def test_risk_desk_blocks_healthy_state_when_unified_preflight_is_blocked():
     assert blocked["preflight_status"] == "blocked"
     assert blocked["preflight_blockers"][0] == "UTC baseline is pending"
     assert blocked["overall_status"] == "warning"
+    assert blocked["preflight_status"] == "blocked"
+    assert blocked["baseline_status"] == "pending"
 
     html = command_center_html(_risk_desk_payload(_unified_snapshot(
         preflight_status="blocked",

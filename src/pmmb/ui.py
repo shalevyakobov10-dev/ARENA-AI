@@ -2753,10 +2753,13 @@ def build_risk_desk_metrics(data: dict) -> dict:
     halted = bool(unified.get("halted"))
     halt_reason = str(unified.get("halt_reason") or "")
     mark_failures = unified.get("mark_failures") or []
+    preflight_status = str(unified.get("preflight_status") or "unknown").lower()
+    baseline_status = str(unified.get("baseline_status") or "unknown").lower()
+    preflight_blockers = unified.get("preflight_blockers") or []
 
     if halted or (combined_risk_pnl is not None and daily_loss_limit is not None and combined_risk_pnl <= -daily_loss_limit):
         overall = "breach"
-    elif (not shared_snapshot_available or marks_fresh is not True or
+    elif (not shared_snapshot_available or marks_fresh is not True or preflight_status != "clear" or
           poly_status == "unknown" or (perps_enabled and perps_status == "unknown") or
           poly_status == "warning" or perps_status == "warning" or
           poly_status == "over" or perps_status == "over"):
@@ -2792,6 +2795,9 @@ def build_risk_desk_metrics(data: dict) -> dict:
         "halt_reason": halt_reason,
         "shared_mode": str(unified.get("mode") or "—"),
         "shared_paper_only": bool(unified.get("paper_only")) if "paper_only" in unified else None,
+        "preflight_status": preflight_status,
+        "baseline_status": baseline_status,
+        "preflight_blockers": preflight_blockers,
         "overall_status": overall,
         "notice": (
             "הנתונים משקפים את שער הסיכון המשותף וה־Ledger." if shared_snapshot_available
