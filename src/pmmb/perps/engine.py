@@ -830,6 +830,8 @@ class PerpEngine:
     ) -> dict[str, Any]:
         if self.pcfg.mode != "paper":
             raise PermissionError("פקודה ידנית מהממשק מותרת במצב paper בלבד")
+        if not self.pcfg.enabled:
+            raise PermissionError("זרוע PERPS מושבתת — פקודה ידנית חדשה נדחתה")
         ensure_unified_day_baseline(self.store, self.cfg)
         if self._execution_blocked():
             raise PerpsExecutionUncertain(

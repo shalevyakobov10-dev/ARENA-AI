@@ -1,10 +1,10 @@
 # Manual PERPS Quick Trade — risk parity
 
-The Command Center's manual PERPS order endpoint is Paper-only and must not be a weaker route than signal-driven entries.
+The Command Center's manual PERPS order endpoint is Paper-only, requires the PERPS arm to be enabled, and must not be a weaker route than signal-driven entries.
 
 Before the broker is called, manual entry now checks:
 
-- The process-wide uncertain-execution latch and the PERPS daily-loss / drawdown kill switch.
+- The process-wide uncertain-execution latch, enabled-arm state, and the PERPS daily-loss / drawdown kill switch.
 - PERPS maximum open positions and maximum positions in the requested direction.
 - Maximum isolated margin per position and remaining total portfolio margin.
 - Available cash and the shared cross-venue Paper allocation gate.

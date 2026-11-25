@@ -923,3 +923,19 @@ def test_manual_perps_order_uses_configured_liquidation_buffer_and_rejects_unsaf
     finally:
         eng.close()
 
+def test_manual_perps_order_is_blocked_when_perps_arm_is_disabled(cfg, tmp_path):
+    cfg.data.db_path = str(tmp_path / "manual-disabled-arm.db")
+    cfg.perps.mode = "paper"
+    cfg.perps.enabled = False
+
+    class _NoScan:
+        def scan(self):
+            raise AssertionError("exchange must not be scanned for a disabled PERPS arm")
+
+    eng = PerpEngine(cfg, exchange=_NoScan())
+    try:
+        with pytest.raises(PermissionError, match="זרוע PERPS מושבתת"):
+            eng.open_manual_order("BTC", "LONG", 30.0, 5.0)
+    finally:
+        eng.close()
+
