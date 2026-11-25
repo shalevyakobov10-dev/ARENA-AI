@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - agent/chatgpt/command-center-risk-desk
+      - agent/chatgpt/unified-risk-desk-live-metrics
     paths:
       - "src/pmmb/ui.py"
+      - "src/pmmb/risk_desk.py"
       - "tests/test_ui_risk_desk.py"
       - ".github/workflows/command-center-risk-desk.yml"
   pull_request:
     branches:
       - main
+      - agent/chatgpt/command-center-risk-desk
     paths:
       - "src/pmmb/ui.py"
       - "tests/test_ui_risk_desk.py"
