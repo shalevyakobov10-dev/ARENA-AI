@@ -825,3 +825,51 @@ def test_current_cross_venue_mark_skew_blocks_entries_even_when_each_mark_is_fre
     assert "פער זמנים" in decision.reason
     assert "120s" in decision.reason
 
+def test_disabled_live_perps_arm_never_mixes_live_ledger_into_paper_risk(
+    shared_store, cfg
+):
+    cfg.perps.enabled = False
+    cfg.perps.mode = "live"
+    now_ts = int(time.time())
+    # A residual Paper position remains part of the Paper portfolio even when
+    # that engine is disabled.
+    _seed_perp_position(shared_store, "BTC", margin=100.0)
+
+    # An unrelated live ledger contains much larger exposure and a heavy loss.
+    # It must not be included in the Paper-only admission snapshot.
+    with shared_store.tx() as conn:
+        conn.execute(
+            """INSERT INTO perp_positions
+               (symbol, exchange, mode, side, size, entry_price, notional, leverage,
+                margin_used, liquidation_price, stop_price, target_price,
+                highest_price, lowest_price, fees_paid, opened_at)
+               VALUES ('ETH-LIVE', 'okx', 'live', 'LONG', 10, 100, 1000, 10,
+                       900, 90, 95, 110, 100, 100, 0, ?)""",
+            (now_ts,),
+        )
+        conn.execute(
+            """INSERT INTO perp_intel(symbol, exchange, price, mark_price, updated_at)
+               VALUES ('ETH-LIVE', 'okx', 40, 40, ?)""",
+            (now_ts,),
+        )
+        conn.execute(
+            """INSERT INTO perp_fills
+               (ts, mode, symbol, exchange, side, action, price, size, notional,
+                leverage, margin_delta, fee, funding, realized)
+               VALUES (?, 'live', 'ETH-LIVE', 'okx', 'LONG', 'CLOSE',
+                       40, 10, 400, 10, 0, 0, 0, -600)""",
+            (now_ts,),
+        )
+
+    snapshot = build_unified_portfolio_snapshot(shared_store, cfg)
+    assert snapshot.perps_margin_used == pytest.approx(100.0)
+    assert snapshot.open_positions == 1
+    assert snapshot.perps_realized_today == pytest.approx(0.0)
+    assert snapshot.unrealized_pnl == pytest.approx(0.0)
+    assert snapshot.marks_fresh is True
+
+    decision = evaluate_unified_entry(
+        shared_store, cfg, arm="polymarket", proposed_capital=10.0
+    )
+    assert decision.approved is True
+

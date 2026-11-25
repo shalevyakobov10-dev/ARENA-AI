@@ -32,6 +32,7 @@ UNIFIED_BASELINE_CAPTURE_WINDOW_SEC = 300
 UNIFIED_MAX_MARK_SKEW_SEC = 120
 UNIFIED_BASELINE_MAX_MARK_SKEW_SEC = UNIFIED_MAX_MARK_SKEW_SEC
 UNIFIED_BASELINE_MARK_LOOKBACK_SEC = 120
+PAPER_MODE = "paper"
 
 
 @dataclass(frozen=True)
@@ -337,7 +338,7 @@ def build_unified_portfolio_snapshot(
     # A disabled engine can still have open PERPS positions. Keep them in the
     # budget and in the mark-to-market loss calculation.
     perps_state = store.load_perp_portfolio_state(
-        cfg.perps.mode,
+        PAPER_MODE,
         cfg.perps.risk.starting_cash,
         now=now,
     )
@@ -354,7 +355,7 @@ def build_unified_portfolio_snapshot(
     # today, its close-fill realized amount includes allocated historical entry
     # fees. Add those fees back: they were paid before this UTC risk day.
     perps_realized_today += _prior_day_entry_fees_realized_today(
-        store, cfg.perps.mode, day_start, now_ts
+        store, PAPER_MODE, day_start, now_ts
     )
     perps_max_age = max(180, int(float(cfg.perps.interval_sec) * 4))
 
@@ -382,7 +383,7 @@ def build_unified_portfolio_snapshot(
         entry_fee_today = store._conn.execute(
             """SELECT COALESCE(SUM(fee),0) AS fees FROM perp_fills
                WHERE mode=? AND symbol=? AND action='OPEN' AND ts>=?""",
-            (cfg.perps.mode, position.symbol, day_start),
+            (PAPER_MODE, position.symbol, day_start),
         ).fetchone()
         # If the position predates today, today's added entry fees belong in
         # its floating component. For positions opened today they were already
@@ -428,7 +429,7 @@ def _has_utc_day_trade_activity(store: Store, cfg: Config, day_start: int, now_t
         perps = conn.execute(
             """SELECT COUNT(*) AS n FROM perp_fills
                WHERE mode=? AND ts>=? AND ts<=?""",
-            (cfg.perps.mode, int(day_start), int(now_ts)),
+            (PAPER_MODE, int(day_start), int(now_ts)),
         ).fetchone()
     return bool(int(poly["n"] or 0) or int(perps["n"] or 0))
 
