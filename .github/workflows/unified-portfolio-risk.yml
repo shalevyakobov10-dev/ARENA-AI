@@ -15,6 +15,8 @@ on:
       - src/pmmb/perps/engine.py
       - config/config.yaml
       - tests/test_unified_risk.py
+      - src/pmmb/status.py
+      - tests/test_status.py
       - tests/test_engine.py
       - tests/test_perps.py
       - tests/test_perps_live_execution.py
@@ -39,8 +41,8 @@ jobs:
       - name: Install project and test dependencies
         run: python -m pip install -e ".[dev]" "httpx>=0.27"
       - name: Compile Python
-        run: python -m compileall -q src tests/test_unified_risk.py tests/test_perps_live_execution.py
+        run: python -m compileall -q src tests/test_unified_risk.py tests/test_status.py tests/test_perps_live_execution.py
       - name: Run unified risk and engine regression tests
-        run: python -m pytest -q tests/test_unified_risk.py tests/test_risk.py tests/test_engine.py tests/test_perps.py tests/test_perps_live_execution.py
+        run: python -m pytest -q tests/test_unified_risk.py tests/test_status.py tests/test_risk.py tests/test_engine.py tests/test_perps.py tests/test_perps_live_execution.py
       - name: Run full test suite
         run: python -m pytest -q

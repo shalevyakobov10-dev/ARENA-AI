@@ -29,7 +29,7 @@ With the configured $1,000 Polymarket and $1,000 PERPS starting balances, 50% ca
 
 ## Deliberate limitations
 
-- The guard has no configuration bypass and is hard-coded to Paper mode. Non-Paper execution on either enabled arm is denied.
+- The guard has no configuration bypass and is hard-coded to Paper mode. The Command Center exposes the same snapshot and configured limits through a read-only status payload. Dashboard reads never create or rebase the UTC baseline; if the baseline is missing, the UI reports the preflight as blocked/unknown instead of displaying a fabricated zero. Non-Paper execution on either enabled arm is denied.
 - The UTC baseline is normally captured within 300 seconds of midnight. If marks are missing, stale, or too far apart, capture remains pending until the 300-second window expires, then the baseline is permanently marked expired for that UTC date and new entries remain blocked. If the process starts after the window but there are no open positions and no fills since midnight in either ledger, a zero baseline is safe and may be captured late. Otherwise the bot will not rebase an active intraday account mid-day. A UTC clock rollback behind a previously stored date also blocks new entries.
 - Capital utilization is an allocation limit, not a measure of maximum loss.
 - Existing open positions are not liquidated by this guard. It denies new entries and persists a global halt after the combined realized daily-loss threshold is crossed.

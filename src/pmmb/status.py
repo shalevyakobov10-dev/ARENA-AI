@@ -380,6 +380,7 @@ def build_command_center_data(
         "total_trades": 0, "wins": 0, "losses": 0, "win_rate_pct": 0.0,
         "live_pf": 0.0, "avg_win": 0.0, "avg_loss": 0.0,
     }
+    out["unified_risk"] = {"status": "unavailable", "baseline_status": "unavailable"}
     ts_map = trader_state or {}
     out["autonomous"] = {
         "db_size_kb": round(Path(cfg.data.db_path).stat().st_size / 1024.0, 1) if Path(cfg.data.db_path).exists() else 0.0,
@@ -511,6 +512,103 @@ def build_command_center_data(
             out["market_intel"] = store.recent_market_intel(limit=60)
             out["autopilot"] = store.recent_autopilot_runs(limit=25)
             out["perps"] = build_perps_status(cfg, store, reports_dir=reports_dir)
+
+            # Read-only unified risk snapshot for the Command Center.
+            # Deliberately do not call ensure_unified_day_baseline() here:
+            # dashboard GET requests must never create or rebase a risk baseline.
+            try:
+                from .unified_risk import (
+                    UNIFIED_MAX_MARK_SKEW_SEC,
+                    _global_halt_reason,
+                    build_unified_risk_status,
+                )
+
+                risk_snapshot = build_unified_risk_status(store, cfg)
+                risk_payload = risk_snapshot.as_dict()
+                risk_limits = cfg.portfolio_risk
+                capital_limit = risk_snapshot.starting_capital * risk_limits.max_capital_utilization_pct
+                daily_loss_limit = risk_snapshot.starting_capital * risk_limits.max_daily_loss_pct
+                mark_sync_ok = (
+                    risk_snapshot.open_positions == 0
+                    or (
+                        risk_snapshot.marks_fresh
+                        and risk_snapshot.mark_skew_sec <= UNIFIED_MAX_MARK_SKEW_SEC
+                    )
+                )
+                halt_reason = _global_halt_reason()
+                blockers: list[str] = []
+                if cfg.execution.mode != "paper":
+                    blockers.append("Polymarket אינו מוגדר במצב Paper")
+                if cfg.perps.enabled and cfg.perps.mode != "paper":
+                    blockers.append("PERPS מופעל אך אינו מוגדר במצב Paper")
+                if risk_snapshot.baseline_status != "ready":
+                    blockers.append(
+                        "נקודת הבסיס היומית אינה מוכנה: "
+                        + risk_snapshot.baseline_status
+                    )
+                if risk_snapshot.open_positions and not risk_snapshot.marks_fresh:
+                    blockers.append("חסר מחיר עדכני ותקין לאחת הפוזיציות הפתוחות")
+                if (
+                    risk_snapshot.open_positions
+                    and risk_snapshot.mark_skew_sec > UNIFIED_MAX_MARK_SKEW_SEC
+                ):
+                    blockers.append(
+                        f"פער זמנים בין מחירי הזירות גדול מ-{UNIFIED_MAX_MARK_SKEW_SEC} שניות"
+                    )
+                if (
+                    risk_snapshot.daily_risk_pnl is not None
+                    and risk_snapshot.daily_risk_pnl <= -daily_loss_limit
+                ):
+                    blockers.append("הפסד יומי משולב הגיע לתקרה")
+                if halt_reason:
+                    blockers.append(halt_reason)
+                if risk_snapshot.starting_capital <= 0:
+                    blockers.append("ההון ההתחלתי המשותף אינו תקין")
+
+                risk_payload["status"] = "ok"
+                risk_payload["guard"] = {
+                    "mode": "paper-only",
+                    "enabled": True,
+                    "max_capital_utilization_pct": round(
+                        risk_limits.max_capital_utilization_pct * 100.0, 2
+                    ),
+                    "capital_limit": round(capital_limit, 2),
+                    "capital_utilization_pct": (
+                        round(
+                            risk_snapshot.committed_capital
+                            / risk_snapshot.starting_capital * 100.0,
+                            2,
+                        )
+                        if risk_snapshot.starting_capital > 0 else None
+                    ),
+                    "max_open_positions": int(risk_limits.max_open_positions),
+                    "max_daily_loss_pct": round(risk_limits.max_daily_loss_pct * 100.0, 2),
+                    "daily_loss_limit": round(daily_loss_limit, 2),
+                    "marks_synchronized": bool(mark_sync_ok),
+                    "mark_skew_limit_sec": UNIFIED_MAX_MARK_SKEW_SEC,
+                    "halted": halt_reason is not None,
+                    "halt_reason": halt_reason or "",
+                    "preflight_status": "blocked" if blockers else "clear",
+                    "preflight_blockers": blockers,
+                    "scope_note": (
+                        "בדיקת תצוגה לקריאות בלבד: החלטת הכניסה הסופית בודקת שוב "
+                        "את סכום ההקצאה ואת מספר הפוזיציות בזמן שליחת כל פקודה."
+                    ),
+                }
+                out["unified_risk"] = risk_payload
+            except Exception as exc:  # noqa: BLE001 — show unknown, never invent zero.
+                log.exception("Unified risk status unavailable for Command Center")
+                out["unified_risk"] = {
+                    "status": "error",
+                    "error": type(exc).__name__,
+                    "baseline_status": "error",
+                    "guard": {
+                        "mode": "paper-only",
+                        "enabled": True,
+                        "preflight_status": "unknown",
+                        "preflight_blockers": ["לא ניתן לקרוא את מצב הסיכון המאוחד"],
+                    },
+                }
 
             # סיכום תיק מאוחד משתי הזרועות (Polymarket + PERPS ×50)
             poly_eq = float((out.get("bankroll") or {}).get("equity") or cfg.execution.starting_cash)

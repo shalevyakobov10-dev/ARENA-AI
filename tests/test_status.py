@@ -330,4 +330,44 @@ def test_command_center_builder_and_html(tmp_path, cfg, monkeypatch):
             assert em not in html
 
 
+def test_command_center_unified_risk_status_is_read_only(tmp_path, cfg, monkeypatch):
+    from pmmb.status import build_command_center_data
+
+    monkeypatch.setenv("PMMB_STATE_DIR", str(tmp_path / "state"))
+    cfg.data.db_path = str(tmp_path / "risk-readonly.db")
+    cfg.portfolio_risk.max_capital_utilization_pct = 0.50
+    cfg.portfolio_risk.max_open_positions = 8
+    cfg.portfolio_risk.max_daily_loss_pct = 0.05
+
+    store = Store(cfg.data.db_path)
+    store.close()
+    reports = tmp_path / "reports"
+    backups = tmp_path / "backups"
+    reports.mkdir()
+    backups.mkdir()
+
+    data = build_command_center_data(
+        cfg, reports_dir=reports, backups_dir=backups
+    )
+
+    risk = data["unified_risk"]
+    assert risk["status"] == "ok"
+    assert risk["baseline_status"] == "unavailable"
+    assert risk["guard"]["mode"] == "paper-only"
+    assert risk["guard"]["max_capital_utilization_pct"] == 50.0
+    assert risk["guard"]["capital_limit"] == 1000.0
+    assert risk["guard"]["max_open_positions"] == 8
+    assert risk["guard"]["max_daily_loss_pct"] == 5.0
+    assert risk["guard"]["preflight_status"] == "blocked"
+    assert any("נקודת הבסיס" in reason for reason in risk["guard"]["preflight_blockers"])
+
+    # A status/dashboard read must not silently create or reset the UTC baseline.
+    reopened = Store(cfg.data.db_path)
+    try:
+        row = reopened._conn.execute(
+            "SELECT COUNT(*) AS n FROM unified_day_baselines"
+        ).fetchone()
+        assert int(row["n"]) == 0
+    finally:
+        reopened.close()
 
